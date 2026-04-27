@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: xqt-postgres
+    environment:
+      POSTGRES_DB: xqt_saas
+      POSTGRES_USER: xqt
+      POSTGRES_PASSWORD: xqt_dev_password
+      TZ: Asia/Hong_Kong
+    ports:
+      - "15432:5432"
+    volumes:
+      - xqt_pg_data:/var/lib/postgresql/data
+      - ../db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ../db/migrations/002_rls.sql:/docker-entrypoint-initdb.d/002_rls.sql:ro
+      - ../db/migrations/003_ledger.sql:/docker-entrypoint-initdb.d/003_ledger.sql:ro
+      - ../db/migrations/004_jobs_idempotency.sql:/docker-entrypoint-initdb.d/004_jobs_idempotency.sql:ro
+      - ../db/migrations/005_authorization.sql:/docker-entrypoint-initdb.d/005_authorization.sql:ro
+      - ../db/migrations/006_full_painpoint_modules.sql:/docker-entrypoint-initdb.d/006_full_painpoint_modules.sql:ro
+      - ../db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/101_seed.sql:ro
+      - ../db/seeds/002_ledger_seed.sql:/docker-entrypoint-initdb.d/102_ledger_seed.sql:ro
+      - ../db/seeds/003_auth_seed.sql:/docker-entrypoint-initdb.d/103_auth_seed.sql:ro
+      - ../db/seeds/004_full_modules_seed.sql:/docker-entrypoint-initdb.d/104_full_modules_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xqt -d xqt_saas"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: xqt-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - xqt_redis_data:/data
+
+volumes:
+  xqt_pg_data:
+  xqt_redis_data:
