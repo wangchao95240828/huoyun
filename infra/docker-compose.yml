@@ -21,6 +21,8 @@ services:
       - ../db/seeds/002_ledger_seed.sql:/docker-entrypoint-initdb.d/102_ledger_seed.sql:ro
       - ../db/seeds/003_auth_seed.sql:/docker-entrypoint-initdb.d/103_auth_seed.sql:ro
       - ../db/seeds/004_full_modules_seed.sql:/docker-entrypoint-initdb.d/104_full_modules_seed.sql:ro
+      - ../db/migrations/007_organizations_and_extensions.sql:/docker-entrypoint-initdb.d/007_organizations_and_extensions.sql:ro
+      - ../db/seeds/005_org_seed.sql:/docker-entrypoint-initdb.d/105_org_seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U xqt -d xqt_saas"]
       interval: 5s
