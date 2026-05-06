@@ -14,6 +14,18 @@ export default defineConfig({
         target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
         changeOrigin: true,
       },
+      "/api/business-flows": {
+        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
+        changeOrigin: true,
+      },
+      "/api/seller": {
+        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
+        changeOrigin: true,
+      },
+      "/api/document": {
+        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
+        changeOrigin: true,
+      },
       "/api/health": {
         target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
         changeOrigin: true,

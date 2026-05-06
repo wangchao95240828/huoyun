@@ -24,6 +24,8 @@ pnpm-debug.log*
 docs/*.pdf
 *.zip
 新航线统一平台文档交付-*/
+文档docx版本-*/
+开发文档系统设计-*/
 
 # OS / editor
 .DS_Store
