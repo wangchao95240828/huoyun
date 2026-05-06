@@ -1,0 +1,29 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+sequenceDiagram
+  autonumber
+  participant Web as Web
+  participant Filter as Auth Filter
+  participant Controller as Controller
+  participant Service as Service
+  participant Idem as Idempotency
+  participant Repo as Repository
+  participant DB as PostgreSQL RLS
+  participant Audit as Audit Log
+
+  Web->>Filter: HTTP request + Bearer token
+  Filter->>Filter: 校验 token / session / permissions
+  Filter->>Controller: AuthPrincipal
+  Controller->>Controller: 参数校验
+  alt 写接口
+    Controller->>Idem: 校验 Idempotency-Key
+    Idem-->>Controller: 可执行或返回历史结果
+  end
+  Controller->>Service: DTO + principal
+  Service->>Service: 业务规则 / 状态机
+  Service->>Repo: 查询或写入
+  Repo->>DB: set tenant context + SQL
+  DB-->>Repo: 当前租户数据
+  Repo-->>Service: domain result
+  Service->>Audit: 写操作日志 / 差异日志
+  Service-->>Controller: result
+  Controller-->>Web: ApiResponse

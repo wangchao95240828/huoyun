@@ -1,0 +1,29 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+flowchart TB
+  classDef step fill:#e8f3ff,stroke:#2f6feb,color:#0f172a
+  classDef data fill:#ecfdf5,stroke:#16a34a,color:#052e16
+  classDef warn fill:#fff7ed,stroke:#f59e0b,color:#111827
+  classDef stop fill:#fef2f2,stroke:#dc2626,color:#7f1d1d
+
+  start["打开新智慧页面<br/>只读观察"]:::step
+  capture["抓取列表请求<br/>POST /rest/tms/{domain}/{module}/lists"]:::step
+  fields["读取搜索表单和表格配置<br/>body key / label / type / options"]:::step
+  doc["沉淀到文档<br/>xqt-finance-api-requests.md"]:::data
+  mapping["写 external_modules<br/>external_field_mappings"]:::data
+  model["映射到主系统模型<br/>finance / shipment / master data"]:::step
+  api["实现新系统 API<br/>/api/finance/*/search"]:::step
+  ui["复刻若依风格页面<br/>筛选 / 表格 / 状态 / 金额"]:::step
+  compare["人工对照用例<br/>comparison_cases"]:::data
+  improve["修正字段口径<br/>优化体验"]:::step
+  block["禁止新增、保存、审核、删除、导入、导出、生成、同步"]:::stop
+
+  start --> capture
+  capture --> fields
+  fields --> doc
+  doc --> mapping
+  mapping --> model
+  model --> api
+  api --> ui
+  ui --> compare
+  compare --> improve
+  start -. "安全边界" .-> block

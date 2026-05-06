@@ -4,7 +4,8 @@
 
 ## 目录
 
-- `apps/api`: 财务域 API 服务脚手架。
+- `apps/backend`: Java/Spring Boot 主后端，后续平台 API 以这里为准。
+- `apps/api`: 早期 Fastify API 原型，后续逐步迁移到 Spring Boot。
 - `apps/web`: 运营后台前端脚手架。
 - `packages/shared`: 前后端共享枚举与类型。
 - `db/migrations`: PostgreSQL 数据库迁移。
@@ -12,12 +13,22 @@
 - `infra`: 本地开发基础设施。
 - `docs`: 系统架构与项目分工文档。
 
+关键文档：
+
+- `docs/system-architecture.md`: 主系统总体架构设计。
+- `docs/assets/system-architecture.pdf`: 主系统总体架构图 PDF。
+- `docs/spring-boot-implementation-plan.md`: Java/Spring Boot 后端落地方案。
+- `docs/main-system-database-design.md`: 主系统数据库表结构设计。
+- `docs/auth-architecture.md`: 登录与权限架构设计。
+- `docs/xqt-finance-api-requests.md`: 新智慧财务模块请求和 body 对照。
+
 ## 本地启动
 
 ### 环境要求
 
 - Node.js 22+
 - npm 11+
+- Java 17+
 - Docker Desktop / Docker Compose
 
 ### 1. 启动数据库和缓存
@@ -51,6 +62,7 @@ npm install --cache /tmp/xqt-npm-cache
 
 ```bash
 npm run build
+cd apps/backend && ./mvnw test
 ```
 
 ### 4. 启动开发服务
@@ -61,13 +73,27 @@ npm run dev
 
 默认端口：
 
-- API: `http://localhost:8080`
+- Fastify 原型 API: `http://localhost:8080`
 - Web: `http://localhost:5173`
+
+Spring Boot 后端：
+
+```bash
+cd apps/backend
+./mvnw spring-boot:run
+```
+
+如果本机 `8080` 已被其他 Java 服务占用，或你使用本机 PostgreSQL `5432`：
+
+```bash
+cd apps/backend
+env -u DEBUG API_PORT=18103 SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/xqt_saas ./mvnw spring-boot:run
+```
 
 ### 5. API 快速验证
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8080/api/health
 curl -H 'x-tenant-code: xqt' http://localhost:8080/api/finance/overview
 ```
 

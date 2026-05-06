@@ -3,6 +3,7 @@
  * 认证登录、用户管理、角色权限、菜单、日志、配置、客户账号、客服、硬件、短信、工具
  */
 import type { FastifyInstance } from "fastify";
+import { requireAuth } from "../auth.js";
 import { SystemAdapter } from "../adapters/system-adapter.js";
 
 export async function systemRoutes(app: FastifyInstance) {
@@ -10,6 +11,12 @@ export async function systemRoutes(app: FastifyInstance) {
 
   // Init schema on startup
   try { await sys.initSchema(); } catch { /* table may already exist */ }
+
+  app.addHook("preHandler", async (req, reply) => {
+    const path = req.url.split("?")[0];
+    if (path === "/api/sys/login" || path === "/api/sys/customer-login") return;
+    return requireAuth(app, req, reply);
+  });
 
   // ══════════ Authentication ══════════
 

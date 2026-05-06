@@ -1,0 +1,39 @@
+server:
+  port: ${API_PORT:8080}
+
+spring:
+  application:
+    name: xqt-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:15432/xqt_saas}
+    username: ${SPRING_DATASOURCE_USERNAME:xqt}
+    password: ${SPRING_DATASOURCE_PASSWORD:xqt_dev_password}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  sql:
+    init:
+      mode: never
+
+debug: false
+
+logging:
+  level:
+    root: INFO
+    org.springframework.boot.autoconfigure: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  auth:
+    jwt-secret: ${JWT_SECRET:replace-me-in-real-env}
+    token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:28800}

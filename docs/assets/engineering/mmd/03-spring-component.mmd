@@ -1,0 +1,53 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+flowchart TB
+  classDef edge fill:#f8fafc,stroke:#64748b,color:#111827
+  classDef component fill:#e8f3ff,stroke:#2f6feb,color:#0f172a
+  classDef domain fill:#ecfdf5,stroke:#16a34a,color:#052e16
+  classDef infra fill:#fff7ed,stroke:#f59e0b,color:#111827
+  classDef data fill:#f0fdf4,stroke:#22c55e,color:#052e16
+
+  http["HTTP API<br/>Controller 层"]:::edge
+  filter["BearerAuthFilter<br/>Token 校验 / Principal"]:::component
+  exception["Global Exception Handler<br/>统一错误码 / traceId"]:::component
+  auth["Auth Service<br/>登录 / 会话 / 权限"]:::component
+  admin["Admin Service<br/>用户 / 角色 / 权限 / 菜单"]:::component
+  master["Master Data Service<br/>客户 / 供应商 / 字典"]:::domain
+  order["Order & Shipment Service<br/>订单 / 运单 / 轨迹"]:::domain
+  warehouse["Warehouse Service<br/>入库 / 出库 / 装箱"]:::domain
+  finance["Finance Service<br/>应收 / 应付 / 账单 / 核销"]:::domain
+  ledger["Ledger Service<br/>过账 / 分录 / 冲正"]:::domain
+  external["External Clone Service<br/>ACC/XQT 映射 / 对照用例"]:::domain
+  accAdapter["ACC Adapter<br/>源码逻辑 / 旧库只读"]:::infra
+  xqtAdapter["XQT Adapter<br/>页面样本 / body 映射"]:::infra
+  tenant["Tenant Context<br/>设置 RLS session"]:::infra
+  audit["Audit Writer<br/>操作日志 / 安全事件"]:::infra
+  repo["Repository / JDBC<br/>SQL / 事务"]:::infra
+  db["PostgreSQL<br/>业务表 + external_* + ledger"]:::data
+  redis["Redis<br/>幂等 / 锁 / 任务状态"]:::data
+
+  http --> filter
+  http --> exception
+  filter --> auth
+  http --> admin
+  http --> master
+  http --> order
+  http --> warehouse
+  http --> finance
+  http --> external
+  finance --> ledger
+  external --> accAdapter
+  external --> xqtAdapter
+  auth --> repo
+  admin --> repo
+  master --> repo
+  order --> repo
+  warehouse --> repo
+  finance --> repo
+  ledger --> repo
+  external --> repo
+  repo --> tenant
+  repo --> db
+  auth --> redis
+  finance --> redis
+  http --> audit
+  audit --> db

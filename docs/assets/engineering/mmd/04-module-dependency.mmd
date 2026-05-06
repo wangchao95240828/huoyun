@@ -1,0 +1,42 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+flowchart LR
+  classDef core fill:#e8f3ff,stroke:#2f6feb,color:#0f172a,stroke-width:2px
+  classDef domain fill:#ecfdf5,stroke:#16a34a,color:#052e16
+  classDef support fill:#fff7ed,stroke:#f59e0b,color:#111827
+  classDef external fill:#fef2f2,stroke:#dc2626,color:#111827
+
+  auth["认证权限<br/>auth/admin"]:::core
+  tenant["租户隔离<br/>RLS / Tenant Context"]:::core
+  master["主数据<br/>客户 / 供应商 / 服务 / 费用类型"]:::domain
+  order["订单<br/>预报 / 客户下单"]:::domain
+  shipment["运单<br/>轨迹 / 状态 / 异常"]:::domain
+  warehouse["仓库<br/>入库 / 出库 / 装箱"]:::domain
+  rating["计费规则<br/>价卡 / 规则版本"]:::domain
+  finance["财务<br/>应收 / 应付 / 账单 / 核销"]:::domain
+  ledger["账本<br/>分录 / 过账 / 冲正"]:::domain
+  recon["对账<br/>差异 / 调整 / 确认"]:::domain
+  external["复刻中心<br/>external_* / comparison_cases"]:::support
+  audit["审计日志<br/>操作 / 登录 / 错误"]:::support
+  acc["ACC adapter"]:::external
+  xqt["XQT clone adapter"]:::external
+
+  auth --> tenant
+  tenant --> master
+  master --> order
+  master --> shipment
+  master --> warehouse
+  order --> shipment
+  shipment --> warehouse
+  shipment --> rating
+  rating --> finance
+  finance --> ledger
+  finance --> recon
+  recon --> ledger
+  external --> master
+  external --> order
+  external --> finance
+  acc --> external
+  xqt --> external
+  auth --> audit
+  finance --> audit
+  warehouse --> audit

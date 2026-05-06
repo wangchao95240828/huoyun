@@ -1,0 +1,41 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+flowchart TB
+  classDef net fill:#f8fafc,stroke:#64748b,color:#111827
+  classDef app fill:#e8f3ff,stroke:#2f6feb,color:#0f172a
+  classDef data fill:#ecfdf5,stroke:#16a34a,color:#052e16
+  classDef external fill:#fff7ed,stroke:#f59e0b,color:#111827
+
+  internet["用户网络 / VPN"]:::net
+  waf["WAF / TLS / Nginx"]:::net
+  web["Web 静态资源<br/>Vue build"]:::app
+  api1["Spring Boot 节点 A"]:::app
+  api2["Spring Boot 节点 B"]:::app
+  worker["后台任务 Worker<br/>导入 / 对账 / 轨迹同步"]:::app
+  pgPrimary["PostgreSQL Primary<br/>RLS / WAL"]:::data
+  pgReplica["PostgreSQL Replica<br/>只读查询 / 备份"]:::data
+  redis["Redis<br/>缓存 / 锁 / 幂等"]:::data
+  storage["对象存储<br/>附件 / 面单 / 导入文件"]:::data
+  backup["备份仓库<br/>快照 / PITR"]:::data
+  acc["ACC 只读网络段"]:::external
+  xqt["新智慧只读样本<br/>不做生产写入"]:::external
+  carrier["物流商 API"]:::external
+
+  internet --> waf
+  waf --> web
+  waf --> api1
+  waf --> api2
+  api1 --> pgPrimary
+  api2 --> pgPrimary
+  worker --> pgPrimary
+  api1 --> redis
+  api2 --> redis
+  worker --> redis
+  api1 --> storage
+  worker --> storage
+  pgPrimary --> pgReplica
+  pgPrimary --> backup
+  storage --> backup
+  worker -. "只读 / 样本" .-> acc
+  worker -. "只读 / 页面复刻" .-> xqt
+  api1 --> carrier
+  api2 --> carrier

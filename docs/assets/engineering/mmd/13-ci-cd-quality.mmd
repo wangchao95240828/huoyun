@@ -1,0 +1,22 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+flowchart LR
+  classDef step fill:#e8f3ff,stroke:#2f6feb,color:#0f172a
+  classDef gate fill:#fff7ed,stroke:#f59e0b,color:#111827
+  classDef data fill:#ecfdf5,stroke:#16a34a,color:#052e16
+  classDef fail fill:#fef2f2,stroke:#dc2626,color:#7f1d1d
+
+  commit["开发提交<br/>feature branch"]:::step
+  lint["前端 lint / typecheck<br/>后端 Checkstyle 可选"]:::step
+  unit["单元测试<br/>计费 / 状态机 / 权限"]:::step
+  api["接口测试<br/>登录 / 分页 / 权限 / 错误码"]:::step
+  migration["数据库迁移验证<br/>RLS / seed / rollback 演练"]:::step
+  compare["复刻对照测试<br/>ACC / XQT comparison_cases"]:::step
+  build["构建镜像 / 打包静态资源"]:::step
+  review{"质量门禁通过?"}:::gate
+  deployDev["部署开发环境"]:::data
+  deployProd["灰度 / 生产发布"]:::data
+  stop["阻断合并<br/>修复后重跑"]:::fail
+
+  commit --> lint --> unit --> api --> migration --> compare --> build --> review
+  review -->|通过| deployDev --> deployProd
+  review -->|失败| stop

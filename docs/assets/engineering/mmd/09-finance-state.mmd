@@ -1,0 +1,24 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+stateDiagram-v2
+  [*] --> ChargeDraft
+  state "费用草稿<br/>ChargeDraft" as ChargeDraft
+  state "待审核<br/>PendingAudit" as PendingAudit
+  state "已审核<br/>Audited" as Audited
+  state "已入账单<br/>Invoiced" as Invoiced
+  state "部分核销<br/>PartiallySettled" as PartiallySettled
+  state "已核销<br/>Settled" as Settled
+  state "已过账<br/>Posted" as Posted
+  state "已冲正<br/>Reversed" as Reversed
+  state "已作废<br/>Voided" as Voided
+
+  ChargeDraft --> PendingAudit: 提交费用
+  PendingAudit --> Audited: 审核通过
+  PendingAudit --> ChargeDraft: 退回修改
+  Audited --> Invoiced: 生成客户/供应商账单
+  Invoiced --> PartiallySettled: 部分收/付款
+  PartiallySettled --> Settled: 全额核销
+  Invoiced --> Settled: 一次性核销
+  Settled --> Posted: 过账到账本
+  Posted --> Reversed: 冲正
+  Audited --> Voided: 审批作废
+  ChargeDraft --> Voided: 删除/取消

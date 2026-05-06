@@ -63,6 +63,12 @@ import {
   Upload,
   Calculator,
   Eye,
+  Bell,
+  Home,
+  Menu,
+  PanelLeftClose,
+  Settings,
+  Maximize2,
 } from "lucide-vue-next";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -102,6 +108,24 @@ const health = ref<HealthData | null>(null);
 const branches = ref<BranchData[]>([]);
 const loading = ref(false);
 const error = ref("");
+
+interface AuthUser {
+  id: string;
+  tenantCode: string;
+  username: string;
+  displayName: string;
+  roles: string[];
+  permissions: string[];
+}
+
+const authToken = ref(localStorage.getItem("xqt_auth_token") ?? "");
+const authUser = ref<AuthUser | null>(null);
+const loginForm = reactive({ tenantCode: "xqt", username: "admin", password: "" });
+const loginLoading = ref(false);
+const loginError = ref("");
+const isAuthenticated = computed(() => !!authToken.value && !!authUser.value);
+const sidebarCollapsed = ref(false);
+const openedTabs = ref<string[]>(["dashboard"]);
 
 // ACC sub-module state
 const accTab = ref("orders");
@@ -163,6 +187,56 @@ const navItems = [
   { key: "branches", label: "分公司管理", icon: Building2 },
   { key: "system", label: "系统管理", icon: ShieldCheck },
 ];
+
+const navGroups = [
+  { label: "工作台", items: navItems.slice(0, 1) },
+  { label: "业务复刻", items: navItems.slice(1, 3) },
+  { label: "系统治理", items: navItems.slice(3) },
+];
+
+const navMap = computed(() => Object.fromEntries(navItems.map(item => [item.key, item])));
+const activeNavItem = computed(() => navMap.value[currentNav.value] ?? navItems[0]);
+const activePageTitle = computed(() => {
+  if (currentNav.value === "acc") {
+    return accTabs.find(tab => tab.key === accTab.value)?.label ?? activeNavItem.value.label;
+  }
+  if (currentNav.value === "system") {
+    return sysTabs.find(tab => tab.key === sysTab.value)?.label ?? activeNavItem.value.label;
+  }
+  return activeNavItem.value.label;
+});
+
+const breadcrumbItems = computed(() => {
+  const root = activeNavItem.value.label;
+  if (currentNav.value === "dashboard") return ["首页", root];
+  return ["首页", root, activePageTitle.value].filter((item, index, list) => index === 0 || item !== list[index - 1]);
+});
+
+function navTo(key: string) {
+  currentNav.value = key;
+  if (!openedTabs.value.includes(key)) openedTabs.value.push(key);
+}
+
+function closeTab(key: string) {
+  if (key === "dashboard") return;
+  const next = openedTabs.value.filter(item => item !== key);
+  openedTabs.value = next.length ? next : ["dashboard"];
+  if (currentNav.value === key) currentNav.value = openedTabs.value[openedTabs.value.length - 1] ?? "dashboard";
+}
+
+function statusLabel(status?: { available: boolean; connected: boolean }) {
+  if (!status) return "未知";
+  if (status.connected) return "正常";
+  if (status.available) return "待配置";
+  return "未配置";
+}
+
+function statusTone(status?: { available: boolean; connected: boolean }) {
+  if (!status) return "gray";
+  if (status.connected) return "green";
+  if (status.available) return "yellow";
+  return "gray";
+}
 
 const sysTabs = [
   // 用户权限
@@ -248,7 +322,7 @@ async function loadSystemData() {
     };
     const url = apiMap[tab];
     if (!url) { sysData.value = []; return; }
-    const res = await fetch(`${API}${url}`);
+    const res = await apiFetch(`${API}${url}`);
     const json = await res.json();
 
     if (tab === 'sys-info' || tab === 'tools') {
@@ -1668,6 +1742,74 @@ function fmtCell(value: any, format?: string): string {
   return String(value);
 }
 
+function authHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  if (authToken.value) headers.set("Authorization", `Bearer ${authToken.value}`);
+  return headers;
+}
+
+async function apiFetch(input: string, init: RequestInit = {}) {
+  const response = await fetch(input, {
+    ...init,
+    headers: authHeaders(init.headers),
+  });
+  if (response.status === 401) {
+    logout(false);
+  }
+  return response;
+}
+
+async function loadMe() {
+  if (!authToken.value) return;
+  const res = await apiFetch(`${API}/api/auth/me`);
+  if (!res.ok) throw new Error("登录已过期");
+  const json = await res.json();
+  authUser.value = json.user;
+}
+
+async function login() {
+  loginLoading.value = true;
+  loginError.value = "";
+  try {
+    const res = await fetch(`${API}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(loginForm),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.ok) throw new Error(json.error ?? "登录失败");
+    authToken.value = json.token;
+    authUser.value = json.user;
+    localStorage.setItem("xqt_auth_token", json.token);
+    await fetchDashboard();
+  } catch (e: any) {
+    loginError.value = e.message ?? "登录失败";
+  } finally {
+    loginLoading.value = false;
+  }
+}
+
+async function logout(callApi = true) {
+  if (callApi && authToken.value) {
+    await apiFetch(`${API}/api/auth/logout`, { method: "POST" }).catch(() => {});
+  }
+  authToken.value = "";
+  authUser.value = null;
+  localStorage.removeItem("xqt_auth_token");
+}
+
+async function bootstrap() {
+  if (authToken.value) {
+    try {
+      await loadMe();
+      await fetchDashboard();
+      return;
+    } catch {
+      logout(false);
+    }
+  }
+}
+
 // ═══════════════ Data Fetching ═══════════════
 
 async function fetchDashboard() {
@@ -1764,7 +1906,7 @@ watch(currentNav, (nav) => {
   }
 });
 
-onMounted(fetchDashboard);
+onMounted(bootstrap);
 
 // ═══════════════ Form CRUD ═══════════════
 
@@ -2204,41 +2346,126 @@ async function doReloadBill(id: number) {
 </script>
 
 <template>
-  <main class="shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <span class="brand-icon">🚢</span>
-        新航线统一平台
+  <main v-if="!isAuthenticated" class="login-screen">
+    <section class="login-panel">
+      <div class="login-brand">
+        <ShieldCheck :size="28" />
+        <div>
+          <p>新航线统一平台</p>
+          <h1>登录主系统</h1>
+        </div>
       </div>
-      <nav>
-        <button
-          v-for="item in navItems"
-          :key="item.key"
-          :class="{ active: currentNav === item.key }"
-          @click="currentNav = item.key"
-        >
-          <component :is="item.icon" :size="16" />
-          {{ item.label }}
+      <form class="login-form" @submit.prevent="login">
+        <label>
+          <span>租户</span>
+          <input v-model="loginForm.tenantCode" autocomplete="organization" />
+        </label>
+        <label>
+          <span>用户名</span>
+          <input v-model="loginForm.username" autocomplete="username" />
+        </label>
+        <label>
+          <span>密码</span>
+          <input v-model="loginForm.password" type="password" autocomplete="current-password" />
+        </label>
+        <div class="error-bar" v-if="loginError">{{ loginError }}</div>
+        <button class="primary login-submit" :disabled="loginLoading">
+          <Lock :size="15" />
+          {{ loginLoading ? "登录中..." : "登录" }}
         </button>
+      </form>
+    </section>
+  </main>
+
+  <main v-else :class="['ruoyi-shell', { collapsed: sidebarCollapsed }]">
+    <aside class="ruoyi-sidebar">
+      <div class="brand">
+        <div class="brand-mark">
+          <Truck :size="18" />
+        </div>
+        <div class="brand-copy">
+          <strong>新航线</strong>
+          <span>统一业务平台</span>
+        </div>
+      </div>
+      <nav class="side-menu">
+        <section class="menu-group" v-for="group in navGroups" :key="group.label">
+          <div class="menu-title">{{ group.label }}</div>
+          <button
+            v-for="item in group.items"
+            :key="item.key"
+            :class="{ active: currentNav === item.key }"
+            @click="navTo(item.key)"
+            :title="item.label"
+          >
+            <component :is="item.icon" :size="17" />
+            <span>{{ item.label }}</span>
+          </button>
+        </section>
       </nav>
       <div class="system-status" v-if="health">
-        <div class="status-title">系统连接状态</div>
+        <div class="status-title">连接状态</div>
         <div class="status-item">
           <span :class="['dot', health.upstreams.postgres.connected ? 'green' : 'red']" />
-          PostgreSQL
+          <span>PostgreSQL</span>
+          <strong>{{ health.upstreams.postgres.connected ? '正常' : '异常' }}</strong>
         </div>
         <div class="status-item">
-          <span :class="['dot', health.upstreams.acc.connected ? 'green' : health.upstreams.acc.available ? 'yellow' : 'gray']" />
-          ACC ({{ health.upstreams.acc.connected ? '已连接' : health.upstreams.acc.available ? '未连接' : '未配置' }})
+          <span :class="['dot', statusTone(health.upstreams.acc)]" />
+          <span>ACC</span>
+          <strong>{{ statusLabel(health.upstreams.acc) }}</strong>
         </div>
         <div class="status-item">
-          <span :class="['dot', health.upstreams.xqt.connected ? 'green' : health.upstreams.xqt.available ? 'yellow' : 'gray']" />
-          XQT ({{ health.upstreams.xqt.connected ? '已连接' : health.upstreams.xqt.available ? '未连接' : '未配置' }})
+          <span :class="['dot', statusTone(health.upstreams.xqt)]" />
+          <span>XQT</span>
+          <strong>{{ statusLabel(health.upstreams.xqt) }}</strong>
         </div>
       </div>
     </aside>
 
-    <section class="workspace">
+    <section class="ruoyi-main">
+      <header class="ruoyi-header">
+        <div class="header-left">
+          <button class="icon-button" @click="sidebarCollapsed = !sidebarCollapsed" title="折叠菜单">
+            <PanelLeftClose v-if="!sidebarCollapsed" :size="18" />
+            <Menu v-else :size="18" />
+          </button>
+          <nav class="breadcrumb">
+            <Home :size="15" />
+            <span v-for="(item, index) in breadcrumbItems" :key="item">
+              <ChevronRight v-if="index > 0" :size="13" />
+              {{ item }}
+            </span>
+          </nav>
+        </div>
+        <div class="header-right">
+          <button class="icon-button" title="消息"><Bell :size="17" /></button>
+          <button class="icon-button" title="全屏"><Maximize2 :size="17" /></button>
+          <button class="icon-button" title="设置"><Settings :size="17" /></button>
+          <div class="header-user">
+            <span class="avatar">{{ (authUser?.displayName || authUser?.username || 'U').slice(0, 1) }}</span>
+            <div>
+              <strong>{{ authUser?.displayName || authUser?.username }}</strong>
+              <span>{{ authUser?.tenantCode }} · {{ authUser?.roles?.join(', ') }}</span>
+            </div>
+          </div>
+          <button class="text-button" @click="logout()">退出</button>
+        </div>
+      </header>
+
+      <div class="tag-view">
+        <button
+          v-for="key in openedTabs"
+          :key="key"
+          :class="{ active: currentNav === key }"
+          @click="currentNav = key"
+        >
+          {{ navMap[key]?.label ?? key }}
+          <X v-if="key !== 'dashboard'" :size="12" @click.stop="closeTab(key)" />
+        </button>
+      </div>
+
+      <section class="workspace">
       <!-- ════════ Dashboard ════════ -->
       <template v-if="currentNav === 'dashboard'">
         <header class="topbar">
@@ -2555,7 +2782,7 @@ async function doReloadBill(id: number) {
             <h1>系统管理</h1>
           </div>
           <div class="topbar-actions">
-            <button class="btn btn-ghost" @click="loadSystemData"><RefreshCw :size="16" /> 刷新</button>
+            <button class="secondary" @click="loadSystemData"><RefreshCw :size="16" /> 刷新</button>
           </div>
         </header>
         <nav class="acc-tabs-bar">
@@ -2595,10 +2822,10 @@ async function doReloadBill(id: number) {
             </button>
           </div>
         </nav>
-        <section class="card" style="margin: 1rem; padding: 1rem;">
-          <div v-if="sysLoading" class="placeholder"><RefreshCw :size="32" class="spin" /><p>加载中...</p></div>
+        <section class="panel-card">
+          <div v-if="sysLoading" class="placeholder"><RefreshCw :size="32" class="spinning" /><p>加载中...</p></div>
           <div v-else-if="sysTab === 'sys-info' && sysInfo">
-            <h3 style="margin-bottom:1rem">系统信息</h3>
+            <h3 class="panel-title">系统信息</h3>
             <div class="form-grid">
               <div class="form-field"><label>系统版本</label><input readonly :value="sysInfo.version" /></div>
               <div class="form-field"><label>Node版本</label><input readonly :value="sysInfo.nodeVersion" /></div>
@@ -2627,6 +2854,7 @@ async function doReloadBill(id: number) {
           </div>
         </section>
       </template>
+    </section>
     </section>
 
     <!-- ════════ Form Dialog ════════ -->

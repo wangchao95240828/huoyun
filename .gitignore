@@ -5,6 +5,8 @@ node_modules/
 dist/
 apps/*/dist/
 packages/*/dist/
+target/
+apps/**/target/
 
 # Local env
 .env
@@ -20,6 +22,8 @@ pnpm-debug.log*
 
 # Generated documents
 docs/*.pdf
+*.zip
+新航线统一平台文档交付-*/
 
 # OS / editor
 .DS_Store

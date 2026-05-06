@@ -1,0 +1,31 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+flowchart TB
+  classDef client fill:#f8fafc,stroke:#64748b,color:#111827
+  classDef app fill:#e8f3ff,stroke:#2f6feb,color:#0f172a,stroke-width:2px
+  classDef proto fill:#fff7ed,stroke:#f59e0b,color:#111827
+  classDef data fill:#ecfdf5,stroke:#16a34a,color:#052e16
+  classDef external fill:#fef2f2,stroke:#dc2626,color:#111827
+
+  browser["浏览器<br/>内部员工 / 客户"]:::client
+  web["Vue 3 + Vite 前端<br/>若依风格后台<br/>apps/web"]:::app
+  gateway["Nginx / API Gateway<br/>TLS / 路由 / 限流"]:::app
+  spring["Spring Boot 主后端<br/>Java 17<br/>apps/backend"]:::app
+  fastify["Fastify 原型 API<br/>TypeScript<br/>apps/api"]:::proto
+  postgres["PostgreSQL 主库<br/>tenant_id + RLS"]:::data
+  redis["Redis<br/>缓存 / 幂等 / 任务状态"]:::data
+  storage["对象存储<br/>附件 / 导入文件 / 面单"]:::data
+  acc["ACC 旧系统<br/>只读 adapter"]:::external
+  xqt["新智慧<br/>只读样本 / 页面复刻"]:::external
+  carrier["物流商接口"]:::external
+
+  browser --> web
+  web --> gateway
+  gateway -->|"/api/auth /api/admin /api/finance"| spring
+  gateway -->|"迁移期 /api/acc /api/sys"| fastify
+  spring --> postgres
+  spring --> redis
+  spring --> storage
+  fastify --> postgres
+  spring -. "读取样本 / 兼容对照" .-> acc
+  spring -. "只读抓取结果 / 字段映射" .-> xqt
+  spring -->|"取号 / 轨迹 / 标签"| carrier

@@ -1,0 +1,29 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+flowchart TB
+  classDef actor fill:#f8fafc,stroke:#64748b,color:#111827
+  classDef auth fill:#e8f3ff,stroke:#2f6feb,color:#0f172a
+  classDef data fill:#ecfdf5,stroke:#16a34a,color:#052e16
+  classDef deny fill:#fef2f2,stroke:#dc2626,color:#7f1d1d
+
+  user["用户请求<br/>Authorization: Bearer token"]:::actor
+  filter["BearerAuthFilter<br/>校验签名、过期时间"]:::auth
+  session["user_sessions<br/>校验未过期、未注销"]:::data
+  principal["AuthPrincipal<br/>tenant_id / user_id / permissions"]:::auth
+  endpoint["Controller 权限声明<br/>permission code"]:::auth
+  allow{"拥有权限?"}:::auth
+  service["Service 执行业务逻辑"]:::auth
+  tenant["设置 app.current_tenant_id<br/>触发 RLS"]:::data
+  db["PostgreSQL<br/>只返回当前租户数据"]:::data
+  audit["写操作日志"]:::data
+  reject["401 / 403"]:::deny
+
+  user --> filter
+  filter --> session
+  session --> principal
+  principal --> endpoint
+  endpoint --> allow
+  allow -->|是| service
+  allow -->|否| reject
+  service --> tenant
+  tenant --> db
+  service --> audit

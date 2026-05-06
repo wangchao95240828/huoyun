@@ -1,0 +1,157 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1120" viewBox="0 0 1600 1120" role="img" aria-labelledby="title desc">
+  <title id="title">新启天主系统总体架构图</title>
+  <desc id="desc">展示访问层、应用层、数据层、主库核心数据、ACC 和新智慧外部样本源之间的数据流和复刻关系。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <marker id="arrow-soft" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#64748b"/>
+    </marker>
+    <style>
+      .bg { fill: #f7fafc; }
+      .title { font: 700 34px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 15px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .panel-title { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #0f172a; }
+      .card-title { font: 700 17px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #111827; }
+      .card-text { font: 400 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #475569; }
+      .small { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #64748b; }
+      .label { font: 600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #334155; }
+      .panel { fill: #ffffff; stroke-width: 2; rx: 18; }
+      .access { stroke: #2563eb; }
+      .app { stroke: #059669; }
+      .data { stroke: #7c3aed; }
+      .legacy { stroke: #ea580c; }
+      .govern { stroke: #0f766e; }
+      .card { fill: #ffffff; stroke: #cbd5e1; stroke-width: 1.5; rx: 12; }
+      .blue { fill: #eff6ff; stroke: #93c5fd; }
+      .green { fill: #ecfdf5; stroke: #86efac; }
+      .purple { fill: #f5f3ff; stroke: #c4b5fd; }
+      .orange { fill: #fff7ed; stroke: #fdba74; }
+      .cyan { fill: #ecfeff; stroke: #67e8f9; }
+      .yellow { fill: #fefce8; stroke: #fde68a; }
+      .line { stroke: #334155; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .soft-line { stroke: #64748b; stroke-width: 2; fill: none; marker-end: url(#arrow-soft); stroke-dasharray: 7 6; }
+      .thin-line { stroke: #94a3b8; stroke-width: 1.6; fill: none; marker-end: url(#arrow-soft); }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="1120"/>
+  <text class="title" x="64" y="62">新启天主系统总体架构图</text>
+  <text class="subtitle" x="64" y="92">主系统独立承载业务、权限和财务闭环；ACC 与新智慧作为复刻样本和对照来源，逐步被替代。</text>
+
+  <rect class="panel access" x="56" y="130" width="280" height="310"/>
+  <text class="panel-title" x="84" y="170">访问层</text>
+  <rect class="card blue" x="86" y="198" width="220" height="76"/>
+  <text class="card-title" x="112" y="229">内部员工</text>
+  <text class="card-text" x="112" y="253">财务 / 操作 / 管理员</text>
+  <rect class="card blue" x="86" y="324" width="220" height="78"/>
+  <text class="card-title" x="112" y="355">Vue 运营后台</text>
+  <text class="card-text" x="112" y="379">apps/web</text>
+  <path class="line" d="M196 274 L196 320"/>
+  <text class="small" x="211" y="305">登录、操作</text>
+
+  <rect class="panel app" x="396" y="130" width="470" height="470"/>
+  <text class="panel-title" x="424" y="170">应用层</text>
+  <rect class="card green" x="446" y="198" width="370" height="84"/>
+  <text class="card-title" x="484" y="231">Spring Boot API</text>
+  <text class="card-text" x="484" y="255">apps/backend：统一 REST API、租户上下文、服务编排</text>
+
+  <rect class="card green" x="438" y="332" width="178" height="82"/>
+  <text class="card-title" x="462" y="362">认证与权限</text>
+  <text class="card-text" x="462" y="386">Spring Security / auth / admin</text>
+  <rect class="card green" x="646" y="332" width="178" height="82"/>
+  <text class="card-title" x="670" y="362">业务模块</text>
+  <text class="card-text" x="670" y="386">Controller / Service / Repository</text>
+
+  <rect class="card green" x="438" y="466" width="178" height="82"/>
+  <text class="card-title" x="462" y="496">外部适配层</text>
+  <text class="card-text" x="462" y="520">ACC / XQT adapter</text>
+  <rect class="card green" x="646" y="466" width="178" height="82"/>
+  <text class="card-title" x="670" y="496">异步任务入口</text>
+  <text class="card-text" x="670" y="520">导入 / 对账 / 轨迹</text>
+
+  <path class="line" d="M306 363 C350 363, 374 240, 442 240"/>
+  <text class="label" x="330" y="326">REST API + Bearer Token</text>
+  <path class="thin-line" d="M552 282 L526 328"/>
+  <path class="thin-line" d="M710 282 L736 328"/>
+  <path class="thin-line" d="M526 414 L526 462"/>
+  <path class="thin-line" d="M736 414 L736 462"/>
+
+  <rect class="panel data" x="930" y="130" width="614" height="760"/>
+  <text class="panel-title" x="958" y="170">数据层</text>
+  <rect class="card purple" x="976" y="198" width="280" height="96"/>
+  <text class="card-title" x="1010" y="231">PostgreSQL 主库</text>
+  <text class="card-text" x="1010" y="255">tenant_id + Row Level Security</text>
+  <text class="card-text" x="1010" y="275">主业务数据、权限、账本、复刻映射</text>
+
+  <rect class="card cyan" x="1290" y="198" width="210" height="82"/>
+  <text class="card-title" x="1320" y="229">Redis</text>
+  <text class="card-text" x="1320" y="253">任务队列 / 重试 / 短缓存</text>
+  <rect class="card yellow" x="1290" y="322" width="210" height="82"/>
+  <text class="card-title" x="1320" y="353">对象存储</text>
+  <text class="card-text" x="1320" y="377">导入文件 / 报表 / 证据</text>
+
+  <rect class="card purple" x="976" y="344" width="524" height="420"/>
+  <text class="panel-title" x="1006" y="382">主库核心数据</text>
+
+  <rect class="card" x="1010" y="414" width="220" height="74"/>
+  <text class="card-title" x="1032" y="443">基础治理</text>
+  <text class="card-text" x="1032" y="467">租户 / 用户 / 权限 / 审批 / 审计</text>
+  <rect class="card" x="1246" y="414" width="220" height="74"/>
+  <text class="card-title" x="1268" y="443">主数据</text>
+  <text class="card-text" x="1268" y="467">客户 / 供应商 / 渠道 / 费用类型</text>
+
+  <rect class="card" x="1010" y="518" width="220" height="74"/>
+  <text class="card-title" x="1032" y="547">业务履约</text>
+  <text class="card-text" x="1032" y="571">订单 / 运单 / 箱 / 仓库 / 轨迹</text>
+  <rect class="card" x="1246" y="518" width="220" height="74"/>
+  <text class="card-title" x="1268" y="547">计费财务</text>
+  <text class="card-text" x="1268" y="571">费用 / 账单 / 核销 / 收付款</text>
+
+  <rect class="card" x="1010" y="622" width="220" height="74"/>
+  <text class="card-title" x="1032" y="651">正式账本</text>
+  <text class="card-text" x="1032" y="675">过账批次 / 复式分录 / 冲销</text>
+  <rect class="card" x="1246" y="622" width="220" height="74"/>
+  <text class="card-title" x="1268" y="651">复刻映射</text>
+  <text class="card-text" x="1268" y="675">external_* / comparison_cases</text>
+
+  <path class="line" d="M816 240 C866 240, 904 246, 972 246"/>
+  <path class="line" d="M824 373 C878 373, 910 270, 972 270"/>
+  <path class="line" d="M735 548 C804 670, 884 726, 972 724"/>
+  <path class="line" d="M824 507 C982 500, 1126 330, 1290 239"/>
+  <path class="line" d="M824 507 C990 540, 1152 450, 1290 363"/>
+  <path class="thin-line" d="M1116 294 L1116 340"/>
+
+  <rect class="panel legacy" x="56" y="650" width="810" height="290"/>
+  <text class="panel-title" x="84" y="690">外部样本源与复刻闭环</text>
+  <rect class="card orange" x="88" y="732" width="250" height="94"/>
+  <text class="card-title" x="116" y="765">ACC 旧系统</text>
+  <text class="card-text" x="116" y="790">有源码：旧逻辑、旧字段、状态机</text>
+  <rect class="card orange" x="88" y="850" width="250" height="58"/>
+  <text class="card-title" x="116" y="884">源码和数据库口径反推</text>
+
+  <rect class="card orange" x="372" y="732" width="250" height="94"/>
+  <text class="card-title" x="400" y="765">新智慧 TMS/AOS</text>
+  <text class="card-text" x="400" y="790">无源码：页面、只读请求、表单</text>
+  <rect class="card orange" x="372" y="850" width="250" height="58"/>
+  <text class="card-title" x="400" y="884">页面和 API 样本采集</text>
+
+  <rect class="card govern" x="654" y="732" width="180" height="176"/>
+  <text class="card-title" x="684" y="765">对照验证</text>
+  <text class="card-text" x="684" y="792">字段映射</text>
+  <text class="card-text" x="684" y="816">请求 body</text>
+  <text class="card-text" x="684" y="840">金额和状态</text>
+  <text class="card-text" x="684" y="864">人工场景用例</text>
+  <text class="card-text" x="684" y="888">差异修正记录</text>
+
+  <path class="soft-line" d="M526 548 C472 612, 314 650, 224 728"/>
+  <path class="soft-line" d="M526 548 C548 622, 532 676, 496 728"/>
+  <path class="soft-line" d="M338 779 L368 779"/>
+  <path class="soft-line" d="M622 779 L650 779"/>
+  <path class="soft-line" d="M834 820 C930 812, 1100 752, 1246 662"/>
+
+  <rect class="card" x="56" y="984" width="1488" height="74"/>
+  <text class="card-title" x="84" y="1016">架构主线</text>
+  <text class="card-text" x="84" y="1042">新系统以主库为业务事实来源；ACC 和新智慧只作为样本源，通过 external_* 和 comparison_cases 完成复刻、对照、替代。</text>
+</svg>

@@ -1,0 +1,89 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+erDiagram
+  TENANTS ||--o{ USERS : owns
+  TENANTS ||--o{ ROLES : owns
+  TENANTS ||--o{ PERMISSIONS : owns
+  USERS ||--o{ USER_ROLES : has
+  ROLES ||--o{ USER_ROLES : assigned
+  ROLES ||--o{ ROLE_PERMISSIONS : grants
+  PERMISSIONS ||--o{ ROLE_PERMISSIONS : included
+  USERS ||--o{ USER_SESSIONS : opens
+
+  TENANTS ||--o{ CUSTOMERS : owns
+  TENANTS ||--o{ PARTNERS : owns
+  CUSTOMERS ||--o{ ORDERS : places
+  ORDERS ||--o{ SHIPMENTS : creates
+  SHIPMENTS ||--o{ CARTONS : packed_as
+  SHIPMENTS ||--o{ TRACKING_EVENTS : emits
+  SHIPMENTS ||--o{ CHARGE_ITEMS : rated_by
+  CUSTOMERS ||--o{ CUSTOMER_INVOICES : billed_to
+  PARTNERS ||--o{ PARTNER_INVOICES : billed_from
+  CUSTOMER_INVOICES ||--o{ CUSTOMER_INVOICE_LINES : contains
+  PARTNER_INVOICES ||--o{ PARTNER_INVOICE_LINES : contains
+  CHARGE_ITEMS ||--o{ CUSTOMER_INVOICE_LINES : linked
+  CHARGE_ITEMS ||--o{ PARTNER_INVOICE_LINES : linked
+  FINANCIAL_ACCOUNTS ||--o{ FINANCIAL_ACCOUNT_RECORDS : records
+  LEDGER_TRANSACTIONS ||--o{ LEDGER_ENTRIES : posts
+
+  TENANTS ||--o{ EXTERNAL_SYSTEMS : registers
+  EXTERNAL_SYSTEMS ||--o{ EXTERNAL_MODULES : exposes
+  EXTERNAL_MODULES ||--o{ EXTERNAL_FIELD_MAPPINGS : maps
+  EXTERNAL_SYSTEMS ||--o{ EXTERNAL_OBJECT_REFS : references
+  EXTERNAL_MODULES ||--o{ COMPARISON_CASES : validates
+
+  TENANTS {
+    uuid id PK
+    string code
+    string name
+  }
+  USERS {
+    uuid id PK
+    uuid tenant_id FK
+    string username
+    string password_hash
+    string status
+  }
+  ROLES {
+    uuid id PK
+    uuid tenant_id FK
+    string code
+    string name
+  }
+  PERMISSIONS {
+    uuid id PK
+    uuid tenant_id FK
+    string code
+    string name
+  }
+  ORDERS {
+    uuid id PK
+    uuid tenant_id FK
+    uuid customer_id FK
+    string order_no
+    string status
+  }
+  SHIPMENTS {
+    uuid id PK
+    uuid tenant_id FK
+    uuid order_id FK
+    string shipment_no
+    string service_code
+    string audit_status
+  }
+  CHARGE_ITEMS {
+    uuid id PK
+    uuid tenant_id FK
+    uuid shipment_id FK
+    string charge_type
+    string direction
+    decimal amount
+    string currency
+  }
+  EXTERNAL_FIELD_MAPPINGS {
+    uuid id PK
+    uuid tenant_id FK
+    uuid external_module_id FK
+    string external_field
+    string internal_entity
+    string internal_field
+  }

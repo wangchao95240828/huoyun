@@ -17,12 +17,19 @@ services:
       - ../db/migrations/004_jobs_idempotency.sql:/docker-entrypoint-initdb.d/004_jobs_idempotency.sql:ro
       - ../db/migrations/005_authorization.sql:/docker-entrypoint-initdb.d/005_authorization.sql:ro
       - ../db/migrations/006_full_painpoint_modules.sql:/docker-entrypoint-initdb.d/006_full_painpoint_modules.sql:ro
+      - ../db/migrations/007_organizations_and_extensions.sql:/docker-entrypoint-initdb.d/007_organizations_and_extensions.sql:ro
+      - ../db/migrations/008_main_master_data.sql:/docker-entrypoint-initdb.d/008_main_master_data.sql:ro
+      - ../db/migrations/009_orders_warehouse.sql:/docker-entrypoint-initdb.d/009_orders_warehouse.sql:ro
+      - ../db/migrations/010_finance_clone_core.sql:/docker-entrypoint-initdb.d/010_finance_clone_core.sql:ro
+      - ../db/migrations/011_external_mapping.sql:/docker-entrypoint-initdb.d/011_external_mapping.sql:ro
+      - ../db/migrations/012_auth_foundation.sql:/docker-entrypoint-initdb.d/012_auth_foundation.sql:ro
       - ../db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/101_seed.sql:ro
       - ../db/seeds/002_ledger_seed.sql:/docker-entrypoint-initdb.d/102_ledger_seed.sql:ro
       - ../db/seeds/003_auth_seed.sql:/docker-entrypoint-initdb.d/103_auth_seed.sql:ro
       - ../db/seeds/004_full_modules_seed.sql:/docker-entrypoint-initdb.d/104_full_modules_seed.sql:ro
-      - ../db/migrations/007_organizations_and_extensions.sql:/docker-entrypoint-initdb.d/007_organizations_and_extensions.sql:ro
       - ../db/seeds/005_org_seed.sql:/docker-entrypoint-initdb.d/105_org_seed.sql:ro
+      - ../db/seeds/006_auth_seed.sql:/docker-entrypoint-initdb.d/106_auth_seed.sql:ro
+      - ../db/seeds/007_external_seed.sql:/docker-entrypoint-initdb.d/107_external_seed.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U xqt -d xqt_saas"]
       interval: 5s

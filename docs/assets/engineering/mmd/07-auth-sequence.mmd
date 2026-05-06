@@ -1,0 +1,29 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+sequenceDiagram
+  autonumber
+  actor User as 用户
+  participant Web as Vue 前端
+  participant Auth as Spring Boot AuthController
+  participant Service as AuthService
+  participant DB as PostgreSQL
+  participant Audit as 登录审计
+
+  User->>Web: 输入租户、用户名、密码
+  Web->>Auth: POST /api/auth/login
+  Auth->>Service: login(request)
+  Service->>DB: 查询 tenant / user / roles / permissions
+  DB-->>Service: 用户与权限数据
+  Service->>Service: PBKDF2 校验密码
+  Service->>Service: 生成 HMAC token 和 session_hash
+  Service->>DB: 写入 user_sessions
+  Service->>Audit: 写 auth_login_events
+  Service-->>Auth: LoginResponse
+  Auth-->>Web: token + user + permissions
+  Web->>Web: 保存 token 和菜单权限
+
+  Web->>Auth: GET /api/auth/me
+  Auth->>Service: validate token
+  Service->>DB: 校验 session 未过期未注销
+  DB-->>Service: session valid
+  Service-->>Auth: 当前用户
+  Auth-->>Web: user + permissions

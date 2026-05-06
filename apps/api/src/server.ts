@@ -2,6 +2,8 @@ import cors from "@fastify/cors";
 import postgres from "@fastify/postgres";
 import Fastify from "fastify";
 import { healthRoutes } from "./routes/health.js";
+import { authRoutes } from "./routes/auth.js";
+import { adminRoutes } from "./routes/admin.js";
 import { unifiedOrderRoutes } from "./routes/unified-orders.js";
 import { unifiedFinanceRoutes } from "./routes/unified-finance.js";
 import { accRoutes } from "./routes/acc.js";
@@ -18,6 +20,8 @@ await server.register(postgres, {
 });
 
 await server.register(healthRoutes);
+await server.register(authRoutes);
+await server.register(adminRoutes);
 await server.register(unifiedOrderRoutes);
 await server.register(unifiedFinanceRoutes);
 await server.register(accRoutes);

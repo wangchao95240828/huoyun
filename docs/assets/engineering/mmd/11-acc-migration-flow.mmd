@@ -1,0 +1,25 @@
+%%{init: {"theme": "base", "themeVariables": {"fontFamily": "Arial, Microsoft YaHei, sans-serif", "primaryColor": "#e8f3ff", "primaryBorderColor": "#2f6feb", "lineColor": "#6b7280", "secondaryColor": "#f8fafc", "tertiaryColor": "#ecfdf5"}}}%%
+flowchart LR
+  classDef source fill:#fff7ed,stroke:#f59e0b,color:#111827
+  classDef step fill:#e8f3ff,stroke:#2f6feb,color:#0f172a
+  classDef data fill:#ecfdf5,stroke:#16a34a,color:#052e16
+  classDef final fill:#f8fafc,stroke:#64748b,color:#111827
+
+  code["ACC 源码<br/>APIClass.php / Track.php / Scale.php"]:::source
+  olddb["ACC MySQL<br/>后续只读接入"]:::source
+  rule["抽取旧规则<br/>字段 / 状态 / 计费 / 标签 / 余额"]:::step
+  map["建立映射<br/>Express -> shipments<br/>Express_Charge -> charge_items"]:::data
+  adapter["实现 ACC adapter<br/>兼容旧 API / 只读对照"]:::step
+  sample["构造样本场景<br/>下单 / 计费 / 轨迹 / 作废"]:::data
+  test["差异测试<br/>金额 / 状态 / 字段"]:::step
+  domain["沉淀主系统领域逻辑<br/>order / shipment / finance"]:::step
+  retire["旧 ACC 降级<br/>只读归档或下线"]:::final
+
+  code --> rule
+  olddb --> rule
+  rule --> map
+  map --> adapter
+  adapter --> sample
+  sample --> test
+  test --> domain
+  domain --> retire

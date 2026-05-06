@@ -1,0 +1,24 @@
+优先级,用例编号,来源,模块,测试目标,负责人,状态,外部对照条件,新系统入口,预期结果,实际结果,差异说明,证据链接,备注
+P0,DIR-001,BUSINESS,客户方向,客户可标记为卖货客户,,pending,customerDirection=SELLER_CUSTOMER,/api/customers 或 /api/customer-directions,客户订单财务查询均能按卖货客户过滤,,,,本周优先
+P0,DIR-002,BUSINESS,客户方向,客户可标记为制单客户,,pending,customerDirection=DOCUMENT_CUSTOMER,/api/customers 或 /api/customer-directions,客户API制单余额标签能力可按方向启用,,,,本周优先
+P0,DIR-003,BUSINESS,客户方向,同一客户可同时支持两方向,,pending,customerDirection=BOTH,/api/customers 或 /api/customer-directions,菜单权限账单模板按服务模式区分,,,,本周优先
+P0,BASE-001,SECURITY,登录权限,正确租户用户名密码可登录,,pending,,POST /api/auth/login,返回token用户角色权限并写session和登录审计,,,,本周优先
+P0,BASE-003,SECURITY,登录权限,注销后token失效,,pending,,POST /api/auth/logout + GET /api/auth/me,受保护接口返回401,,,,本周优先
+P0,BASE-004,SECURITY,权限,无权限访问管理员接口返回403,,pending,,GET /api/admin/users,返回403并记录安全审计,,,,本周优先
+P0,BASE-005,SECURITY,RLS,跨租户读隔离,,pending,,任意租户资源查询,租户A无法读取租户B数据,,,,本周优先
+P0,XQT-FIN-001,XQT,财务流水,默认字段对齐,,pending,"{timeLimit:0,scenes:1}",POST /api/finance/ledger-records/search,展示流水号支付方式审核状态账户金额币种支付时间,,,,本周优先
+P0,XQT-FIN-002,XQT,财务流水,关键字筛选,,pending,keywords,POST /api/finance/ledger-records/search,同一关键字筛选后样本行出现一致,,,,本周优先
+P0,XQT-FIN-004,XQT,财务流水,支付方式和审核状态,,pending,"payment_type,audited",POST /api/finance/ledger-records/search,中文展示和枚举一致,,,,本周优先
+P0,XQT-SHP-001,XQT,运单审计,默认字段对齐,,pending,"{timeLimit:0,scenes:1}",POST /api/finance/shipment-audits/search,展示运单号提单号服务客户应收应付利润审核核销状态,,,,本周优先
+P0,XQT-SHP-006,XQT,运单审计,金额区间筛选,,pending,"sell_charge_amount_start/end,cost_charge_amount_start/end,sell_profit_start/end",POST /api/finance/shipment-audits/search,应收应付销售利润总利润口径不混淆,,,,本周优先
+P0,XQT-AR-001,XQT,客户流水,默认字段对齐,,pending,"{timeLimit:0,scenes:1}",POST /api/finance/customer-charge-details/search,展示客户费用类型运单号账单号金额审核核销开票,,,,本周优先
+P0,XQT-INV-001,XQT,客户账单,默认字段对齐,,pending,"{timeLimit:0,scenes:1}",POST /api/finance/customer-invoices/search,展示账单号客户币种账单金额已核销未核销到期日,,,,本周优先
+P0,XQT-PINV-001,XQT,供应商账单,默认字段对齐,,pending,"{timeLimit:0,scenes:1}",POST /api/finance/partner-invoices/search,展示账单号供应商币种金额到期日核销状态,,,,本周优先
+P0,XQT-ACCNT-001,XQT,账户,账户列表字段,,pending,"keywords,username,user_grade,created_daterange",POST /api/finance/accounts/search,账户归属币种余额状态显示正确,,,,本周优先
+P0,XQT-DICT-001,XQT,费用类型,费用类型字典,,pending,"name,code,type,is_show",POST /api/finance/charge-types/search,费用编码名称类型显示状态一致,,,,本周优先
+P0,PAIN-A4-001,PAINPOINT,计费引擎,单箱低消,,pending,渠道最低计费重样本,/api/rates 或费用试算接口,计费重按低消且保留原始重量和计费重,,,,本周优先
+P0,PAIN-A5-001,PAINPOINT,计费引擎,偏远三档,,pending,偏远邮编样本,/api/rates 或费用试算接口,命中偏远等级并生成对应偏远费,,,,本周优先
+P0,PAIN-B2-001,PAINPOINT,自动对账,主子单匹配,,pending,渠道账单只有子单号,/api/reconciliation/*,匹配到正确运单并显示置信度和匹配原因,,,,本周优先
+P0,DB-004,DB,账本,复式账本平衡,,pending,过账样本,ledger查询或DB检查,借贷平衡且entry至少两条,,,,本周优先
+P0,DB-005,DB,账本,已过账不可变,,pending,已过账交易,更新ledger entry,更新被拒绝只能冲正,,,,本周优先
+P0,E2E-002,E2E,财务闭环,客户账单闭环,,pending,运单计费到收款核销样本,前端财务页面和API,可从账本追溯到收款账单费用运单,,,,本周优先
