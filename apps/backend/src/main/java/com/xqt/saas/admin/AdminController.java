@@ -7,8 +7,13 @@ import java.util.Map;
 
 import com.xqt.saas.auth.AuthPrincipal;
 import com.xqt.saas.auth.PasswordHasher;
+import com.xqt.saas.common.ApiResponse;
 import com.xqt.saas.common.AuditService;
+import com.xqt.saas.common.CommandResponse;
+import com.xqt.saas.common.ItemResponse;
 import com.xqt.saas.common.JsonSupport;
+import com.xqt.saas.common.ListResponse;
+import com.xqt.saas.common.PageResponse;
 import com.xqt.saas.common.RequestContext;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -56,7 +61,7 @@ public class AdminController {
     @GetMapping("/users")
     @PreAuthorize("hasAuthority('admin.user.read')")
     @Transactional(readOnly = true)
-    public Map<String, Object> users(Authentication authentication) {
+    public ApiResponse<ListResponse<UserView>> users(Authentication authentication) {
         AuthPrincipal auth = context.principal(authentication);
         context.setTenant(auth);
         List<Map<String, Object>> rows = jdbc.queryForList("""
@@ -80,14 +85,14 @@ public class AdminController {
             GROUP BY u.id
             ORDER BY u.created_at DESC
             """, auth.tenantId());
-        List<Map<String, Object>> items = json.rows(rows);
-        return Map.of("ok", true, "items", items, "data", items);
+        List<UserView> items = rows.stream().map(this::userView).toList();
+        return ApiResponse.ok(new ListResponse<>(items));
     }
 
     @PostMapping("/users")
     @PreAuthorize("hasAuthority('admin.user.write')")
     @Transactional
-    public Map<String, Object> createUser(Authentication authentication, @Valid @RequestBody UserSaveRequest request) {
+    public ApiResponse<ItemResponse<UserView>> createUser(Authentication authentication, @Valid @RequestBody UserSaveRequest request) {
         AuthPrincipal auth = context.principal(authentication);
         context.setTenant(auth);
         if (isBlank(request.password())) {
@@ -115,13 +120,13 @@ public class AdminController {
         replaceUserRoles(auth, userId, roleCodesOrPrimary(request.roleCodes()));
         Map<String, Object> after = findUser(auth, userId);
         auditService.log(auth, "user", userId, "CREATE", null, after);
-        return Map.of("ok", true, "item", after, "data", after);
+        return ApiResponse.ok(new ItemResponse<>(userView(after)));
     }
 
     @PutMapping("/users/{id}")
     @PreAuthorize("hasAuthority('admin.user.write')")
     @Transactional
-    public Map<String, Object> updateUser(
+    public ApiResponse<ItemResponse<UserView>> updateUser(
         Authentication authentication,
         @PathVariable("id") String userId,
         @RequestBody UserSaveRequest request
@@ -163,13 +168,13 @@ public class AdminController {
 
         Map<String, Object> after = findUser(auth, userId);
         auditService.log(auth, "user", userId, "UPDATE", before, after);
-        return Map.of("ok", true, "item", after, "data", after);
+        return ApiResponse.ok(new ItemResponse<>(userView(after)));
     }
 
     @DeleteMapping("/users/{id}")
     @PreAuthorize("hasAuthority('admin.user.write')")
     @Transactional
-    public Map<String, Object> deleteUser(Authentication authentication, @PathVariable("id") String userId) {
+    public ApiResponse<CommandResponse> deleteUser(Authentication authentication, @PathVariable("id") String userId) {
         AuthPrincipal auth = context.principal(authentication);
         context.setTenant(auth);
         if (auth.userId().equals(userId)) {
@@ -191,13 +196,13 @@ public class AdminController {
               AND deleted_at IS NULL
             """, auth.userId(), auth.userId(), auth.tenantId(), userId);
         auditService.log(auth, "user", userId, "DELETE", before, Map.of("id", userId, "deleted", true));
-        return Map.of("ok", true);
+        return ApiResponse.ok(CommandResponse.ok());
     }
 
     @GetMapping("/roles")
     @PreAuthorize("hasAuthority('admin.role.read')")
     @Transactional(readOnly = true)
-    public Map<String, Object> roles(Authentication authentication) {
+    public ApiResponse<ListResponse<RoleView>> roles(Authentication authentication) {
         AuthPrincipal auth = context.principal(authentication);
         context.setTenant(auth);
         List<Map<String, Object>> rows = jdbc.queryForList("""
@@ -219,14 +224,14 @@ public class AdminController {
             GROUP BY r.id
             ORDER BY r.system_role DESC, r.code
             """, auth.tenantId());
-        List<Map<String, Object>> items = json.rows(rows);
-        return Map.of("ok", true, "items", items, "data", items);
+        List<RoleView> items = rows.stream().map(this::roleView).toList();
+        return ApiResponse.ok(new ListResponse<>(items));
     }
 
     @PostMapping("/roles")
     @PreAuthorize("hasAuthority('admin.role.write')")
     @Transactional
-    public Map<String, Object> createRole(Authentication authentication, @Valid @RequestBody RoleSaveRequest request) {
+    public ApiResponse<ItemResponse<RoleView>> createRole(Authentication authentication, @Valid @RequestBody RoleSaveRequest request) {
         AuthPrincipal auth = context.principal(authentication);
         context.setTenant(auth);
         String roleId = jdbc.queryForObject("""
@@ -249,13 +254,13 @@ public class AdminController {
         }
         Map<String, Object> after = findRole(auth, roleId);
         auditService.log(auth, "role", roleId, "CREATE", null, after);
-        return Map.of("ok", true, "item", after, "data", after);
+        return ApiResponse.ok(new ItemResponse<>(roleView(after)));
     }
 
     @PutMapping("/roles/{id}")
     @PreAuthorize("hasAuthority('admin.role.write')")
     @Transactional
-    public Map<String, Object> updateRole(
+    public ApiResponse<ItemResponse<RoleView>> updateRole(
         Authentication authentication,
         @PathVariable("id") String roleId,
         @RequestBody RoleSaveRequest request
@@ -291,13 +296,13 @@ public class AdminController {
         }
         Map<String, Object> after = findRole(auth, roleId);
         auditService.log(auth, "role", roleId, "UPDATE", before, after);
-        return Map.of("ok", true, "item", after, "data", after);
+        return ApiResponse.ok(new ItemResponse<>(roleView(after)));
     }
 
     @PutMapping("/roles/{id}/permissions")
     @PreAuthorize("hasAuthority('admin.role.write')")
     @Transactional
-    public Map<String, Object> setRolePermissions(
+    public ApiResponse<ItemResponse<RoleView>> setRolePermissions(
         Authentication authentication,
         @PathVariable("id") String roleId,
         @RequestBody RolePermissionsRequest request
@@ -311,13 +316,13 @@ public class AdminController {
         replaceRolePermissions(auth, roleId, safeList(request.permissionCodes()));
         Map<String, Object> after = findRole(auth, roleId);
         auditService.log(auth, "role", roleId, "SET_PERMISSIONS", before, after);
-        return Map.of("ok", true, "item", after, "data", after);
+        return ApiResponse.ok(new ItemResponse<>(roleView(after)));
     }
 
     @DeleteMapping("/roles/{id}")
     @PreAuthorize("hasAuthority('admin.role.write')")
     @Transactional
-    public Map<String, Object> deleteRole(Authentication authentication, @PathVariable("id") String roleId) {
+    public ApiResponse<CommandResponse> deleteRole(Authentication authentication, @PathVariable("id") String roleId) {
         AuthPrincipal auth = context.principal(authentication);
         context.setTenant(auth);
         Map<String, Object> before = findRole(auth, roleId);
@@ -343,13 +348,13 @@ public class AdminController {
               AND deleted_at IS NULL
             """, auth.userId(), auth.userId(), auth.tenantId(), roleId);
         auditService.log(auth, "role", roleId, "DELETE", before, Map.of("id", roleId, "deleted", true));
-        return Map.of("ok", true);
+        return ApiResponse.ok(CommandResponse.ok());
     }
 
     @GetMapping("/permissions")
     @PreAuthorize("hasAnyAuthority('admin.role.read','admin.permission.read')")
     @Transactional(readOnly = true)
-    public Map<String, Object> permissions(Authentication authentication) {
+    public ApiResponse<ListResponse<PermissionView>> permissions(Authentication authentication) {
         AuthPrincipal auth = context.principal(authentication);
         context.setTenant(auth);
         List<Map<String, Object>> rows = jdbc.queryForList("""
@@ -359,14 +364,14 @@ public class AdminController {
               AND deleted_at IS NULL
             ORDER BY resource, action, code
             """, auth.tenantId());
-        List<Map<String, Object>> items = json.rows(rows);
-        return Map.of("ok", true, "items", items, "data", items);
+        List<PermissionView> items = rows.stream().map(this::permissionView).toList();
+        return ApiResponse.ok(new ListResponse<>(items));
     }
 
     @GetMapping("/audit-logs")
     @PreAuthorize("hasAnyAuthority('admin.audit.read','ROLE_ADMIN')")
     @Transactional(readOnly = true)
-    public Map<String, Object> auditLogs(
+    public ApiResponse<PageResponse<AuditLogView>> auditLogs(
         Authentication authentication,
         @RequestParam(value = "entityType", required = false) String entityType,
         @RequestParam(value = "action", required = false) String action,
@@ -404,8 +409,8 @@ public class AdminController {
             limit,
             offset
         );
-        List<Map<String, Object>> items = json.rows(rows);
-        return Map.of("ok", true, "items", items, "data", items, "page", page, "pageSize", limit);
+        List<AuditLogView> items = rows.stream().map(this::auditLogView).toList();
+        return ApiResponse.ok(new PageResponse<>(items, page, limit));
     }
 
     private Map<String, Object> findUser(AuthPrincipal auth, String userId) {
@@ -453,6 +458,67 @@ public class AdminController {
             GROUP BY r.id
             """, auth.tenantId(), roleId);
         return rows.isEmpty() ? null : json.row(rows.get(0));
+    }
+
+    private UserView userView(Map<String, Object> row) {
+        Map<String, Object> mapped = json.row(row);
+        return new UserView(
+            text(mapped, "id"),
+            text(mapped, "username"),
+            text(mapped, "email"),
+            text(mapped, "display_name"),
+            text(mapped, "role_code"),
+            text(mapped, "status"),
+            text(mapped, "last_login_at"),
+            text(mapped, "created_at"),
+            text(mapped, "updated_at"),
+            textList(mapped.get("roles"))
+        );
+    }
+
+    private RoleView roleView(Map<String, Object> row) {
+        Map<String, Object> mapped = json.row(row);
+        return new RoleView(
+            text(mapped, "id"),
+            text(mapped, "code"),
+            text(mapped, "name"),
+            text(mapped, "description"),
+            Boolean.TRUE.equals(mapped.get("system_role")),
+            text(mapped, "status"),
+            text(mapped, "created_at"),
+            text(mapped, "updated_at"),
+            textList(mapped.get("permissions"))
+        );
+    }
+
+    private PermissionView permissionView(Map<String, Object> row) {
+        Map<String, Object> mapped = json.row(row);
+        return new PermissionView(
+            text(mapped, "id"),
+            text(mapped, "code"),
+            text(mapped, "name"),
+            text(mapped, "resource"),
+            text(mapped, "action"),
+            text(mapped, "description"),
+            text(mapped, "status"),
+            text(mapped, "created_at"),
+            text(mapped, "updated_at")
+        );
+    }
+
+    private AuditLogView auditLogView(Map<String, Object> row) {
+        Map<String, Object> mapped = json.row(row);
+        return new AuditLogView(
+            text(mapped, "id"),
+            text(mapped, "entity_type"),
+            text(mapped, "entity_id"),
+            text(mapped, "action"),
+            mapped.get("before_data"),
+            mapped.get("after_data"),
+            text(mapped, "created_at"),
+            text(mapped, "actor_name"),
+            text(mapped, "actor_username")
+        );
     }
 
     private void replaceUserRoles(AuthPrincipal auth, String userId, List<String> roleCodes) {
@@ -557,8 +623,76 @@ public class AdminController {
         return isBlank(value) ? null : value.trim();
     }
 
+    private String text(Map<String, Object> row, String key) {
+        Object value = row.get(key);
+        return value == null ? "" : value.toString();
+    }
+
+    private List<String> textList(Object value) {
+        if (value instanceof List<?> values) {
+            return values.stream().map(String::valueOf).toList();
+        }
+        if (value instanceof String[] values) {
+            return List.of(values);
+        }
+        return List.of();
+    }
+
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    public record UserView(
+        String id,
+        String username,
+        String email,
+        String displayName,
+        String roleCode,
+        String status,
+        String lastLoginAt,
+        String createdAt,
+        String updatedAt,
+        List<String> roles
+    ) {
+    }
+
+    public record RoleView(
+        String id,
+        String code,
+        String name,
+        String description,
+        boolean systemRole,
+        String status,
+        String createdAt,
+        String updatedAt,
+        List<String> permissions
+    ) {
+    }
+
+    public record PermissionView(
+        String id,
+        String code,
+        String name,
+        String resource,
+        String action,
+        String description,
+        String status,
+        String createdAt,
+        String updatedAt
+    ) {
+    }
+
+    public record AuditLogView(
+        String id,
+        String entityType,
+        String entityId,
+        String action,
+        Object beforeData,
+        Object afterData,
+        String createdAt,
+        String actorName,
+        String actorUsername
+    ) {
     }
 
     public record UserSaveRequest(
