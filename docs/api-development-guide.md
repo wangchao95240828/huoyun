@@ -1346,6 +1346,7 @@ Repository 层只负责 SQL，不处理业务状态。
 | 文档 | 用途 |
 | --- | --- |
 | `docs/api-reference.md` | 当前已存在接口清单 |
+| `docs/api-request-body-catalog.md` | 每个目标 API 的 request body 总表 |
 | `docs/xqt-readonly-api-crawl.md` | 新智慧全菜单只读接口抓取 |
 | `docs/xqt-finance-api-requests.md` | 新智慧财务 19 个 POST 请求和 body 模板 |
 | `docs/acc-api-reverse-db-design.md` | ACC 源码 API 到数据库反推 |
