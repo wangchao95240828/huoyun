@@ -70,6 +70,14 @@
 			<artifactId>spring-security-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+
+<!--		26.05.07-->
+		<dependency>
+			<groupId>com.baomidou</groupId>
+			<artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+			<version>3.5.14</version>
+			<scope>compile</scope>
+		</dependency>
 	</dependencies>
 
 	<build>
