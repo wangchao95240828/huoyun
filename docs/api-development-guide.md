@@ -1352,4 +1352,5 @@ Repository 层只负责 SQL，不处理业务状态。
 | `docs/main-system-database-design.md` | 主系统数据库表设计 |
 | `docs/complete-system-architecture-development.md` | 总体架构与开发方案 |
 | `docs/platform-capability-coverage-framework-research.md` | 功能覆盖与框架选型调研 |
+| `docs/acc-xqt-full-match-roadmap.md` | ACC 与新智慧完全匹配实施矩阵 |
 | `docs/development-comparison-test-cases.md` | 对照开发测试用例 |
