@@ -1,6 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import { createAccAdapter } from "../adapters/acc-adapter.js";
-import { createXqtAdapter } from "../adapters/xqt-adapter.js";
 
 export async function unifiedFinanceRoutes(app: FastifyInstance) {
   const defaultTenantCode = process.env.TENANT_DEFAULT_CODE ?? "xqt";
@@ -40,56 +38,53 @@ export async function unifiedFinanceRoutes(app: FastifyInstance) {
     const from = dateFrom ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const to = dateTo ?? new Date().toISOString().slice(0, 10);
 
-    const acc = createAccAdapter();
-    const xqt = createXqtAdapter();
-
-    const [accProfit, xqtSummary, localData] = await Promise.all([
-      acc.getProfitReport(from, to),
-      xqt.getFinanceSummary(),
-      withTenant(app, defaultTenantCode, async (client, tenantId) => {
-        const { rows } = await client.query(
-          `SELECT
+    const localData = await withTenant(app, defaultTenantCode, async (client, tenantId) => {
+      const { rows } = await client.query(
+        `SELECT
             COUNT(DISTINCT s.id)::int AS shipments,
             COALESCE(SUM(CASE WHEN c.side='AR' THEN c.amount ELSE 0 END), 0)::numeric(14,2) AS receivable,
             COALESCE(SUM(CASE WHEN c.side='AP' THEN c.amount ELSE 0 END), 0)::numeric(14,2) AS payable
           FROM shipments s
           LEFT JOIN charges c ON c.shipment_id = s.id
           WHERE s.tenant_id = $1`,
-          [tenantId]
-        );
-        return rows[0] ?? { shipments: 0, receivable: 0, payable: 0 };
-      }),
-    ]);
-    await acc.close();
+        [tenantId]
+      );
+      return rows[0] ?? { shipments: 0, receivable: 0, payable: 0 };
+    });
+
+    const localRevenue = Number(localData?.receivable ?? 0);
+    const localCost = Number(localData?.payable ?? 0);
 
     return {
       acc: {
-        label: "委托运输 (ACC)",
-        revenue: accProfit.totalRevenue,
-        cost: accProfit.totalCost,
-        profit: accProfit.totalProfit,
-        orderCount: accProfit.orderCount,
-        byBranch: accProfit.byBranch,
+        label: "制单客户对照 (ACC)",
+        referenceOnly: true,
+        revenue: 0,
+        cost: 0,
+        profit: 0,
+        orderCount: 0,
+        byBranch: [],
       },
       xqt: {
-        label: "集货入仓 (XQT)",
-        revenue: xqtSummary.totalReceivable,
-        paid: xqtSummary.totalPaid,
-        unpaid: xqtSummary.totalUnpaid,
-        shipmentCount: xqtSummary.shipmentCount,
-        invoiceCount: xqtSummary.invoiceCount,
+        label: "卖货客户对照 (XQT)",
+        referenceOnly: true,
+        revenue: 0,
+        paid: 0,
+        unpaid: 0,
+        shipmentCount: 0,
+        invoiceCount: 0,
       },
       local: {
         label: "本地数据 (新系统)",
         shipments: localData?.shipments ?? 0,
-        receivable: Number(localData?.receivable ?? 0),
-        payable: Number(localData?.payable ?? 0),
-        profit: Number(localData?.receivable ?? 0) - Number(localData?.payable ?? 0),
+        receivable: localRevenue,
+        payable: localCost,
+        profit: localRevenue - localCost,
       },
       combined: {
-        totalRevenue: accProfit.totalRevenue + xqtSummary.totalReceivable + Number(localData?.receivable ?? 0),
-        totalCost: accProfit.totalCost + Number(localData?.payable ?? 0),
-        totalProfit: accProfit.totalProfit + Number(localData?.receivable ?? 0) - Number(localData?.payable ?? 0),
+        totalRevenue: localRevenue,
+        totalCost: localCost,
+        totalProfit: localRevenue - localCost,
       },
       period: { from, to },
     };

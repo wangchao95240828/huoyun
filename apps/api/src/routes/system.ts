@@ -9,8 +9,11 @@ import { SystemAdapter } from "../adapters/system-adapter.js";
 export async function systemRoutes(app: FastifyInstance) {
   const sys = new SystemAdapter(() => app.pg.connect());
 
-  // Init schema on startup
-  try { await sys.initSchema(); } catch { /* table may already exist */ }
+  if (process.env.INIT_LEGACY_SYS_SCHEMA === "true") {
+    sys.initSchema().catch((error) => {
+      app.log.warn({ error }, "legacy system schema init skipped");
+    });
+  }
 
   app.addHook("preHandler", async (req, reply) => {
     const path = req.url.split("?")[0];
