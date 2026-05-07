@@ -279,6 +279,173 @@ Authorization: Bearer <token>
 | 对账 | `/api/reconciliation/*` | P1 | 差异、核销、调账 |
 | 账本 | `/api/ledger/*` | P1 | 过账、分录、凭证 |
 
+### 5.1 业务流程、卖货/制单、服务模式如何关联查看
+
+两份核心文档的阅读方式：
+
+| 文档 | 看什么 | 和 API 的关系 |
+| --- | --- | --- |
+| `docs/platform-capability-coverage-framework-research.md` | 功能范围、优先级、ACC/XQT 覆盖矩阵 | 先确认某个功能属于卖货流程、制单流程还是 SaaS 通用模块 |
+| `docs/api-development-guide.md` | 接口路径、request body、response、验收要求 | 再回到本文件查具体接口和 body |
+
+业务方向和服务模式的对应关系：
+
+| 客户方向 | 服务模式 | 流程配置来源 | 订单接口路径 | 对照来源 |
+| --- | --- | --- | --- | --- |
+| `SELLER_CUSTOMER` | `SELLER_FULFILLMENT` | `GET /api/business-flows` 返回的卖货流程 | `/api/seller/orders/*` | XQT 新智慧卖货页面 |
+| `DOCUMENT_CUSTOMER` | `DOCUMENT_SHIPPING` | `GET /api/business-flows` 返回的制单流程 | `/api/document/orders/*` | ACC 制单能力 |
+
+当前已实现的 Spring Boot 订单接口中，`customerDirection` 和 `serviceMode` 不需要前端在 body 里传：
+
+| 路径 | 后端自动写入/筛选的方向 |
+| --- | --- |
+| `/api/seller/orders/search`, `/api/seller/orders` | `customerDirection=SELLER_CUSTOMER`, `serviceMode=SELLER_FULFILLMENT` |
+| `/api/document/orders/search`, `/api/document/orders` | `customerDirection=DOCUMENT_CUSTOMER`, `serviceMode=DOCUMENT_SHIPPING` |
+
+也就是说：
+
+1. 先调 `GET /api/business-flows`，拿到系统支持的流程配置。
+2. 卖货业务进入 `/api/seller/*`，制单业务进入 `/api/document/*`。
+3. 后续通用财务、仓库、报表类接口如果共用 `/api/finance/*`、`/api/warehouse/*`，再在 `filters.customerDirection` 和 `filters.serviceMode` 中区分业务方向。
+
+### 5.2 业务流程接口 body
+
+`GET /api/business-flows` 没有 request body。
+
+请求：
+
+```http
+GET /api/business-flows
+Authorization: Bearer <token>
+```
+
+响应示例：
+
+```json
+{
+  "ok": true,
+  "items": [
+    {
+      "flowCode": "SELLER_FULFILLMENT",
+      "customerDirection": "SELLER_CUSTOMER",
+      "name": "卖货客户履约流程",
+      "entryChannels": ["sales_order", "warehouse_receipt", "manual_order"],
+      "defaultSteps": [
+        "quote",
+        "order",
+        "warehouse_in",
+        "pick_pack",
+        "ship",
+        "track",
+        "customer_invoice",
+        "partner_reconcile",
+        "profit_review"
+      ],
+      "settlementModel": "AR_AP_PROFIT",
+      "active": true
+    },
+    {
+      "flowCode": "DOCUMENT_SHIPPING",
+      "customerDirection": "DOCUMENT_CUSTOMER",
+      "name": "制单客户发货流程",
+      "entryChannels": ["api_order", "batch_import", "manual_document", "customer_portal"],
+      "defaultSteps": [
+        "rate_quote",
+        "order_validate",
+        "label_create",
+        "freight_deduct",
+        "ship",
+        "track",
+        "customer_statement",
+        "balance_reconcile"
+      ],
+      "settlementModel": "PREPAID_OR_MONTHLY",
+      "active": true
+    }
+  ]
+}
+```
+
+### 5.3 当前已实现的卖货/制单订单 body
+
+当前代码已实现的查询 body 是轻量版，字段直接放在 body 顶层：
+
+```json
+{
+  "page": 1,
+  "pageSize": 20,
+  "keyword": "",
+  "customerCode": "SELLER-DEMO",
+  "status": "DRAFT"
+}
+```
+
+创建卖货订单：
+
+```http
+POST /api/seller/orders
+```
+
+```json
+{
+  "customerCode": "SELLER-DEMO",
+  "customerRef": "SELLER-REF-001",
+  "status": "DRAFT",
+  "orderEntryType": "SALES_ORDER",
+  "metadata": {
+    "sourcePage": "seller_order",
+    "remark": "卖货流程样例"
+  },
+  "lines": [
+    {
+      "lineNo": 1,
+      "itemName": "Sample Product",
+      "sku": "SKU-001",
+      "quantity": 1,
+      "declaredValue": 10,
+      "declaredCurrency": "USD",
+      "weightKg": 1.2,
+      "metadata": {
+        "cartonNo": "CTN001"
+      }
+    }
+  ]
+}
+```
+
+创建制单订单：
+
+```http
+POST /api/document/orders
+```
+
+```json
+{
+  "customerCode": "DOC-DEMO",
+  "customerRef": "DOC-REF-001",
+  "status": "DRAFT",
+  "orderEntryType": "MANUAL_DOCUMENT",
+  "metadata": {
+    "sourcePage": "document_order",
+    "receiverCountry": "US",
+    "postcode": "90001"
+  },
+  "lines": [
+    {
+      "lineNo": 1,
+      "itemName": "Document Item",
+      "sku": "DOC-SKU-001",
+      "quantity": 1,
+      "declaredValue": 20,
+      "declaredCurrency": "USD",
+      "weightKg": 0.8
+    }
+  ]
+}
+```
+
+当前已实现接口的入参字段来自 `OrderRequests.Search` 和 `OrderRequests.Save`；目标规范化查询 body 仍按后续章节的 `pageNum/pageSize/filters/sorts` 结构推进。
+
 ## 6. 第一部分：客户卖货 API，对照 XQT
 
 ### 6.1 开发边界
