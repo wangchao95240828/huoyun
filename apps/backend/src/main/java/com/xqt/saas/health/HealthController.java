@@ -1,7 +1,6 @@
 package com.xqt.saas.health;
 
 import java.time.OffsetDateTime;
-import java.util.Map;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,13 +15,13 @@ public class HealthController {
     }
 
     @GetMapping("/api/health")
-    public Map<String, Object> health() {
+    public HealthResponse health() {
         Integer database = jdbc.queryForObject("select 1", Integer.class);
-        return Map.of(
-            "ok", true,
-            "service", "xqt-backend",
-            "time", OffsetDateTime.now().toString(),
-            "database", database != null && database == 1 ? "ok" : "unknown"
+        return new HealthResponse(
+            true,
+            "xqt-backend",
+            OffsetDateTime.now().toString(),
+            database != null && database == 1 ? "ok" : "unknown"
         );
     }
 }

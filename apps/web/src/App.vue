@@ -1764,7 +1764,7 @@ async function loadMe() {
   const res = await apiFetch(`${API}/api/auth/me`);
   if (!res.ok) throw new Error("登录已过期");
   const json = await res.json();
-  authUser.value = json.user;
+  authUser.value = json.data?.user ?? json.user;
 }
 
 async function login() {

@@ -102,12 +102,12 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": true,
-  "items": [],
-  "page": {
-    "pageNum": 1,
-    "pageSize": 20,
-    "total": 0
-  }
+  "data": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20
+  },
+  "error": null
 }
 ```
 
@@ -324,45 +324,48 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": true,
-  "items": [
-    {
-      "flowCode": "SELLER_FULFILLMENT",
-      "customerDirection": "SELLER_CUSTOMER",
-      "name": "卖货客户履约流程",
-      "entryChannels": ["sales_order", "warehouse_receipt", "manual_order"],
-      "defaultSteps": [
-        "quote",
-        "order",
-        "warehouse_in",
-        "pick_pack",
-        "ship",
-        "track",
-        "customer_invoice",
-        "partner_reconcile",
-        "profit_review"
-      ],
-      "settlementModel": "AR_AP_PROFIT",
-      "active": true
-    },
-    {
-      "flowCode": "DOCUMENT_SHIPPING",
-      "customerDirection": "DOCUMENT_CUSTOMER",
-      "name": "制单客户发货流程",
-      "entryChannels": ["api_order", "batch_import", "manual_document", "customer_portal"],
-      "defaultSteps": [
-        "rate_quote",
-        "order_validate",
-        "label_create",
-        "freight_deduct",
-        "ship",
-        "track",
-        "customer_statement",
-        "balance_reconcile"
-      ],
-      "settlementModel": "PREPAID_OR_MONTHLY",
-      "active": true
-    }
-  ]
+  "data": {
+    "items": [
+      {
+        "flowCode": "SELLER_FULFILLMENT",
+        "customerDirection": "SELLER_CUSTOMER",
+        "name": "卖货客户履约流程",
+        "entryChannels": ["sales_order", "warehouse_receipt", "manual_order"],
+        "defaultSteps": [
+          "quote",
+          "order",
+          "warehouse_in",
+          "pick_pack",
+          "ship",
+          "track",
+          "customer_invoice",
+          "partner_reconcile",
+          "profit_review"
+        ],
+        "settlementModel": "AR_AP_PROFIT",
+        "active": true
+      },
+      {
+        "flowCode": "DOCUMENT_SHIPPING",
+        "customerDirection": "DOCUMENT_CUSTOMER",
+        "name": "制单客户发货流程",
+        "entryChannels": ["api_order", "batch_import", "manual_document", "customer_portal"],
+        "defaultSteps": [
+          "rate_quote",
+          "order_validate",
+          "label_create",
+          "freight_deduct",
+          "ship",
+          "track",
+          "customer_statement",
+          "balance_reconcile"
+        ],
+        "settlementModel": "PREPAID_OR_MONTHLY",
+        "active": true
+      }
+    ]
+  },
+  "error": null
 }
 ```
 
@@ -1347,6 +1350,7 @@ Repository 层只负责 SQL，不处理业务状态。
 | --- | --- |
 | `docs/api-reference.md` | 当前已存在接口清单 |
 | `docs/api-request-body-catalog.md` | 每个目标 API 的 request body 总表 |
+| `docs/alibaba-java-development-standard.md` | 阿里巴巴 Java 开发规约落地版 |
 | `docs/xqt-readonly-api-crawl.md` | 新智慧全菜单只读接口抓取 |
 | `docs/xqt-finance-api-requests.md` | 新智慧财务 19 个 POST 请求和 body 模板 |
 | `docs/acc-api-reverse-db-design.md` | ACC 源码 API 到数据库反推 |
