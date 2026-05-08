@@ -39,6 +39,7 @@ coverage/
 .vite/
 *.tsbuildinfo
 apps/web/src/*.js
+apps/web/src/**/*.js
 
 # Docker local state
 *.pid
