@@ -40,6 +40,8 @@
 | --- | --- | --- |
 | Web | `http://localhost:5173` | 统一前端入口 |
 | Spring Boot API | `http://localhost:18103` | 目标主 API |
+| Swagger UI | `http://localhost:18103/swagger-ui.html` | Spring Boot 在线接口文档 |
+| OpenAPI JSON | `http://localhost:18103/v3/api-docs` | 机器可读 API 契约 |
 | Fastify API | `http://localhost:18080` | 当前原型 API |
 | PostgreSQL | `localhost:5432` 或 Docker `15432` | 主库 |
 
@@ -66,6 +68,7 @@ Fastify 只保留在开发和迁移阶段。
 ### 3.1 认证
 
 除登录、健康检查外，所有正式 API 使用 Bearer Token。
+Swagger UI 和 OpenAPI JSON 允许未登录访问；在 Swagger 中调试受保护接口时，需要先登录获取 token，再通过 `Authorize` 填入 Bearer Token。
 
 ```http
 Authorization: Bearer <token>

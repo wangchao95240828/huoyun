@@ -1742,6 +1742,36 @@ function fmtCell(value: any, format?: string): string {
   return String(value);
 }
 
+async function readJson(response: Response, label = "请求") {
+  const body = await response.text();
+  if (!body.trim()) {
+    throw new Error(`${label}返回空响应 (${response.status})`);
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error(`${label}返回的不是 JSON (${response.status})`);
+  }
+}
+
+async function fetchJson(input: string, init: RequestInit = {}, label = "请求") {
+  const response = await fetch(input, init);
+  const json = await readJson(response, label);
+  if (!response.ok || json?.ok === false) {
+    throw new Error(json?.error ?? `${label}失败 (${response.status})`);
+  }
+  return json;
+}
+
+async function fetchOptionalJson<T>(input: string, fallback: T, label: string): Promise<T> {
+  try {
+    return await fetchJson(input, {}, label) as T;
+  } catch (e: any) {
+    error.value = e.message ?? `${label}失败`;
+    return fallback;
+  }
+}
+
 function authHeaders(init?: HeadersInit): Headers {
   const headers = new Headers(init);
   if (authToken.value) headers.set("Authorization", `Bearer ${authToken.value}`);
@@ -1763,7 +1793,7 @@ async function loadMe() {
   if (!authToken.value) return;
   const res = await apiFetch(`${API}/api/auth/me`);
   if (!res.ok) throw new Error("登录已过期");
-  const json = await res.json();
+  const json = await readJson(res, "加载当前用户");
   authUser.value = json.data?.user ?? json.user;
 }
 
@@ -1771,13 +1801,11 @@ async function login() {
   loginLoading.value = true;
   loginError.value = "";
   try {
-    const res = await fetch(`${API}/api/auth/login`, {
+    const json = await fetchJson(`${API}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(loginForm),
-    });
-    const json = await res.json();
-    if (!res.ok || !json.ok) throw new Error(json.error ?? "登录失败");
+    }, "登录");
     const loginData = json.data ?? json;
     authToken.value = loginData.token;
     authUser.value = loginData.user;
@@ -1817,14 +1845,13 @@ async function fetchDashboard() {
   loading.value = true;
   error.value = "";
   try {
-    const [dashRes, healthRes, branchRes] = await Promise.all([
-      fetch(`${API}/api/finance/dashboard`),
-      fetch(`${API}/health`),
-      fetch(`${API}/api/finance/branches`),
+    const [dashData, healthData, branchData] = await Promise.all([
+      fetchOptionalJson<DashboardData | null>(`${API}/api/finance/dashboard`, null, "加载财务看板"),
+      fetchOptionalJson<HealthData | null>(`${API}/health`, null, "加载系统状态"),
+      fetchOptionalJson<{ data?: BranchData[] }>(`${API}/api/finance/branches`, { data: [] }, "加载分公司"),
     ]);
-    dashboard.value = await dashRes.json();
-    health.value = await healthRes.json();
-    const branchData = await branchRes.json();
+    dashboard.value = dashData;
+    health.value = healthData;
     branches.value = branchData.data ?? [];
   } catch (e: any) {
     error.value = e.message;

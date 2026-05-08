@@ -8,6 +8,8 @@
 | --- | --- | --- |
 | Web | `http://localhost:5173` | 统一前端入口 |
 | Spring Boot API | `http://localhost:18103` | 主后端，认证和系统管理基础接口 |
+| Swagger UI | `http://localhost:18103/swagger-ui.html` | Spring Boot 在线接口文档 |
+| OpenAPI JSON | `http://localhost:18103/v3/api-docs` | 机器可读 API 契约 |
 | Fastify API | `http://localhost:18080` | 原型接口，承载 ACC/XQT/财务/系统管理早期路由 |
 
 前端代理：
@@ -25,6 +27,7 @@
 ### 2.1 认证
 
 除登录和健康检查外，Spring Boot 主后端接口使用 Bearer Token。
+Swagger UI 和 OpenAPI JSON 允许未登录访问，便于联调；业务接口仍需在 Swagger 里配置 Bearer Token 后调用。
 
 ```http
 Authorization: Bearer <token>

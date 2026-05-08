@@ -46,6 +46,14 @@ docker compose -f infra/docker-compose.yml up -d
 
 PostgreSQL 会自动执行 `db/migrations` 和 `db/seeds` 下的 SQL。使用 `15432` 是为了避免和本机已有 PostgreSQL 的 `5432` 冲突。
 
+默认测试账号：
+
+- 租户：`xqt`
+- 用户名：`admin`
+- 密码：`Admin@123456`
+
+默认测试数据包含 `SELLER-DEMO` 卖货客户、`DOC-DEMO` 制单客户、两条演示订单、运单、费用、账单、资金流水和审计日志。
+
 ### 2. 安装依赖
 
 ```bash
@@ -82,6 +90,11 @@ Spring Boot 后端：
 cd apps/backend
 ./mvnw spring-boot:run
 ```
+
+Spring Boot 启动后可访问 Swagger：
+
+- Swagger UI: `http://localhost:8080/swagger-ui.html`
+- OpenAPI JSON: `http://localhost:8080/v3/api-docs`
 
 如果本机 `8080` 已被其他 Java 服务占用，或你使用本机 PostgreSQL `5432`：
 
