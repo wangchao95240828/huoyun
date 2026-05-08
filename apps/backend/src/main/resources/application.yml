@@ -7,10 +7,10 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:15432/xqt_saas}
     username: ${SPRING_DATASOURCE_USERNAME:xqt}
-    password: ${SPRING_DATASOURCE_PASSWORD:xqt_dev_password}
+    password: ${SPRING_DATASOURCE_PASSWORD:38a1ba65af3599208b327625cec5279c698f}
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:8.148.227.76}
       port: ${REDIS_PORT:6379}
   sql:
     init:
