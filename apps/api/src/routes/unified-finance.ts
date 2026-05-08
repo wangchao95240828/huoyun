@@ -30,6 +30,10 @@ export async function unifiedFinanceRoutes(app: FastifyInstance) {
     }
   }
 
+  function toMoney(value: number): number {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
+  }
+
   // 统一财务驾驶舱
   app.get<{
     Querystring: { dateFrom?: string; dateTo?: string; branch?: string };
@@ -38,22 +42,102 @@ export async function unifiedFinanceRoutes(app: FastifyInstance) {
     const from = dateFrom ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const to = dateTo ?? new Date().toISOString().slice(0, 10);
 
-    const localData = await withTenant(app, defaultTenantCode, async (client, tenantId) => {
-      const { rows } = await client.query(
+    const dashboardData = await withTenant(app, defaultTenantCode, async (client, tenantId) => {
+      const { rows: totalRows } = await client.query(
         `SELECT
             COUNT(DISTINCT s.id)::int AS shipments,
+            COUNT(DISTINCT o.id)::int AS orders,
             COALESCE(SUM(CASE WHEN c.side='AR' THEN c.amount ELSE 0 END), 0)::numeric(14,2) AS receivable,
             COALESCE(SUM(CASE WHEN c.side='AP' THEN c.amount ELSE 0 END), 0)::numeric(14,2) AS payable
           FROM shipments s
+          LEFT JOIN shipment_order_links sol ON sol.tenant_id = s.tenant_id AND sol.shipment_id = s.id
+          LEFT JOIN orders o ON o.tenant_id = s.tenant_id AND o.id = sol.order_id
           LEFT JOIN charges c ON c.shipment_id = s.id
           WHERE s.tenant_id = $1`,
         [tenantId]
       );
-      return rows[0] ?? { shipments: 0, receivable: 0, payable: 0 };
+
+      const { rows: flowRows } = await client.query(
+        `WITH flow_orders AS (
+            SELECT
+              o.customer_direction,
+              o.service_mode,
+              COUNT(DISTINCT o.id)::int AS orders
+            FROM orders o
+            WHERE o.tenant_id = $1
+              AND o.deleted_at IS NULL
+            GROUP BY o.customer_direction, o.service_mode
+          ),
+          flow_shipments AS (
+            SELECT
+              s.customer_direction,
+              s.service_mode,
+              COUNT(DISTINCT s.id)::int AS shipments,
+              COALESCE(SUM(CASE WHEN c.side='AR' THEN c.amount ELSE 0 END), 0)::numeric(14,2) AS receivable,
+              COALESCE(SUM(CASE WHEN c.side='AP' THEN c.amount ELSE 0 END), 0)::numeric(14,2) AS payable
+            FROM shipments s
+            LEFT JOIN charges c ON c.tenant_id = s.tenant_id AND c.shipment_id = s.id
+            WHERE s.tenant_id = $1
+            GROUP BY s.customer_direction, s.service_mode
+          )
+          SELECT
+            COALESCE(fo.customer_direction, fs.customer_direction) AS customer_direction,
+            COALESCE(fo.service_mode, fs.service_mode) AS service_mode,
+            COALESCE(fo.orders, 0)::int AS orders,
+            COALESCE(fs.shipments, 0)::int AS shipments,
+            COALESCE(fs.receivable, 0)::numeric(14,2) AS receivable,
+            COALESCE(fs.payable, 0)::numeric(14,2) AS payable
+          FROM flow_orders fo
+          FULL JOIN flow_shipments fs
+            ON fs.customer_direction = fo.customer_direction
+           AND fs.service_mode = fo.service_mode
+          ORDER BY COALESCE(fo.service_mode, fs.service_mode)`,
+        [tenantId]
+      );
+
+      const { rows: invoiceRows } = await client.query(
+        `SELECT
+            COUNT(*)::int AS invoice_count,
+            COALESCE(SUM(paid_amount), 0)::numeric(14,2) AS paid_amount,
+            COALESCE(SUM(unpaid_amount), 0)::numeric(14,2) AS unpaid_amount
+          FROM customer_invoices
+          WHERE tenant_id = $1`,
+        [tenantId]
+      );
+
+      return {
+        total: totalRows[0] ?? { shipments: 0, orders: 0, receivable: 0, payable: 0 },
+        flows: flowRows,
+        invoices: invoiceRows[0] ?? { invoice_count: 0, paid_amount: 0, unpaid_amount: 0 },
+      };
     });
 
-    const localRevenue = Number(localData?.receivable ?? 0);
-    const localCost = Number(localData?.payable ?? 0);
+    const localRevenue = toMoney(Number(dashboardData?.total.receivable ?? 0));
+    const localCost = toMoney(Number(dashboardData?.total.payable ?? 0));
+    const localProfit = toMoney(localRevenue - localCost);
+    const invoiceCount = Number(dashboardData?.invoices.invoice_count ?? 0);
+    const paidAmount = toMoney(Number(dashboardData?.invoices.paid_amount ?? 0));
+    const unpaidAmount = toMoney(Number(dashboardData?.invoices.unpaid_amount ?? 0));
+    const flowLabels: Record<string, string> = {
+      SELLER_FULFILLMENT: "卖货客户履约",
+      DOCUMENT_SHIPPING: "制单客户发货",
+      WAREHOUSE_ONLY: "仓储服务",
+      VALUE_ADDED: "增值服务",
+    };
+    const flows = (dashboardData?.flows ?? []).map((row: any) => {
+      const receivable = toMoney(Number(row.receivable ?? 0));
+      const payable = toMoney(Number(row.payable ?? 0));
+      return {
+        code: row.service_mode,
+        customerDirection: row.customer_direction,
+        label: flowLabels[row.service_mode] ?? row.service_mode,
+        orders: Number(row.orders ?? 0),
+        shipments: Number(row.shipments ?? 0),
+        receivable,
+        payable,
+        profit: toMoney(receivable - payable),
+      };
+    });
 
     return {
       acc: {
@@ -76,16 +160,21 @@ export async function unifiedFinanceRoutes(app: FastifyInstance) {
       },
       local: {
         label: "本地数据 (新系统)",
-        shipments: localData?.shipments ?? 0,
+        orders: dashboardData?.total.orders ?? 0,
+        shipments: dashboardData?.total.shipments ?? 0,
         receivable: localRevenue,
         payable: localCost,
-        profit: localRevenue - localCost,
+        profit: localProfit,
+        invoiceCount,
+        paid: paidAmount,
+        unpaid: unpaidAmount,
       },
       combined: {
         totalRevenue: localRevenue,
         totalCost: localCost,
-        totalProfit: localRevenue - localCost,
+        totalProfit: localProfit,
       },
+      flows,
       period: { from, to },
     };
   });
