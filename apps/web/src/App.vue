@@ -91,6 +91,7 @@ interface DashboardData {
   };
   combined: { totalRevenue: number; totalCost: number; totalProfit: number };
   flows?: DashboardFlowData[];
+  tracking?: DashboardTrackingData;
   period: { from: string; to: string };
 }
 
@@ -103,6 +104,55 @@ interface DashboardFlowData {
   receivable: number;
   payable: number;
   profit: number;
+}
+
+interface DashboardGeoPoint {
+  name: string;
+  countryCode: string;
+  lat: number;
+  lng: number;
+}
+
+interface DashboardTrackingRoute {
+  id: string;
+  shipmentNo: string;
+  trackingNo: string;
+  serviceMode: string;
+  customerDirection: string;
+  carrierName: string;
+  channelName?: string;
+  status: string;
+  shipmentStatus: string;
+  rawStatus: string;
+  latestLocation: string;
+  latestEventTime?: string;
+  destinationCountry: string;
+  destinationPostalCode?: string;
+  progress: number;
+  origin: DashboardGeoPoint;
+  current: DashboardGeoPoint;
+  destination: DashboardGeoPoint;
+}
+
+interface DashboardTrackingData {
+  summary: {
+    activeShipments: number;
+    exceptionCount: number;
+    deliveredToday: number;
+    trackedShipments: number;
+    destinationCountries: number;
+  };
+  routes: DashboardTrackingRoute[];
+}
+
+interface MapPoint {
+  x: number;
+  y: number;
+}
+
+interface MapSegment {
+  from: MapPoint;
+  to: MapPoint;
 }
 
 interface HealthData {
@@ -130,6 +180,7 @@ const health = ref<HealthData | null>(null);
 const branches = ref<BranchData[]>([]);
 const loading = ref(false);
 const error = ref("");
+const selectedTrackingRouteId = ref("");
 
 interface AuthUser {
   id: string;
@@ -1769,6 +1820,71 @@ function ratio(value: number, total: number): number {
   return Math.max(0, Math.min(100, (value / total) * 100));
 }
 
+function mapPoint(point: DashboardGeoPoint): MapPoint {
+  return {
+    x: ((point.lng + 180) / 360) * 100,
+    y: ((90 - point.lat) / 180) * 100,
+  };
+}
+
+function mapRouteSegments(route: DashboardTrackingRoute): MapSegment[] {
+  const from = mapPoint(route.origin);
+  const to = mapPoint(route.destination);
+  if (Math.abs(to.x - from.x) <= 50) {
+    return [{ from, to }];
+  }
+  const boundaryY = (from.y + to.y) / 2;
+  if (to.x < from.x) {
+    return [
+      { from, to: { x: 100, y: boundaryY } },
+      { from: { x: 0, y: boundaryY }, to },
+    ];
+  }
+  return [
+    { from, to: { x: 0, y: boundaryY } },
+    { from: { x: 100, y: boundaryY }, to },
+  ];
+}
+
+function mapProgressPoint(route: DashboardTrackingRoute): MapPoint {
+  const from = mapPoint(route.origin);
+  const to = mapPoint(route.destination);
+  const progress = Math.max(0, Math.min(100, route.progress ?? 0)) / 100;
+  let targetX = to.x;
+  if (Math.abs(to.x - from.x) > 50) {
+    targetX = to.x < from.x ? to.x + 100 : to.x - 100;
+  }
+  const x = (from.x + (targetX - from.x) * progress + 100) % 100;
+  const y = from.y + (to.y - from.y) * progress;
+  return { x, y };
+}
+
+function trackingStatusLabel(status?: string): string {
+  const labels: Record<string, string> = {
+    CREATED: "已建单",
+    ORDERED: "已下单",
+    DRAFT: "草稿",
+    IN_WAREHOUSE: "已入仓",
+    MEASURED: "已测量",
+    BOOKED: "已订舱",
+    IN_TRANSIT: "运输中",
+    OUT_FOR_DELIVERY: "派送中",
+    DELIVERED: "已签收",
+    CLOSED: "已关闭",
+    EXCEPTION: "异常",
+    CLAIMING: "理赔中",
+    RETURNED: "已退回",
+    VOID: "已作废",
+  };
+  const code = String(status ?? "").toUpperCase();
+  return labels[code] ?? (code || "-");
+}
+
+function fmtTime(value?: string): string {
+  if (!value) return "暂无轨迹时间";
+  return value.slice(0, 16).replace("T", " ");
+}
+
 function fmtCell(value: any, format?: string): string {
   if (value === null || value === undefined) return "-";
   if (format === "money") return "¥" + fmt(Number(value));
@@ -1891,6 +2007,33 @@ const dashboardAlerts = computed(() => {
   }
   return items.slice(0, 4);
 });
+
+const trackingRoutes = computed<DashboardTrackingRoute[]>(() => dashboard.value?.tracking?.routes ?? []);
+const trackingSummary = computed(() => dashboard.value?.tracking?.summary ?? {
+  activeShipments: 0,
+  exceptionCount: 0,
+  deliveredToday: 0,
+  trackedShipments: 0,
+  destinationCountries: 0,
+});
+const selectedTrackingRoute = computed(() => {
+  if (!trackingRoutes.value.length) return null;
+  return trackingRoutes.value.find(route => route.id === selectedTrackingRouteId.value) ?? trackingRoutes.value[0];
+});
+const trackingStats = computed(() => [
+  { label: "在途运单", value: fmtInt(trackingSummary.value.activeShipments), tone: "blue" },
+  { label: "已挂轨迹", value: fmtInt(trackingSummary.value.trackedShipments), tone: "green" },
+  { label: "目的国家", value: fmtInt(trackingSummary.value.destinationCountries), tone: "violet" },
+  { label: "异常件", value: fmtInt(trackingSummary.value.exceptionCount), tone: trackingSummary.value.exceptionCount > 0 ? "red" : "green" },
+]);
+
+function isSelectedTrackingRoute(route: DashboardTrackingRoute): boolean {
+  return selectedTrackingRoute.value?.id === route.id;
+}
+
+function selectTrackingRoute(route: DashboardTrackingRoute): void {
+  selectedTrackingRouteId.value = route.id;
+}
 
 async function readJson(response: Response, label = "请求") {
   const body = await response.text();
@@ -2673,6 +2816,110 @@ async function doReloadBill(id: number) {
         </section>
 
         <section class="dashboard-grid" v-if="dashboard">
+          <article class="dashboard-panel tracking-panel">
+            <div class="panel-title">
+              <div>
+                <p>全球物流跟踪</p>
+                <h2>货物轨迹地图</h2>
+              </div>
+              <span>{{ fmtInt(trackingSummary.activeShipments) }} 在途</span>
+            </div>
+            <div class="tracking-layout">
+              <div class="world-map-shell">
+                <svg class="world-map-svg" viewBox="0 0 100 100" aria-label="全球物流轨迹地图">
+                  <defs>
+                    <linearGradient id="routeGradient" x1="0%" x2="100%" y1="0%" y2="0%">
+                      <stop offset="0%" stop-color="#0f8f7f" />
+                      <stop offset="100%" stop-color="#2563eb" />
+                    </linearGradient>
+                  </defs>
+                  <g class="map-grid">
+                    <line v-for="x in [20, 40, 60, 80]" :key="'x' + x" :x1="x" y1="8" :x2="x" y2="88" />
+                    <line v-for="y in [24, 42, 60, 78]" :key="'y' + y" x1="4" :y1="y" x2="96" :y2="y" />
+                  </g>
+                  <g class="map-land">
+                    <path d="M6 26 C12 14 27 12 35 20 C40 25 35 34 29 39 C23 44 24 50 17 50 C11 49 8 42 5 36 C3 32 4 29 6 26Z" />
+                    <path d="M29 50 C36 52 41 61 40 70 C39 80 33 90 29 88 C25 86 27 77 24 70 C21 63 23 55 29 50Z" />
+                    <path d="M42 20 C51 13 69 13 83 18 C92 22 97 31 93 38 C88 44 80 39 73 45 C66 51 53 47 46 42 C39 36 35 27 42 20Z" />
+                    <path d="M50 43 C59 39 66 46 66 57 C66 69 59 79 53 76 C48 73 49 64 46 58 C43 52 44 46 50 43Z" />
+                    <path d="M77 67 C85 62 93 67 94 75 C90 80 80 79 75 74 C74 71 75 69 77 67Z" />
+                    <path d="M22 10 C29 4 40 6 43 13 C37 18 28 18 22 10Z" />
+                    <path d="M4 91 C29 88 70 89 96 91 L96 96 L4 96Z" />
+                  </g>
+                  <g class="map-routes">
+                    <g v-for="route in trackingRoutes" :key="route.id">
+                      <line
+                        v-for="(segment, index) in mapRouteSegments(route)"
+                        :key="route.id + index"
+                        :class="['map-route-line', { active: isSelectedTrackingRoute(route) }]"
+                        :x1="segment.from.x"
+                        :y1="segment.from.y"
+                        :x2="segment.to.x"
+                        :y2="segment.to.y"
+                      />
+                      <circle class="map-pin origin" :cx="mapPoint(route.origin).x" :cy="mapPoint(route.origin).y" r="1.5" />
+                      <circle class="map-pin destination" :cx="mapPoint(route.destination).x" :cy="mapPoint(route.destination).y" r="1.8" />
+                      <circle
+                        :class="['map-pin current', { active: isSelectedTrackingRoute(route) }]"
+                        :cx="mapProgressPoint(route).x"
+                        :cy="mapProgressPoint(route).y"
+                        r="2.25"
+                      />
+                    </g>
+                  </g>
+                </svg>
+                <div class="map-caption" v-if="selectedTrackingRoute">
+                  <MapPin :size="15" />
+                  <div>
+                    <strong>{{ selectedTrackingRoute.shipmentNo }}</strong>
+                    <span>
+                      {{ selectedTrackingRoute.origin.name }} → {{ selectedTrackingRoute.destination.name }}
+                      · {{ trackingStatusLabel(selectedTrackingRoute.status) }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <aside class="tracking-sidebar">
+                <div class="tracking-stats">
+                  <div v-for="item in trackingStats" :key="item.label" :class="item.tone">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                </div>
+
+                <div class="selected-shipment" v-if="selectedTrackingRoute">
+                  <div>
+                    <span>当前追踪</span>
+                    <strong>{{ selectedTrackingRoute.trackingNo || selectedTrackingRoute.shipmentNo }}</strong>
+                  </div>
+                  <p>{{ selectedTrackingRoute.carrierName }} · {{ selectedTrackingRoute.latestLocation }}</p>
+                  <i><b :style="{ width: selectedTrackingRoute.progress + '%' }" /></i>
+                  <small>{{ fmtTime(selectedTrackingRoute.latestEventTime) }} · {{ selectedTrackingRoute.rawStatus }}</small>
+                </div>
+
+                <div class="route-list" v-if="trackingRoutes.length">
+                  <button
+                    v-for="route in trackingRoutes.slice(0, 5)"
+                    :key="route.id"
+                    :class="{ active: isSelectedTrackingRoute(route) }"
+                    @click="selectTrackingRoute(route)"
+                  >
+                    <span>
+                      <strong>{{ route.shipmentNo }}</strong>
+                      <em>{{ route.destination.countryCode }} · {{ trackingStatusLabel(route.status) }}</em>
+                    </span>
+                    <small>{{ route.progress }}%</small>
+                  </button>
+                </div>
+                <div class="map-empty" v-else>
+                  <Globe :size="28" />
+                  <span>暂无可跟踪运单</span>
+                </div>
+              </aside>
+            </div>
+          </article>
+
           <article class="dashboard-panel flow-panel">
             <div class="panel-title">
               <div>
