@@ -1,28 +1,19 @@
 package com.xqt.saas.health;
 
-import java.time.OffsetDateTime;
-import java.util.Map;
-
-import org.springframework.jdbc.core.JdbcTemplate;
+import com.xqt.saas.common.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class HealthController {
-    private final JdbcTemplate jdbc;
+    private final HealthService healthService;
 
-    public HealthController(JdbcTemplate jdbc) {
-        this.jdbc = jdbc;
+    public HealthController(HealthService healthService) {
+        this.healthService = healthService;
     }
 
     @GetMapping("/api/health")
-    public Map<String, Object> health() {
-        Integer database = jdbc.queryForObject("select 1", Integer.class);
-        return Map.of(
-            "ok", true,
-            "service", "xqt-backend",
-            "time", OffsetDateTime.now().toString(),
-            "database", database != null && database == 1 ? "ok" : "unknown"
-        );
+    public ApiResponse<HealthResponse> health() {
+        return ApiResponse.ok(healthService.health());
     }
 }

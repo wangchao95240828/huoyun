@@ -13,4 +13,8 @@ public record AuthPrincipal(
     long exp,
     String jti
 ) {
+    public AuthPrincipal {
+        roles = roles == null ? List.of() : List.copyOf(roles);
+        permissions = permissions == null ? List.of() : List.copyOf(permissions);
+    }
 }

@@ -8,6 +8,13 @@
 
 本文档已经合并原来的接口清单和表单字段说明；每个 `POST` 请求都列出基础 body、可追加的查询字段，以及一份 body 模板。
 
+开发使用规则：
+
+1. 本文档记录的是新智慧外部接口证据，不作为新平台生产运行依赖。
+2. 新平台对应能力必须沉淀到 `/api/finance/*`、`/api/seller/*` 等 Spring Boot 目标 API。
+3. 目标 API 响应统一为 `ApiResponse<T>`，错误统一输出 `errorCode`。
+4. 写接口必须按阿里巴巴开发规约分层：Controller -> Service -> Repository，并从 token 写入操作人和审计日志。
+
 基础域名由环境变量或部署配置提供，文档中不固化真实第三方地址：
 
 ```text

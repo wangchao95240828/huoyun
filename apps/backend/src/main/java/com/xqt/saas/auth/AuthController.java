@@ -1,10 +1,10 @@
 package com.xqt.saas.auth;
 
-import java.util.Map;
-
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 
+import com.xqt.saas.common.ApiResponse;
+import com.xqt.saas.common.CommandResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,19 +22,20 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
-        return authService.login(request, httpRequest.getRemoteAddr(), httpRequest.getHeader("user-agent"));
+    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        LoginResponse response = authService.login(request, httpRequest.getRemoteAddr(), httpRequest.getHeader("user-agent"));
+        return ApiResponse.ok(response);
     }
 
     @GetMapping("/me")
-    public Map<String, Object> me(Authentication authentication) {
-        return Map.of("ok", true, "user", principal(authentication));
+    public ApiResponse<AuthMeResponse> me(Authentication authentication) {
+        return ApiResponse.ok(new AuthMeResponse(principal(authentication)));
     }
 
     @PostMapping("/logout")
-    public Map<String, Object> logout(Authentication authentication) {
+    public ApiResponse<CommandResponse> logout(Authentication authentication) {
         authService.logout(principal(authentication));
-        return Map.of("ok", true);
+        return ApiResponse.ok(CommandResponse.ok());
     }
 
     private AuthPrincipal principal(Authentication authentication) {

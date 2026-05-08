@@ -37,3 +37,11 @@ app:
   auth:
     jwt-secret: ${JWT_SECRET:replace-me-in-real-env}
     token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:28800}
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha

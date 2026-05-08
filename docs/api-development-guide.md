@@ -1,6 +1,6 @@
 # 新航线统一平台 API 开发文档
 
-版本：2026-05-07  
+版本：2026-05-08
 适用阶段：Spring Boot 主后端迁移 / 从零开发两套客户流程
 
 ## 1. API 定位
@@ -29,6 +29,10 @@
 4. ACC/XQT 字段通过 `external_*` 映射层进入系统，不直接污染主模型。
 5. 所有客户、订单、运单、财务查询必须支持 `customerDirection`，区分卖货客户和制单客户。
 6. 写接口必须具备权限、幂等、审计和错误追踪。
+7. Controller 只负责 HTTP 入参、鉴权主体获取和响应包装，不直接持有 `JdbcTemplate`，不直接写 SQL。
+8. 所有正式接口统一返回 `ApiResponse<T>`，错误由 `GlobalExceptionHandler` 输出 `errorCode`。
+9. 写接口必须从 token 获取 `tenantId`、`userId` 写入操作人字段，不接受前端传入操作人。
+10. 后端提交前必须通过 `./mvnw verify`，包含测试、Checkstyle、P3C/PMD、SpotBugs。
 
 ## 2. 环境与代理
 
@@ -36,6 +40,8 @@
 | --- | --- | --- |
 | Web | `http://localhost:5173` | 统一前端入口 |
 | Spring Boot API | `http://localhost:18103` | 目标主 API |
+| Swagger UI | `http://localhost:18103/swagger-ui.html` | Spring Boot 在线接口文档 |
+| OpenAPI JSON | `http://localhost:18103/v3/api-docs` | 机器可读 API 契约 |
 | Fastify API | `http://localhost:18080` | 当前原型 API |
 | PostgreSQL | `localhost:5432` 或 Docker `15432` | 主库 |
 
@@ -62,6 +68,7 @@ Fastify 只保留在开发和迁移阶段。
 ### 3.1 认证
 
 除登录、健康检查外，所有正式 API 使用 Bearer Token。
+Swagger UI 和 OpenAPI JSON 允许未登录访问；在 Swagger 中调试受保护接口时，需要先登录获取 token，再通过 `Authorize` 填入 Bearer Token。
 
 ```http
 Authorization: Bearer <token>
@@ -73,27 +80,36 @@ Authorization: Bearer <token>
 {
   "ok": true,
   "data": {
+    "ok": true,
     "token": "<token>",
+    "expiresIn": 28800,
     "user": {
-      "id": "...",
+      "userId": "...",
+      "tenantId": "...",
       "username": "admin",
       "displayName": "系统管理员",
       "tenantCode": "xqt",
       "roles": ["admin"],
-      "permissions": ["admin.user.read"]
+      "permissions": ["admin.user.read"],
+      "exp": 1778106742,
+      "jti": "..."
     }
-  }
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
 ### 3.2 响应格式
 
-单对象：
+所有 Spring Boot 正式 API 统一响应包：
 
 ```json
 {
   "ok": true,
-  "data": {}
+  "data": {},
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -102,12 +118,13 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": true,
-  "items": [],
-  "page": {
-    "pageNum": 1,
-    "pageSize": 20,
-    "total": 0
-  }
+  "data": {
+    "items": [],
+    "page": 1,
+    "pageSize": 20
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -116,12 +133,13 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": false,
-  "code": "VALIDATION_ERROR",
-  "message": "请求参数不合法",
-  "traceId": "01HX...",
-  "details": []
+  "data": null,
+  "error": "请求参数不合法",
+  "errorCode": "VALIDATION_FAILED"
 }
 ```
+
+`data` 里必须是明确 DTO：列表使用 `ListResponse<T>`，分页使用 `PageResponse<T>`，单对象使用 `ItemResponse<T>`，命令类使用 `CommandResponse`。不允许 Controller 公开返回裸 `Map`。
 
 ### 3.3 分页和排序
 
@@ -324,45 +342,48 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": true,
-  "items": [
-    {
-      "flowCode": "SELLER_FULFILLMENT",
-      "customerDirection": "SELLER_CUSTOMER",
-      "name": "卖货客户履约流程",
-      "entryChannels": ["sales_order", "warehouse_receipt", "manual_order"],
-      "defaultSteps": [
-        "quote",
-        "order",
-        "warehouse_in",
-        "pick_pack",
-        "ship",
-        "track",
-        "customer_invoice",
-        "partner_reconcile",
-        "profit_review"
-      ],
-      "settlementModel": "AR_AP_PROFIT",
-      "active": true
-    },
-    {
-      "flowCode": "DOCUMENT_SHIPPING",
-      "customerDirection": "DOCUMENT_CUSTOMER",
-      "name": "制单客户发货流程",
-      "entryChannels": ["api_order", "batch_import", "manual_document", "customer_portal"],
-      "defaultSteps": [
-        "rate_quote",
-        "order_validate",
-        "label_create",
-        "freight_deduct",
-        "ship",
-        "track",
-        "customer_statement",
-        "balance_reconcile"
-      ],
-      "settlementModel": "PREPAID_OR_MONTHLY",
-      "active": true
-    }
-  ]
+  "data": {
+    "items": [
+      {
+        "flowCode": "SELLER_FULFILLMENT",
+        "customerDirection": "SELLER_CUSTOMER",
+        "name": "卖货客户履约流程",
+        "entryChannels": ["sales_order", "warehouse_receipt", "manual_order"],
+        "defaultSteps": [
+          "quote",
+          "order",
+          "warehouse_in",
+          "pick_pack",
+          "ship",
+          "track",
+          "customer_invoice",
+          "partner_reconcile",
+          "profit_review"
+        ],
+        "settlementModel": "AR_AP_PROFIT",
+        "active": true
+      },
+      {
+        "flowCode": "DOCUMENT_SHIPPING",
+        "customerDirection": "DOCUMENT_CUSTOMER",
+        "name": "制单客户发货流程",
+        "entryChannels": ["api_order", "batch_import", "manual_document", "customer_portal"],
+        "defaultSteps": [
+          "rate_quote",
+          "order_validate",
+          "label_create",
+          "freight_deduct",
+          "ship",
+          "track",
+          "customer_statement",
+          "balance_reconcile"
+        ],
+        "settlementModel": "PREPAID_OR_MONTHLY",
+        "active": true
+      }
+    ]
+  },
+  "error": null
 }
 ```
 
@@ -1232,9 +1253,9 @@ Fastify `/api/sys/*` 后续迁到 Spring Boot `/api/admin/*`。
   "username": "operator01",
   "displayName": "操作员",
   "email": "operator@example.com",
-  "phone": "",
-  "status": "active",
-  "roleIds": []
+  "password": "Initial@123456",
+  "status": "ACTIVE",
+  "roleCodes": ["OPERATOR"]
 }
 ```
 
@@ -1284,16 +1305,20 @@ Fastify `/api/sys/*` 后续迁到 Spring Boot `/api/admin/*`。
 @RequestMapping("/api/finance/customer-invoices")
 public class CustomerInvoiceController {
     private final CustomerInvoiceService service;
+    private final RequestContext context;
 
-    public CustomerInvoiceController(CustomerInvoiceService service) {
+    public CustomerInvoiceController(CustomerInvoiceService service, RequestContext context) {
         this.service = service;
+        this.context = context;
     }
 
     @PostMapping("/search")
-    public ApiResponse<PageResult<CustomerInvoiceDto>> search(
-            @Valid @RequestBody CustomerInvoiceSearchRequest request,
-            AuthPrincipal principal) {
-        return ApiResponse.ok(service.search(principal.tenantId(), request));
+    public ApiResponse<PageResponse<CustomerInvoiceView>> search(
+        Authentication authentication,
+        @Valid @RequestBody CustomerInvoiceSearchRequest request
+    ) {
+        AuthPrincipal auth = context.principal(authentication);
+        return ApiResponse.ok(service.search(auth, request));
     }
 }
 ```
@@ -1318,7 +1343,9 @@ Service 层负责：
 2. 校验权限和业务规则。
 3. 做字段映射和查询组装。
 4. 控制事务。
-5. 写操作日志。
+5. 写接口使用 `@Transactional(rollbackFor = Exception.class)`。
+6. 写操作日志。
+7. 抛出 `ApiException`，由全局异常处理器统一输出 `ApiResponse`。
 
 Repository 层只负责 SQL，不处理业务状态。
 
@@ -1333,12 +1360,13 @@ Repository 层只负责 SQL，不处理业务状态。
 | 权限 | 明确 permission code |
 | 参数 | 有 request body 示例和校验规则 |
 | 响应 | 有成功和失败响应格式 |
-| 分页 | 列表接口支持 pageNum/pageSize/total |
+| 分页 | 已实现接口使用 `page/pageSize` 或目标规范 `pageNum/pageSize`，文档必须标清 |
 | 排序 | 明确可排序字段 |
 | 租户 | SQL 带 tenant 或依赖 RLS |
 | 审计 | 写接口记录操作日志 |
 | 幂等 | 金额、库存、账单、批量写支持幂等 |
 | 测试 | 至少有接口测试或 service 单元测试 |
+| 质量门禁 | `./mvnw verify`、前端 lint/build 必须通过 |
 | 对照 | 卖货流程关联 XQT comparison case，制单流程关联 ACC comparison case |
 
 ## 13. 文档来源
@@ -1346,6 +1374,8 @@ Repository 层只负责 SQL，不处理业务状态。
 | 文档 | 用途 |
 | --- | --- |
 | `docs/api-reference.md` | 当前已存在接口清单 |
+| `docs/api-request-body-catalog.md` | 每个目标 API 的 request body 总表 |
+| `docs/alibaba-java-development-standard.md` | 阿里巴巴 Java 开发规约落地版 |
 | `docs/xqt-readonly-api-crawl.md` | 新智慧全菜单只读接口抓取 |
 | `docs/xqt-finance-api-requests.md` | 新智慧财务 19 个 POST 请求和 body 模板 |
 | `docs/acc-api-reverse-db-design.md` | ACC 源码 API 到数据库反推 |

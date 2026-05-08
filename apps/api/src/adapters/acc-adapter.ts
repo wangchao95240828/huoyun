@@ -345,6 +345,294 @@ const BILL_STATUS_MAP = ["待结款", "已结清", "已过结", "已逾期"];
 const EMPLOYEE_STATUS_MAP = ["未入职", "试用期", "正式员工", "长期休假", "离职"];
 const COMMISSION_TYPE_MAP = ["按销售额", "按利润额", "按销售数"];
 
+const DEMO_ACC_CUSTOMERS: AccCustomer[] = [
+  {
+    id: 1001,
+    code: "C-SZ-001",
+    name: "深圳星河跨境贸易有限公司",
+    contact: "林晓",
+    mobile: "13800001001",
+    email: "seller01@example.com",
+    credits: 80000,
+    balance: 12850.6,
+    settlement: "月结",
+    branch: "深圳总部",
+    group: "重点客户",
+    salesman: "王超",
+    grade: "A",
+    isActive: true,
+  },
+  {
+    id: 1002,
+    code: "C-GZ-002",
+    name: "广州云仓科技有限公司",
+    contact: "周敏",
+    mobile: "13800001002",
+    email: "warehouse@example.com",
+    credits: 50000,
+    balance: 3920,
+    settlement: "周结",
+    branch: "广州分公司",
+    group: "仓配客户",
+    salesman: "李婷",
+    grade: "B",
+    isActive: true,
+  },
+  {
+    id: 1003,
+    code: "C-DOC-003",
+    name: "宁波制单客户样例",
+    contact: "陈航",
+    mobile: "13800001003",
+    email: "doc@example.com",
+    credits: 30000,
+    balance: -760.4,
+    settlement: "月结",
+    branch: "华东分公司",
+    group: "制单客户",
+    salesman: "赵宁",
+    grade: "A",
+    isActive: true,
+  },
+];
+
+const DEMO_ACC_SUPPLIERS: AccSupplier[] = [
+  {
+    id: 2001,
+    name: "FedEx 华南代理",
+    contact: "刘工",
+    mobile: "13900002001",
+    phone: "0755-88880001",
+    email: "fedex-agent@example.com",
+    address: "深圳市宝安区空港物流园",
+    product: "美国尾程/国际快递",
+    balance: -8420.8,
+    settlement: "月结",
+    remark: "演示供应商",
+  },
+  {
+    id: 2002,
+    name: "UPS 欧洲专线",
+    contact: "许经理",
+    mobile: "13900002002",
+    phone: "020-88880002",
+    email: "ups-eu@example.com",
+    address: "广州市白云区机场路",
+    product: "欧洲空派/卡派",
+    balance: -3150,
+    settlement: "周结",
+    remark: "演示供应商",
+  },
+];
+
+const DEMO_ACC_CHANNELS: AccChannel[] = [
+  { id: 3001, name: "美国 FedEx Ground", code: "US-FDX-G", isOpen: true, isDebug: false, remark: "美国尾程演示渠道" },
+  { id: 3002, name: "欧洲 UPS 空派", code: "EU-UPS-AIR", isOpen: true, isDebug: false, remark: "欧洲空派演示渠道" },
+  { id: 3003, name: "英国专线 Royal Mail", code: "UK-RM", isOpen: true, isDebug: true, remark: "测试环境渠道" },
+];
+
+const DEMO_ACC_CHANNEL_ACCOUNTS: AccChannelAccount[] = [
+  { id: 3101, channelName: "美国 FedEx Ground", name: "FDX-SZ-主账号", code: "FDX-SZ-01", supplierName: "FedEx 华南代理", isOpen: true },
+  { id: 3102, channelName: "欧洲 UPS 空派", name: "UPS-EU-主账号", code: "UPS-EU-01", supplierName: "UPS 欧洲专线", isOpen: true },
+];
+
+const DEMO_ACC_PRODUCTS: AccProduct[] = [
+  { id: 4001, name: "美国普货小包", code: "US-PACKET", channelName: "美国 FedEx Ground", supplierName: "FedEx 华南代理", isOpen: true, remark: "0-30kg 普货" },
+  { id: 4002, name: "欧洲空派包税", code: "EU-DDP", channelName: "欧洲 UPS 空派", supplierName: "UPS 欧洲专线", isOpen: true, remark: "德国/法国/意大利" },
+  { id: 4003, name: "英国标准派送", code: "UK-STD", channelName: "英国专线 Royal Mail", supplierName: "UPS 欧洲专线", isOpen: true, remark: "英国尾程演示" },
+];
+
+const DEMO_ACC_ORDERS: AccOrder[] = [
+  {
+    id: 5001,
+    orderNo: "ACC-DEMO-0001",
+    trackNo: "FDX-ACC-DEMO-0001",
+    customerName: "深圳星河跨境贸易有限公司",
+    customerCode: "C-SZ-001",
+    product: "美国普货小包",
+    channel: "美国 FedEx Ground",
+    country: "美国",
+    weight: 22.4,
+    chargeWeight: 23,
+    volume: 0.18,
+    piece: 2,
+    status: "已出货",
+    delivery: "运输中",
+    declaredValue: 680,
+    addTime: "2026-05-06 09:18:00",
+    sellCharge: 943.5,
+    costCharge: 571.2,
+    branch: "深圳总部",
+    sellerName: "王超",
+    remark: "演示订单：卖货客户转 ACC 制单流程",
+  },
+  {
+    id: 5002,
+    orderNo: "ACC-DEMO-0002",
+    trackNo: "1Z-ACC-DEMO-0002",
+    customerName: "宁波制单客户样例",
+    customerCode: "C-DOC-003",
+    product: "欧洲空派包税",
+    channel: "欧洲 UPS 空派",
+    country: "德国",
+    weight: 9.2,
+    chargeWeight: 10,
+    volume: 0.05,
+    piece: 1,
+    status: "已取号",
+    delivery: "待揽收",
+    declaredValue: 220,
+    addTime: "2026-05-07 15:42:00",
+    sellCharge: 294.4,
+    costCharge: 178.8,
+    branch: "华东分公司",
+    sellerName: "赵宁",
+    remark: "演示订单：客户自助制单",
+  },
+  {
+    id: 5003,
+    orderNo: "ACC-DEMO-0003",
+    trackNo: "RM-ACC-DEMO-0003",
+    customerName: "广州云仓科技有限公司",
+    customerCode: "C-GZ-002",
+    product: "英国标准派送",
+    channel: "英国专线 Royal Mail",
+    country: "英国",
+    weight: 14.6,
+    chargeWeight: 15,
+    volume: 0.11,
+    piece: 3,
+    status: "问题件",
+    delivery: "异常待处理",
+    declaredValue: 430,
+    addTime: "2026-05-08 10:06:00",
+    sellCharge: 516,
+    costCharge: 386.4,
+    branch: "广州分公司",
+    sellerName: "李婷",
+    remark: "演示订单：地址待确认",
+  },
+];
+
+const DEMO_ACC_TRACKS: Record<number, AccTrack[]> = {
+  5001: [
+    { id: 9001, expressNo: "ACC-DEMO-0001", trackNo: "FDX-ACC-DEMO-0001", status: "运输中", detail: "深圳分拨中心已出库", updateTime: "2026-05-08 09:10:00" },
+    { id: 9002, expressNo: "ACC-DEMO-0001", trackNo: "FDX-ACC-DEMO-0001", status: "已揽收", detail: "承运商已揽收", updateTime: "2026-05-07 18:25:00" },
+  ],
+  5002: [
+    { id: 9003, expressNo: "ACC-DEMO-0002", trackNo: "1Z-ACC-DEMO-0002", status: "已取号", detail: "UPS 面单已生成", updateTime: "2026-05-08 10:20:00" },
+  ],
+  5003: [
+    { id: 9004, expressNo: "ACC-DEMO-0003", trackNo: "RM-ACC-DEMO-0003", status: "异常", detail: "邮编与城市不匹配，等待客户确认", updateTime: "2026-05-08 11:32:00" },
+  ],
+};
+
+const DEMO_ACC_SHIPMENTS: AccShipment[] = [
+  { id: 6001, no: "SHP-ACC-DEMO-001", channelName: "美国 FedEx Ground", supplierName: "FedEx 华南代理", country: "美国", totalPiece: 2, totalWeight: 22.4, totalCharge: 943.5, totalCost: 571.2, status: 1, auditName: "王超", addTime: "2026-05-07 18:30:00" },
+  { id: 6002, no: "SHP-ACC-DEMO-002", channelName: "欧洲 UPS 空派", supplierName: "UPS 欧洲专线", country: "德国", totalPiece: 1, totalWeight: 9.2, totalCharge: 294.4, totalCost: 178.8, status: 0, auditName: "", addTime: "2026-05-08 10:25:00" },
+];
+
+const DEMO_ACC_STOWAGES: AccStowage[] = [
+  { id: 6101, no: "STW-ACC-DEMO-001", flight: "CZ-DEMO-100", departurePort: "深圳机场", arrivalPort: "洛杉矶 LAX", status: 3, statusText: "离境出发", totalPiece: 2, totalWeight: 22.4, totalVolume: 0.18, etd: "2026-05-08 22:30:00", eta: "2026-05-10 08:20:00", addTime: "2026-05-08 12:00:00" },
+  { id: 6102, no: "STW-ACC-DEMO-002", flight: "CZ-DEMO-220", departurePort: "广州机场", arrivalPort: "法兰克福 FRA", status: 1, statusText: "国内出发", totalPiece: 1, totalWeight: 9.2, totalVolume: 0.05, etd: "2026-05-09 01:10:00", eta: "2026-05-10 14:00:00", addTime: "2026-05-08 16:40:00" },
+];
+
+const DEMO_ACC_CHARGES: AccCharge[] = [
+  { id: 7001, expressNo: "ACC-DEMO-0001", customerName: "深圳星河跨境贸易有限公司", productName: "美国普货小包", country: "美国", chargeWeight: 23, type: "运费", amount: 943.5, paid: 0, theDate: "2026-05-08", auditName: "王超", remark: "按 23kg 计费" },
+  { id: 7002, expressNo: "ACC-DEMO-0002", customerName: "宁波制单客户样例", productName: "欧洲空派包税", country: "德国", chargeWeight: 10, type: "运费", amount: 294.4, paid: 0, theDate: "2026-05-08", auditName: "赵宁", remark: "制单客户应收" },
+  { id: 7003, expressNo: "ACC-DEMO-0003", customerName: "广州云仓科技有限公司", productName: "英国标准派送", country: "英国", chargeWeight: 15, type: "地址更正费", amount: 65, paid: 0, theDate: "2026-05-08", auditName: "", remark: "待客户确认" },
+];
+
+const DEMO_ACC_COSTS: AccCost[] = [
+  { id: 7101, expressNo: "ACC-DEMO-0001", supplierName: "FedEx 华南代理", channelName: "美国 FedEx Ground", country: "美国", channelWeight: 23, type: "派送成本", amount: 571.2, paid: 0, theDate: "2026-05-08", auditName: "王超", remark: "渠道账单待回传" },
+  { id: 7102, expressNo: "ACC-DEMO-0002", supplierName: "UPS 欧洲专线", channelName: "欧洲 UPS 空派", country: "德国", channelWeight: 10, type: "空派成本", amount: 178.8, paid: 0, theDate: "2026-05-08", auditName: "赵宁", remark: "预估成本" },
+  { id: 7103, expressNo: "ACC-DEMO-0003", supplierName: "UPS 欧洲专线", channelName: "英国专线 Royal Mail", country: "英国", channelWeight: 15, type: "尾程成本", amount: 386.4, paid: 0, theDate: "2026-05-08", auditName: "", remark: "异常件暂估" },
+];
+
+const DEMO_ACC_BILLS: AccBill[] = [
+  { id: 7201, no: "BILL-ACC-DEMO-001", customerName: "深圳星河跨境贸易有限公司", settlement: "月结", theDate: "2026-05-08", endDate: "2026-05-31", amount: 943.5, paid: 0, unpay: 943.5, quantity: 1, status: "待结款", salesman: "王超", auditName: "王超" },
+  { id: 7202, no: "BILL-ACC-DEMO-002", customerName: "宁波制单客户样例", settlement: "月结", theDate: "2026-05-08", endDate: "2026-05-31", amount: 294.4, paid: 0, unpay: 294.4, quantity: 1, status: "待结款", salesman: "赵宁", auditName: "赵宁" },
+];
+
+const DEMO_ACC_PAYMENTS: AccPayment[] = [
+  { id: 7301, no: "PAY-ACC-DEMO-001", supplierName: "FedEx 华南代理", bankName: "招商银行深圳户", amount: 571.2, theDate: "2026-05-09", auditName: "财务一号", remark: "演示供应商付款" },
+  { id: 7302, no: "PAY-ACC-DEMO-002", supplierName: "UPS 欧洲专线", bankName: "招商银行深圳户", amount: 178.8, theDate: "2026-05-09", auditName: "", remark: "待审核" },
+];
+
+const DEMO_ACC_RECEIVEDS: AccReceived[] = [
+  { id: 7401, no: "REC-ACC-DEMO-001", customerName: "深圳星河跨境贸易有限公司", bankName: "招商银行深圳户", amount: 500, theDate: "2026-05-08", auditName: "财务一号", remark: "演示部分收款" },
+  { id: 7402, no: "REC-ACC-DEMO-002", customerName: "广州云仓科技有限公司", bankName: "建设银行广州户", amount: 300, theDate: "2026-05-08", auditName: "", remark: "待认领" },
+];
+
+const DEMO_ACC_PROFITS: AccProfitItem[] = DEMO_ACC_ORDERS.map(order => ({
+  id: order.id,
+  no: order.orderNo,
+  customerName: order.customerName,
+  productName: order.product,
+  country: order.country,
+  chargeWeight: order.chargeWeight,
+  channelWeight: order.chargeWeight,
+  revenue: order.sellCharge,
+  cost: order.costCharge,
+  profit: Number((order.sellCharge - order.costCharge).toFixed(2)),
+  theDate: order.addTime.slice(0, 10),
+  received: order.id === 5001,
+}));
+
+const DEMO_ACC_COMMISSIONS: AccCommission[] = [
+  { id: 7501, name: "王超", type: "按利润额", percent: 8, month: "2026-05", amount: 372.3, quantity: 1, commission: 29.78 },
+  { id: 7502, name: "赵宁", type: "按销售额", percent: 3, month: "2026-05", amount: 294.4, quantity: 1, commission: 8.83 },
+];
+
+const DEMO_ACC_TRANSFERS: AccTransfer[] = [
+  { id: 7601, fromBank: "招商银行深圳户", toBank: "建设银行广州户", amount: 10000, theDate: "2026-05-08", remark: "演示内部转账", addName: "财务一号" },
+];
+
+const DEMO_ACC_CURRENCIES: AccCurrency[] = [
+  { id: 8001, name: "人民币", code: "CNY", symbol: "¥", rate: 1, decimal: 2 },
+  { id: 8002, name: "美元", code: "USD", symbol: "$", rate: 7.12, decimal: 2 },
+  { id: 8003, name: "欧元", code: "EUR", symbol: "€", rate: 7.74, decimal: 2 },
+];
+
+const DEMO_ACC_BRANCHES: AccBranch[] = [
+  { id: 8101, name: "深圳总部", code: "SZ", contact: "王超", phone: "0755-88880000", address: "深圳市宝安区演示路 1 号", remark: "总部演示" },
+  { id: 8102, name: "广州分公司", code: "GZ", contact: "李婷", phone: "020-88880000", address: "广州市白云区演示路 2 号", remark: "分公司演示" },
+  { id: 8103, name: "华东分公司", code: "HD", contact: "赵宁", phone: "0574-88880000", address: "宁波市鄞州区演示路 3 号", remark: "制单客户演示" },
+];
+
+const DEMO_ACC_DEPARTMENTS: AccDepartment[] = [
+  { id: 8201, name: "业务部", branchName: "深圳总部", remark: "客户开发与报价" },
+  { id: 8202, name: "操作部", branchName: "深圳总部", remark: "订单、出货、轨迹" },
+  { id: 8203, name: "财务部", branchName: "深圳总部", remark: "账单、收款、付款" },
+];
+
+const DEMO_ACC_EMPLOYEES: AccEmployee[] = [
+  { id: 8301, name: "王超", gender: "男", mobile: "13600003001", email: "wc@example.com", department: "业务部", branch: "深圳总部", position: "销售经理", status: "正式员工", entryDate: "2024-03-01" },
+  { id: 8302, name: "李婷", gender: "女", mobile: "13600003002", email: "lt@example.com", department: "操作部", branch: "广州分公司", position: "操作主管", status: "正式员工", entryDate: "2024-06-15" },
+  { id: 8303, name: "赵宁", gender: "男", mobile: "13600003003", email: "zn@example.com", department: "业务部", branch: "华东分公司", position: "制单顾问", status: "正式员工", entryDate: "2025-01-10" },
+];
+
+const DEMO_ACC_COUNTRIES: AccCountry[] = [
+  { id: 8401, name: "United States", cn: "美国", code: "US", isOpen: true },
+  { id: 8402, name: "Germany", cn: "德国", code: "DE", isOpen: true },
+  { id: 8403, name: "United Kingdom", cn: "英国", code: "GB", isOpen: true },
+];
+
+const DEMO_ACC_REMOTES: AccRemote[] = [
+  { id: 8501, postcode: "99501", country: "美国", supplierName: "FedEx 华南代理", type: "偏远" },
+  { id: 8502, postcode: "BT*", country: "英国", supplierName: "UPS 欧洲专线", type: "偏远" },
+];
+
+const DEMO_ACC_FUELS: AccFuel[] = [
+  { id: 8601, name: "FedEx 五月燃油", rate: 0.185, startDate: "2026-05-01", endDate: "2026-05-31" },
+  { id: 8602, name: "UPS 五月燃油", rate: 0.172, startDate: "2026-05-01", endDate: "2026-05-31" },
+];
+
+const DEMO_ACC_HSCODES: AccHSCode[] = [
+  { id: 8701, code: "940320", nameEN: "Metal furniture", nameCN: "金属家具" },
+  { id: 8702, code: "610910", nameEN: "Cotton T-shirts", nameCN: "棉制T恤" },
+];
+
 export class AccAdapter {
   private pool: Pool | null = null;
   private apiUrl: string;
@@ -388,6 +676,57 @@ export class AccAdapter {
     }
   }
 
+  private listDemo<T extends Record<string, any>>(
+    items: T[],
+    params: ListParams = {},
+    keywordFields: string[] = [],
+    dateField?: string
+  ): ListResult<T> {
+    let filtered = [...items];
+    if (params.keyword && keywordFields.length) {
+      const keyword = params.keyword.toLowerCase();
+      filtered = filtered.filter(item => keywordFields.some(field => String(item[field] ?? "").toLowerCase().includes(keyword)));
+    }
+    if (params.dateFrom && dateField) {
+      filtered = filtered.filter(item => String(item[dateField] ?? "") >= params.dateFrom!);
+    }
+    if (params.dateTo && dateField) {
+      filtered = filtered.filter(item => String(item[dateField] ?? "") <= `${params.dateTo!} 23:59:59`);
+    }
+    const total = filtered.length;
+    const limit = params.pageSize ?? 50;
+    const offset = ((params.page ?? 1) - 1) * limit;
+    return { data: filtered.slice(offset, offset + limit), total };
+  }
+
+  private demoProfitReport(): AccProfitSummary {
+    const byBranchMap = new Map<string, { branch: string; revenue: number; cost: number; profit: number; count: number }>();
+    for (const item of DEMO_ACC_PROFITS) {
+      const branch = DEMO_ACC_ORDERS.find(order => order.id === item.id)?.branch ?? "未分配";
+      const row = byBranchMap.get(branch) ?? { branch, revenue: 0, cost: 0, profit: 0, count: 0 };
+      row.revenue += item.revenue;
+      row.cost += item.cost;
+      row.profit += item.profit;
+      row.count += 1;
+      byBranchMap.set(branch, row);
+    }
+    const byBranch = [...byBranchMap.values()].map(row => ({
+      ...row,
+      revenue: Number(row.revenue.toFixed(2)),
+      cost: Number(row.cost.toFixed(2)),
+      profit: Number(row.profit.toFixed(2)),
+    }));
+    const totalRevenue = Number(byBranch.reduce((sum, row) => sum + row.revenue, 0).toFixed(2));
+    const totalCost = Number(byBranch.reduce((sum, row) => sum + row.cost, 0).toFixed(2));
+    return {
+      totalRevenue,
+      totalCost,
+      totalProfit: Number((totalRevenue - totalCost).toFixed(2)),
+      orderCount: DEMO_ACC_ORDERS.length,
+      byBranch,
+    };
+  }
+
   // ═══════════════════════════════════════════
   //  订单管理 - Order Management
   // ═══════════════════════════════════════════
@@ -399,7 +738,7 @@ export class AccAdapter {
     country?: string;
     product?: string;
   }): Promise<ListResult<AccOrder>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_ORDERS, params, ["orderNo", "trackNo", "customerName", "customerCode"], "addTime");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -460,11 +799,11 @@ export class AccAdapter {
       );
 
       return { data: rows as unknown as AccOrder[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_ORDERS, params, ["orderNo", "trackNo", "customerName", "customerCode"], "addTime"); }
   }
 
   async getOrderDetail(id: number): Promise<AccOrder | null> {
-    if (!this.pool) return null;
+    if (!this.pool) return DEMO_ACC_ORDERS.find(order => order.id === id) ?? null;
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>(
         `SELECT o.Id as id, o.No as orderNo, o.TrackNo as trackNo,
@@ -491,11 +830,14 @@ export class AccAdapter {
          WHERE o.Id = ?`, [id]
       );
       return rows.length ? (rows[0] as unknown as AccOrder) : null;
-    } catch { return null; }
+    } catch { return DEMO_ACC_ORDERS.find(order => order.id === id) ?? null; }
   }
 
   async getOrderTrackNos(orderId: number): Promise<Array<{ trackNo: string; channel: string }>> {
-    if (!this.pool) return [];
+    if (!this.pool) {
+      const order = DEMO_ACC_ORDERS.find(item => item.id === orderId);
+      return order ? [{ trackNo: order.trackNo, channel: order.channel }] : [];
+    }
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>(
         `SELECT et.TrackNo as trackNo, COALESCE(ch.Name, '') as channel
@@ -504,7 +846,10 @@ export class AccAdapter {
          WHERE et.Express = ?`, [orderId]
       );
       return rows as any[];
-    } catch { return []; }
+    } catch {
+      const order = DEMO_ACC_ORDERS.find(item => item.id === orderId);
+      return order ? [{ trackNo: order.trackNo, channel: order.channel }] : [];
+    }
   }
 
   // ═══════════════════════════════════════════
@@ -512,7 +857,10 @@ export class AccAdapter {
   // ═══════════════════════════════════════════
 
   async listReturns(params: ListParams): Promise<ListResult<AccBack>> {
-    if (!this.pool) return { data: [], total: 0 };
+    const demoReturns: AccBack[] = [
+      { id: 8801, expressNo: "ACC-DEMO-0003", customerName: "广州云仓科技有限公司", reason: "地址异常待客户确认", amount: 0, status: "处理中", addTime: "2026-05-08 11:35:00" },
+    ];
+    if (!this.pool) return this.listDemo(demoReturns, params, ["expressNo", "customerName", "reason"], "addTime");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -543,7 +891,7 @@ export class AccAdapter {
          ${where} ORDER BY a.Id DESC LIMIT ? OFFSET ?`, [...values, limit, offset]
       );
       return { data: rows as unknown as AccBack[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(demoReturns, params, ["expressNo", "customerName", "reason"], "addTime"); }
   }
 
   // ═══════════════════════════════════════════
@@ -551,7 +899,7 @@ export class AccAdapter {
   // ═══════════════════════════════════════════
 
   async listShipments(params: ListParams & { status?: number }): Promise<ListResult<AccShipment>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_SHIPMENTS, params, ["no", "channelName", "supplierName"], "addTime");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -587,11 +935,11 @@ export class AccAdapter {
          ${where} ORDER BY s.Id DESC LIMIT ? OFFSET ?`, [...values, limit, offset]
       );
       return { data: rows as unknown as AccShipment[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_SHIPMENTS, params, ["no", "channelName", "supplierName"], "addTime"); }
   }
 
   async listStowages(params: ListParams & { status?: number }): Promise<ListResult<AccStowage>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_STOWAGES, params, ["no", "flight", "departurePort", "arrivalPort"], "addTime");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -627,11 +975,11 @@ export class AccAdapter {
       );
       const data = (rows as any[]).map(r => ({ ...r, statusText: statusTexts[r.status] ?? "未知" }));
       return { data: data as AccStowage[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_STOWAGES, params, ["no", "flight", "departurePort", "arrivalPort"], "addTime"); }
   }
 
   async listTracks(expressId: number): Promise<AccTrack[]> {
-    if (!this.pool) return [];
+    if (!this.pool) return DEMO_ACC_TRACKS[expressId] ?? [];
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>(
         `SELECT tp.Id as id, e.No as expressNo, COALESCE(et.TrackNo, '') as trackNo,
@@ -642,7 +990,7 @@ export class AccAdapter {
          WHERE tp.Express = ? ORDER BY tp.AddTime DESC`, [expressId]
       );
       return rows as unknown as AccTrack[];
-    } catch { return []; }
+    } catch { return DEMO_ACC_TRACKS[expressId] ?? []; }
   }
 
   // ═══════════════════════════════════════════
@@ -650,7 +998,7 @@ export class AccAdapter {
   // ═══════════════════════════════════════════
 
   async listCharges(params: ListParams & { customerId?: number; auditStatus?: number }): Promise<ListResult<AccCharge>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_CHARGES, params, ["expressNo", "customerName", "productName"], "theDate");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -691,11 +1039,11 @@ export class AccAdapter {
         [...values, limit, offset]
       );
       return { data: rows as unknown as AccCharge[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_CHARGES, params, ["expressNo", "customerName", "productName"], "theDate"); }
   }
 
   async listCosts(params: ListParams & { supplierId?: number; auditStatus?: number }): Promise<ListResult<AccCost>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_COSTS, params, ["expressNo", "supplierName", "channelName"], "theDate");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -736,11 +1084,11 @@ export class AccAdapter {
         [...values, limit, offset]
       );
       return { data: rows as unknown as AccCost[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_COSTS, params, ["expressNo", "supplierName", "channelName"], "theDate"); }
   }
 
   async listBills(params: ListParams & { status?: number; auditStatus?: number }): Promise<ListResult<AccBill>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_BILLS, params, ["no", "customerName"], "theDate");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -782,11 +1130,11 @@ export class AccAdapter {
         status: BILL_STATUS_MAP[r.status] ?? r.status,
       }));
       return { data: data as AccBill[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_BILLS, params, ["no", "customerName"], "theDate"); }
   }
 
   async listPayments(params: ListParams & { supplierId?: number }): Promise<ListResult<AccPayment>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_PAYMENTS, params, ["no", "supplierName", "bankName"], "theDate");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -820,11 +1168,11 @@ export class AccAdapter {
         [...values, limit, offset]
       );
       return { data: rows as unknown as AccPayment[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_PAYMENTS, params, ["no", "supplierName", "bankName"], "theDate"); }
   }
 
   async listReceiveds(params: ListParams & { customerId?: number }): Promise<ListResult<AccReceived>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_RECEIVEDS, params, ["no", "customerName", "bankName"], "theDate");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -858,11 +1206,11 @@ export class AccAdapter {
         [...values, limit, offset]
       );
       return { data: rows as unknown as AccReceived[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_RECEIVEDS, params, ["no", "customerName", "bankName"], "theDate"); }
   }
 
   async listProfitItems(params: ListParams): Promise<ListResult<AccProfitItem>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_PROFITS, params, ["no", "customerName", "productName"], "theDate");
     try {
       const pool = this.pool;
       const conditions: string[] = ["a.Delivery BETWEEN 3 AND 6"];
@@ -897,11 +1245,11 @@ export class AccAdapter {
          ${where} ORDER BY a.Id DESC LIMIT ? OFFSET ?`, [...values, limit, offset]
       );
       return { data: rows as unknown as AccProfitItem[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_PROFITS, params, ["no", "customerName", "productName"], "theDate"); }
   }
 
   async listCommissions(params: ListParams): Promise<ListResult<AccCommission>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_COMMISSIONS, params, ["name", "type"], "month");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -930,11 +1278,11 @@ export class AccAdapter {
         type: COMMISSION_TYPE_MAP[r.type] ?? r.type,
       }));
       return { data: data as AccCommission[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_COMMISSIONS, params, ["name", "type"], "month"); }
   }
 
   async listTransfers(params: ListParams): Promise<ListResult<AccTransfer>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_TRANSFERS, params, ["fromBank", "toBank", "remark"], "theDate");
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -960,11 +1308,11 @@ export class AccAdapter {
          ${where} ORDER BY a.Id DESC LIMIT ? OFFSET ?`, [...values, limit, offset]
       );
       return { data: rows as unknown as AccTransfer[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_TRANSFERS, params, ["fromBank", "toBank", "remark"], "theDate"); }
   }
 
   async listCurrencies(): Promise<AccCurrency[]> {
-    if (!this.pool) return [];
+    if (!this.pool) return DEMO_ACC_CURRENCIES;
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>(
         `SELECT Id as id, Name as name, Code as code, Symbol as symbol,
@@ -972,7 +1320,7 @@ export class AccAdapter {
          FROM ${t("Currency")} ORDER BY TheOrder, Id`
       );
       return rows as unknown as AccCurrency[];
-    } catch { return []; }
+    } catch { return DEMO_ACC_CURRENCIES; }
   }
 
   // ═══════════════════════════════════════════
@@ -983,7 +1331,7 @@ export class AccAdapter {
     branch?: string;
     grade?: string;
   }): Promise<ListResult<AccCustomer>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_CUSTOMERS, params, ["name", "code", "contact", "mobile"]);
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -1026,11 +1374,11 @@ export class AccAdapter {
         settlement: SETTLEMENT_MAP[r.settlement] ?? r.settlement,
       }));
       return { data: data as AccCustomer[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_CUSTOMERS, params, ["name", "code", "contact", "mobile"]); }
   }
 
   async listSuppliers(params: ListParams): Promise<ListResult<AccSupplier>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_SUPPLIERS, params, ["name", "contact", "mobile", "product"]);
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -1062,11 +1410,11 @@ export class AccAdapter {
         settlement: SETTLEMENT_MAP[r.settlement] ?? r.settlement,
       }));
       return { data: data as AccSupplier[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_SUPPLIERS, params, ["name", "contact", "mobile", "product"]); }
   }
 
   async listChannels(): Promise<AccChannel[]> {
-    if (!this.pool) return [];
+    if (!this.pool) return DEMO_ACC_CHANNELS;
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>(
         `SELECT Id as id, Name as name, COALESCE(Code, '') as code,
@@ -1076,11 +1424,11 @@ export class AccAdapter {
          FROM ${t("Channel")} ORDER BY TheOrder DESC, Id DESC`
       );
       return rows as unknown as AccChannel[];
-    } catch { return []; }
+    } catch { return DEMO_ACC_CHANNELS; }
   }
 
   async listChannelAccounts(params: ListParams): Promise<ListResult<AccChannelAccount>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_CHANNEL_ACCOUNTS, params, ["channelName", "name", "code", "supplierName"]);
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -1110,11 +1458,11 @@ export class AccAdapter {
          ${where} ORDER BY a.Id DESC LIMIT ? OFFSET ?`, [...values, limit, offset]
       );
       return { data: rows as unknown as AccChannelAccount[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_CHANNEL_ACCOUNTS, params, ["channelName", "name", "code", "supplierName"]); }
   }
 
   async listProducts(params: ListParams): Promise<ListResult<AccProduct>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_PRODUCTS, params, ["name", "code", "channelName", "supplierName"]);
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -1145,7 +1493,7 @@ export class AccAdapter {
         [...values, limit, offset]
       );
       return { data: rows as unknown as AccProduct[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_PRODUCTS, params, ["name", "code", "channelName", "supplierName"]); }
   }
 
   // ═══════════════════════════════════════════
@@ -1153,7 +1501,7 @@ export class AccAdapter {
   // ═══════════════════════════════════════════
 
   async listEmployees(params: ListParams & { status?: number }): Promise<ListResult<AccEmployee>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_EMPLOYEES, params, ["name", "mobile", "department", "branch"]);
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -1189,11 +1537,11 @@ export class AccAdapter {
         status: EMPLOYEE_STATUS_MAP[r.status] ?? r.status,
       }));
       return { data: data as AccEmployee[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_EMPLOYEES, params, ["name", "mobile", "department", "branch"]); }
   }
 
   async listBranches(): Promise<AccBranch[]> {
-    if (!this.pool) return [];
+    if (!this.pool) return DEMO_ACC_BRANCHES;
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>(
         `SELECT Id as id, Name as name, COALESCE(Code, '') as code,
@@ -1202,11 +1550,11 @@ export class AccAdapter {
          FROM ${t("Branch")} ORDER BY TheOrder, Id`
       );
       return rows as unknown as AccBranch[];
-    } catch { return []; }
+    } catch { return DEMO_ACC_BRANCHES; }
   }
 
   async listDepartments(): Promise<AccDepartment[]> {
-    if (!this.pool) return [];
+    if (!this.pool) return DEMO_ACC_DEPARTMENTS;
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>(
         `SELECT d.Id as id, d.Name as name, COALESCE(br.Name, '') as branchName,
@@ -1216,7 +1564,7 @@ export class AccAdapter {
          ORDER BY d.TheOrder, d.Id`
       );
       return rows as unknown as AccDepartment[];
-    } catch { return []; }
+    } catch { return DEMO_ACC_DEPARTMENTS; }
   }
 
   // ═══════════════════════════════════════════
@@ -1224,7 +1572,11 @@ export class AccAdapter {
   // ═══════════════════════════════════════════
 
   async listCountries(params?: { keyword?: string }): Promise<AccCountry[]> {
-    if (!this.pool) return [];
+    if (!this.pool) {
+      if (!params?.keyword) return DEMO_ACC_COUNTRIES;
+      const keyword = params.keyword.toLowerCase();
+      return DEMO_ACC_COUNTRIES.filter(item => [item.name, item.cn, item.code].some(value => value.toLowerCase().includes(keyword)));
+    }
     try {
       const conditions: string[] = [];
       const values: any[] = [];
@@ -1240,11 +1592,15 @@ export class AccAdapter {
          FROM ${t("Country")} ${where} ORDER BY TheOrder, Id`, values
       );
       return rows as unknown as AccCountry[];
-    } catch { return []; }
+    } catch {
+      if (!params?.keyword) return DEMO_ACC_COUNTRIES;
+      const keyword = params.keyword.toLowerCase();
+      return DEMO_ACC_COUNTRIES.filter(item => [item.name, item.cn, item.code].some(value => value.toLowerCase().includes(keyword)));
+    }
   }
 
   async listRemotes(params: ListParams): Promise<ListResult<AccRemote>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_REMOTES, params, ["postcode", "country", "supplierName", "type"]);
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -1270,11 +1626,11 @@ export class AccAdapter {
          ${where} ORDER BY a.Id DESC LIMIT ? OFFSET ?`, [...values, limit, offset]
       );
       return { data: rows as unknown as AccRemote[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_REMOTES, params, ["postcode", "country", "supplierName", "type"]); }
   }
 
   async listFuels(): Promise<AccFuel[]> {
-    if (!this.pool) return [];
+    if (!this.pool) return DEMO_ACC_FUELS;
     try {
       const [rows] = await this.pool.query<RowDataPacket[]>(
         `SELECT Id as id, Name as name, Rate as rate,
@@ -1282,11 +1638,11 @@ export class AccAdapter {
          FROM ${t("Fuel")} ORDER BY Id DESC`
       );
       return rows as unknown as AccFuel[];
-    } catch { return []; }
+    } catch { return DEMO_ACC_FUELS; }
   }
 
   async listHSCodes(params: ListParams): Promise<ListResult<AccHSCode>> {
-    if (!this.pool) return { data: [], total: 0 };
+    if (!this.pool) return this.listDemo(DEMO_ACC_HSCODES, params, ["code", "nameEN", "nameCN"]);
     try {
       const pool = this.pool;
       const conditions: string[] = [];
@@ -1309,7 +1665,7 @@ export class AccAdapter {
         [...values, limit, offset]
       );
       return { data: rows as unknown as AccHSCode[], total: countRows[0]?.cnt ?? 0 };
-    } catch { return { data: [], total: 0 }; }
+    } catch { return this.listDemo(DEMO_ACC_HSCODES, params, ["code", "nameEN", "nameCN"]); }
   }
 
   // ═══════════════════════════════════════════
@@ -1965,7 +2321,7 @@ export class AccAdapter {
 
   async getProfitReport(dateFrom: string, dateTo: string): Promise<AccProfitSummary> {
     const empty: AccProfitSummary = { totalRevenue: 0, totalCost: 0, totalProfit: 0, orderCount: 0, byBranch: [] };
-    if (!this.pool) return empty;
+    if (!this.pool) return this.demoProfitReport();
     try {
       const pool = this.pool;
       const [rows] = await pool.query<RowDataPacket[]>(
@@ -1992,7 +2348,7 @@ export class AccAdapter {
       });
 
       return { totalRevenue, totalCost, totalProfit: totalRevenue - totalCost, orderCount: totalCount, byBranch };
-    } catch { return empty; }
+    } catch { return this.demoProfitReport(); }
   }
 
   async getStats(): Promise<{
@@ -2001,7 +2357,13 @@ export class AccAdapter {
     supplierCount: number;
     channelCount: number;
   }> {
-    if (!this.pool) return { orderCount: 0, customerCount: 0, supplierCount: 0, channelCount: 0 };
+    const demoStats = {
+      orderCount: DEMO_ACC_ORDERS.length,
+      customerCount: DEMO_ACC_CUSTOMERS.length,
+      supplierCount: DEMO_ACC_SUPPLIERS.length,
+      channelCount: DEMO_ACC_CHANNELS.filter(channel => channel.isOpen).length,
+    };
+    if (!this.pool) return demoStats;
     try {
       const pool = this.pool;
       const [[orders], [customers], [suppliers], [channels]] = await Promise.all([
@@ -2016,7 +2378,7 @@ export class AccAdapter {
         supplierCount: suppliers[0]?.cnt ?? 0,
         channelCount: channels[0]?.cnt ?? 0,
       };
-    } catch { return { orderCount: 0, customerCount: 0, supplierCount: 0, channelCount: 0 }; }
+    } catch { return demoStats; }
   }
 
   // ═══════════════════════════════════════════

@@ -1,6 +1,6 @@
 # API 文档
 
-版本：2026-05-06
+版本：2026-05-08
 
 ## 1. 环境与分流
 
@@ -8,6 +8,8 @@
 | --- | --- | --- |
 | Web | `http://localhost:5173` | 统一前端入口 |
 | Spring Boot API | `http://localhost:18103` | 主后端，认证和系统管理基础接口 |
+| Swagger UI | `http://localhost:18103/swagger-ui.html` | Spring Boot 在线接口文档 |
+| OpenAPI JSON | `http://localhost:18103/v3/api-docs` | 机器可读 API 契约 |
 | Fastify API | `http://localhost:18080` | 原型接口，承载 ACC/XQT/财务/系统管理早期路由 |
 
 前端代理：
@@ -25,6 +27,7 @@
 ### 2.1 认证
 
 除登录和健康检查外，Spring Boot 主后端接口使用 Bearer Token。
+Swagger UI 和 OpenAPI JSON 允许未登录访问，便于联调；业务接口仍需在 Swagger 里配置 Bearer Token 后调用。
 
 ```http
 Authorization: Bearer <token>
@@ -32,12 +35,14 @@ Authorization: Bearer <token>
 
 ### 2.2 JSON 响应
 
-主接口优先使用：
+Spring Boot 正式接口统一使用：
 
 ```json
 {
   "ok": true,
-  "data": {}
+  "data": {},
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -46,8 +51,11 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": true,
-  "items": [],
-  "data": []
+  "data": {
+    "items": []
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -56,9 +64,13 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": false,
-  "error": "错误信息"
+  "data": null,
+  "error": "错误信息",
+  "errorCode": "BAD_REQUEST"
 }
 ```
+
+Controller 不直接返回裸 `Map`，不直接持有 `JdbcTemplate`，写接口操作人统一从 token 获取。
 
 ## 3. Spring Boot 主后端 API
 
@@ -73,9 +85,14 @@ GET /api/health
 ```json
 {
   "ok": true,
-  "service": "xqt-backend",
-  "database": "ok",
-  "time": "2026-05-06T21:54:48+08:00"
+  "data": {
+    "ok": true,
+    "service": "xqt-backend",
+    "database": "ok",
+    "time": "2026-05-08T08:48:48+08:00"
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -109,19 +126,24 @@ Content-Type: application/json
 ```json
 {
   "ok": true,
-  "token": "eyJ...",
-  "expiresIn": 28800,
-  "user": {
-    "userId": "uuid",
-    "tenantId": "uuid",
-    "tenantCode": "xqt",
-    "username": "admin",
-    "displayName": "系统管理员",
-    "roles": ["ADMIN"],
-    "permissions": ["admin.user.read"],
-    "exp": 1778106742,
-    "jti": "uuid"
-  }
+  "data": {
+    "ok": true,
+    "token": "eyJ...",
+    "expiresIn": 28800,
+    "user": {
+      "userId": "uuid",
+      "tenantId": "uuid",
+      "tenantCode": "xqt",
+      "username": "admin",
+      "displayName": "系统管理员",
+      "roles": ["ADMIN"],
+      "permissions": ["admin.user.read"],
+      "exp": 1778106742,
+      "jti": "uuid"
+    }
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -145,15 +167,19 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": true,
-  "user": {
-    "userId": "uuid",
-    "tenantId": "uuid",
-    "tenantCode": "xqt",
-    "username": "admin",
-    "displayName": "系统管理员",
-    "roles": ["ADMIN"],
-    "permissions": []
-  }
+  "data": {
+    "user": {
+      "userId": "uuid",
+      "tenantId": "uuid",
+      "tenantCode": "xqt",
+      "username": "admin",
+      "displayName": "系统管理员",
+      "roles": ["ADMIN"],
+      "permissions": []
+    }
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -168,7 +194,12 @@ Authorization: Bearer <token>
 
 ```json
 {
-  "ok": true
+  "ok": true,
+  "data": {
+    "success": true
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -188,19 +219,24 @@ Authorization: Bearer <token>
 ```json
 {
   "ok": true,
-  "items": [
-    {
-      "id": "uuid",
-      "username": "admin",
-      "email": "admin@xqt.local",
-      "display_name": "系统管理员",
-      "role_code": "ADMIN",
-      "status": "ACTIVE",
-      "last_login_at": "2026-05-06 21:54:48",
-      "roles": ["ADMIN"]
-    }
-  ],
-  "data": []
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "username": "admin",
+        "email": "admin@xqt.local",
+        "displayName": "系统管理员",
+        "roleCode": "ADMIN",
+        "status": "ACTIVE",
+        "lastLoginAt": "2026-05-08 08:48:48",
+        "createdAt": "2026-05-08 08:00:00",
+        "updatedAt": "2026-05-08 08:48:48",
+        "roles": ["ADMIN"]
+      }
+    ]
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -221,7 +257,7 @@ Authorization: Bearer <token>
 | `code` | 角色编码 |
 | `name` | 角色名称 |
 | `description` | 说明 |
-| `system_role` | 是否系统角色 |
+| `systemRole` | 是否系统角色 |
 | `permissions` | 角色拥有的权限码 |
 
 ### 3.7 权限列表
@@ -458,7 +494,7 @@ ACC API 当前位于 Fastify 原型层 `/api/acc/*`，主要用于复刻、对�
 | `dateFrom` | string | 开始日期 |
 | `dateTo` | string | 结束日期 |
 
-列表响应：
+原型历史列表响应：
 
 ```json
 {
@@ -466,6 +502,8 @@ ACC API 当前位于 Fastify 原型层 `/api/acc/*`，主要用于复刻、对�
   "total": 0
 }
 ```
+
+迁入 Spring Boot 后必须改为 `ApiResponse<PageResponse<T>>`，不保留裸 `data/total` 作为正式接口契约。
 
 ### 7.2 ACC 概览
 

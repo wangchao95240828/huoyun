@@ -1,9 +1,12 @@
 package com.xqt.saas.orders;
 
-import java.util.Map;
-
 import com.xqt.saas.auth.AuthPrincipal;
+import com.xqt.saas.common.ApiResponse;
+import com.xqt.saas.common.CommandResponse;
+import com.xqt.saas.common.ItemResponse;
+import com.xqt.saas.common.PageResponse;
 import com.xqt.saas.common.RequestContext;
+import com.xqt.saas.orders.OrderResponses.OrderView;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -35,36 +38,36 @@ public class DocumentOrderController {
 
     @PostMapping("/search")
     @PreAuthorize("hasAuthority('flow.document.read')")
-    public Map<String, Object> search(Authentication authentication, @RequestBody(required = false) OrderRequests.Search request) {
-        return service.search(principal(authentication), FLOW, request);
+    public ApiResponse<PageResponse<OrderView>> search(Authentication authentication, @RequestBody(required = false) OrderRequests.Search request) {
+        return ApiResponse.ok(service.search(principal(authentication), FLOW, request));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasAuthority('flow.document.read')")
-    public Map<String, Object> get(Authentication authentication, @PathVariable("id") String orderId) {
-        return service.get(principal(authentication), FLOW, orderId);
+    public ApiResponse<ItemResponse<OrderView>> get(Authentication authentication, @PathVariable("id") String orderId) {
+        return ApiResponse.ok(service.get(principal(authentication), FLOW, orderId));
     }
 
     @PostMapping
     @PreAuthorize("hasAuthority('flow.document.write')")
-    public Map<String, Object> create(Authentication authentication, @RequestBody OrderRequests.Save request) {
-        return service.create(principal(authentication), FLOW, request);
+    public ApiResponse<ItemResponse<OrderView>> create(Authentication authentication, @RequestBody OrderRequests.Save request) {
+        return ApiResponse.ok(service.create(principal(authentication), FLOW, request));
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAuthority('flow.document.write')")
-    public Map<String, Object> update(
+    public ApiResponse<ItemResponse<OrderView>> update(
         Authentication authentication,
         @PathVariable("id") String orderId,
         @RequestBody OrderRequests.Save request
     ) {
-        return service.update(principal(authentication), FLOW, orderId, request);
+        return ApiResponse.ok(service.update(principal(authentication), FLOW, orderId, request));
     }
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAuthority('flow.document.write')")
-    public Map<String, Object> delete(Authentication authentication, @PathVariable("id") String orderId) {
-        return service.delete(principal(authentication), FLOW, orderId);
+    public ApiResponse<CommandResponse> delete(Authentication authentication, @PathVariable("id") String orderId) {
+        return ApiResponse.ok(service.delete(principal(authentication), FLOW, orderId));
     }
 
     private AuthPrincipal principal(Authentication authentication) {

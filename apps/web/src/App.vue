@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch, computed } from "vue";
+import { computed, defineAsyncComponent, onMounted, reactive, ref, watch } from "vue";
 import {
   AlertTriangle,
   FileSpreadsheet,
@@ -72,15 +72,78 @@ import {
 } from "lucide-vue-next";
 
 const API = import.meta.env.VITE_API_URL ?? "";
+const GlobalTrackingMap = defineAsyncComponent(() => import("./components/GlobalTrackingMap.vue"));
 
 // ═══════════════ Types ═══════════════
 
 interface DashboardData {
   acc: { label: string; revenue: number; cost: number; profit: number; orderCount: number; byBranch: any[] };
   xqt: { label: string; revenue: number; shipmentCount: number; invoiceCount: number; paid: number; unpaid: number };
-  local: { label: string; shipments: number; receivable: number; payable: number; profit: number };
+  local: {
+    label: string;
+    orders?: number;
+    shipments: number;
+    receivable: number;
+    payable: number;
+    profit: number;
+    invoiceCount?: number;
+    paid?: number;
+    unpaid?: number;
+  };
   combined: { totalRevenue: number; totalCost: number; totalProfit: number };
+  flows?: DashboardFlowData[];
+  tracking?: DashboardTrackingData;
   period: { from: string; to: string };
+}
+
+interface DashboardFlowData {
+  code: string;
+  customerDirection: string;
+  label: string;
+  orders: number;
+  shipments: number;
+  receivable: number;
+  payable: number;
+  profit: number;
+}
+
+interface DashboardGeoPoint {
+  name: string;
+  countryCode: string;
+  lat: number;
+  lng: number;
+}
+
+interface DashboardTrackingRoute {
+  id: string;
+  shipmentNo: string;
+  trackingNo: string;
+  serviceMode: string;
+  customerDirection: string;
+  carrierName: string;
+  channelName?: string;
+  status: string;
+  shipmentStatus: string;
+  rawStatus: string;
+  latestLocation: string;
+  latestEventTime?: string;
+  destinationCountry: string;
+  destinationPostalCode?: string;
+  progress: number;
+  origin: DashboardGeoPoint;
+  current: DashboardGeoPoint;
+  destination: DashboardGeoPoint;
+}
+
+interface DashboardTrackingData {
+  summary: {
+    activeShipments: number;
+    exceptionCount: number;
+    deliveredToday: number;
+    trackedShipments: number;
+    destinationCountries: number;
+  };
+  routes: DashboardTrackingRoute[];
 }
 
 interface HealthData {
@@ -108,6 +171,7 @@ const health = ref<HealthData | null>(null);
 const branches = ref<BranchData[]>([]);
 const loading = ref(false);
 const error = ref("");
+const selectedTrackingRouteId = ref("");
 
 interface AuthUser {
   id: string;
@@ -1734,12 +1798,223 @@ function fmt(n: number): string {
   return n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function fmtInt(n?: number): string {
+  return Number(n ?? 0).toLocaleString("zh-CN");
+}
+
+function fmtPercent(n: number): string {
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+function ratio(value: number, total: number): number {
+  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.max(0, Math.min(100, (value / total) * 100));
+}
+
+function trackingStatusLabel(status?: string): string {
+  const labels: Record<string, string> = {
+    CREATED: "已建单",
+    ORDERED: "已下单",
+    DRAFT: "草稿",
+    IN_WAREHOUSE: "已入仓",
+    MEASURED: "已测量",
+    BOOKED: "已订舱",
+    IN_TRANSIT: "运输中",
+    OUT_FOR_DELIVERY: "派送中",
+    DELIVERED: "已签收",
+    CLOSED: "已关闭",
+    EXCEPTION: "异常",
+    CLAIMING: "理赔中",
+    RETURNED: "已退回",
+    VOID: "已作废",
+  };
+  const code = String(status ?? "").toUpperCase();
+  return labels[code] ?? (code || "-");
+}
+
+function fmtTime(value?: string): string {
+  if (!value) return "暂无轨迹时间";
+  return value.slice(0, 16).replace("T", " ");
+}
+
 function fmtCell(value: any, format?: string): string {
   if (value === null || value === undefined) return "-";
   if (format === "money") return "¥" + fmt(Number(value));
   if (format === "bool") return value ? "是" : "否";
   if (format === "date" && typeof value === "string") return value.slice(0, 19).replace("T", " ");
   return String(value);
+}
+
+const dashboardFlows = computed<DashboardFlowData[]>(() => {
+  const flows = dashboard.value?.flows ?? [];
+  if (flows.length) return flows;
+  if (!dashboard.value) return [];
+  return [
+    {
+      code: "SELLER_FULFILLMENT",
+      customerDirection: "SELLER_CUSTOMER",
+      label: "卖货客户履约",
+      orders: dashboard.value.xqt.shipmentCount ?? 0,
+      shipments: dashboard.value.xqt.shipmentCount ?? 0,
+      receivable: dashboard.value.xqt.revenue ?? 0,
+      payable: 0,
+      profit: dashboard.value.xqt.revenue ?? 0,
+    },
+    {
+      code: "DOCUMENT_SHIPPING",
+      customerDirection: "DOCUMENT_CUSTOMER",
+      label: "制单客户发货",
+      orders: dashboard.value.acc.orderCount ?? 0,
+      shipments: dashboard.value.acc.orderCount ?? 0,
+      receivable: dashboard.value.acc.revenue ?? 0,
+      payable: dashboard.value.acc.cost ?? 0,
+      profit: dashboard.value.acc.profit ?? 0,
+    },
+  ];
+});
+
+const dashboardKpis = computed(() => {
+  if (!dashboard.value) return [];
+  const totalRevenue = dashboard.value.combined.totalRevenue;
+  const totalProfit = dashboard.value.combined.totalProfit;
+  const profitRate = totalRevenue > 0 ? totalProfit / totalRevenue : 0;
+  const paid = Number(dashboard.value.local.paid ?? 0);
+  const unpaid = Number(dashboard.value.local.unpaid ?? 0);
+  const collectionRate = paid + unpaid > 0 ? paid / (paid + unpaid) : 0;
+  return [
+    { icon: WalletCards, label: "总营收", value: `¥${fmt(totalRevenue)}`, sub: "客户应收口径", tone: "teal" },
+    { icon: ReceiptText, label: "总成本", value: `¥${fmt(dashboard.value.combined.totalCost)}`, sub: "供应商应付口径", tone: "amber" },
+    {
+      icon: HandCoins,
+      label: "毛利",
+      value: `¥${fmt(totalProfit)}`,
+      sub: `毛利率 ${fmtPercent(profitRate)}`,
+      tone: totalProfit >= 0 ? "green" : "red",
+    },
+    { icon: Package, label: "运单", value: fmtInt(dashboard.value.local.shipments), sub: `订单 ${fmtInt(dashboard.value.local.orders)}`, tone: "blue" },
+    { icon: FileText, label: "账单", value: fmtInt(dashboard.value.local.invoiceCount), sub: `回款率 ${fmtPercent(collectionRate)}`, tone: "violet" },
+  ];
+});
+
+const maxFlowRevenue = computed(() => Math.max(1, ...dashboardFlows.value.map(flow => Math.abs(flow.receivable))));
+const maxFinanceValue = computed(() => {
+  if (!dashboard.value) return 1;
+  return Math.max(
+    1,
+    Math.abs(dashboard.value.local.receivable),
+    Math.abs(dashboard.value.local.payable),
+    Math.abs(dashboard.value.local.profit),
+  );
+});
+
+const financeBars = computed(() => {
+  if (!dashboard.value) return [];
+  return [
+    { label: "应收", value: dashboard.value.local.receivable, tone: "green" },
+    { label: "应付", value: dashboard.value.local.payable, tone: "amber" },
+    { label: "毛利", value: dashboard.value.local.profit, tone: dashboard.value.local.profit >= 0 ? "blue" : "red" },
+  ];
+});
+
+const donutStyle = computed(() => {
+  const colors = ["#0f8f7f", "#2563eb", "#f59e0b", "#8b5cf6"];
+  const total = dashboardFlows.value.reduce((sum, flow) => sum + Math.max(0, flow.receivable), 0);
+  if (total <= 0) return { background: "#e5e7eb" };
+  let cursor = 0;
+  const stops = dashboardFlows.value.map((flow, index) => {
+    const start = cursor;
+    cursor += ratio(Math.max(0, flow.receivable), total);
+    return `${colors[index % colors.length]} ${start}% ${cursor}%`;
+  });
+  return { background: `conic-gradient(${stops.join(", ")})` };
+});
+
+const pipelineNodes = computed(() => {
+  if (!dashboard.value) return [];
+  return [
+    { label: "订单", value: fmtInt(dashboard.value.local.orders), desc: "接入需求" },
+    { label: "运单", value: fmtInt(dashboard.value.local.shipments), desc: "履约执行" },
+    { label: "应收", value: `¥${fmt(dashboard.value.local.receivable)}`, desc: "客户账单" },
+    { label: "应付", value: `¥${fmt(dashboard.value.local.payable)}`, desc: "成本结算" },
+    { label: "毛利", value: `¥${fmt(dashboard.value.local.profit)}`, desc: "经营结果" },
+  ];
+});
+
+const dashboardAlerts = computed(() => {
+  const items = [];
+  if (!health.value?.upstreams.postgres.connected) {
+    items.push({ tone: "red", title: "数据库连接异常", desc: "PostgreSQL 当前不可用，业务看板数据可能滞后。" });
+  }
+  if (dashboard.value && dashboard.value.local.profit < 0) {
+    items.push({ tone: "red", title: "毛利为负", desc: "当前周期成本高于应收，需要复核成本规则和账单。" });
+  }
+  if (dashboard.value && dashboardFlows.value.every(flow => flow.orders === 0 && flow.shipments === 0)) {
+    items.push({ tone: "amber", title: "业务线暂无数据", desc: "卖货/制单流程尚未形成可分析样本。" });
+  }
+  if (!health.value?.upstreams.acc.connected || !health.value?.upstreams.xqt.connected) {
+    items.push({ tone: "blue", title: "外部系统仅作对照", desc: "ACC 与 XQT 当前不作为运行时依赖，新系统数据以本地库为准。" });
+  }
+  if (!items.length) {
+    items.push({ tone: "green", title: "核心链路正常", desc: "认证、数据库、业务聚合接口均可用于驾驶舱刷新。" });
+  }
+  return items.slice(0, 4);
+});
+
+const trackingRoutes = computed<DashboardTrackingRoute[]>(() => dashboard.value?.tracking?.routes ?? []);
+const trackingSummary = computed(() => dashboard.value?.tracking?.summary ?? {
+  activeShipments: 0,
+  exceptionCount: 0,
+  deliveredToday: 0,
+  trackedShipments: 0,
+  destinationCountries: 0,
+});
+const selectedTrackingRoute = computed(() => {
+  if (!trackingRoutes.value.length) return null;
+  return trackingRoutes.value.find(route => route.id === selectedTrackingRouteId.value) ?? trackingRoutes.value[0];
+});
+const trackingStats = computed(() => [
+  { label: "在途运单", value: fmtInt(trackingSummary.value.activeShipments), tone: "blue" },
+  { label: "已挂轨迹", value: fmtInt(trackingSummary.value.trackedShipments), tone: "green" },
+  { label: "目的国家", value: fmtInt(trackingSummary.value.destinationCountries), tone: "violet" },
+  { label: "异常件", value: fmtInt(trackingSummary.value.exceptionCount), tone: trackingSummary.value.exceptionCount > 0 ? "red" : "green" },
+]);
+
+function isSelectedTrackingRoute(route: DashboardTrackingRoute): boolean {
+  return selectedTrackingRoute.value?.id === route.id;
+}
+
+function selectTrackingRoute(route: DashboardTrackingRoute): void {
+  selectedTrackingRouteId.value = route.id;
+}
+
+async function readJson(response: Response, label = "请求") {
+  const body = await response.text();
+  if (!body.trim()) {
+    throw new Error(`${label}返回空响应 (${response.status})`);
+  }
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error(`${label}返回的不是 JSON (${response.status})`);
+  }
+}
+
+async function fetchJson(input: string, init: RequestInit = {}, label = "请求") {
+  const response = await fetch(input, init);
+  const json = await readJson(response, label);
+  if (!response.ok || json?.ok === false) {
+    throw new Error(json?.error ?? `${label}失败 (${response.status})`);
+  }
+  return json;
+}
+
+async function fetchOptionalJson<T>(input: string, fallback: T, label: string): Promise<T> {
+  try {
+    return await fetchJson(input, {}, label) as T;
+  } catch (e: any) {
+    error.value = e.message ?? `${label}失败`;
+    return fallback;
+  }
 }
 
 function authHeaders(init?: HeadersInit): Headers {
@@ -1763,24 +2038,23 @@ async function loadMe() {
   if (!authToken.value) return;
   const res = await apiFetch(`${API}/api/auth/me`);
   if (!res.ok) throw new Error("登录已过期");
-  const json = await res.json();
-  authUser.value = json.user;
+  const json = await readJson(res, "加载当前用户");
+  authUser.value = json.data?.user ?? json.user;
 }
 
 async function login() {
   loginLoading.value = true;
   loginError.value = "";
   try {
-    const res = await fetch(`${API}/api/auth/login`, {
+    const json = await fetchJson(`${API}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(loginForm),
-    });
-    const json = await res.json();
-    if (!res.ok || !json.ok) throw new Error(json.error ?? "登录失败");
-    authToken.value = json.token;
-    authUser.value = json.user;
-    localStorage.setItem("xqt_auth_token", json.token);
+    }, "登录");
+    const loginData = json.data ?? json;
+    authToken.value = loginData.token;
+    authUser.value = loginData.user;
+    localStorage.setItem("xqt_auth_token", loginData.token);
     await fetchDashboard();
   } catch (e: any) {
     loginError.value = e.message ?? "登录失败";
@@ -1816,14 +2090,13 @@ async function fetchDashboard() {
   loading.value = true;
   error.value = "";
   try {
-    const [dashRes, healthRes, branchRes] = await Promise.all([
-      fetch(`${API}/api/finance/dashboard`),
-      fetch(`${API}/health`),
-      fetch(`${API}/api/finance/branches`),
+    const [dashData, healthData, branchData] = await Promise.all([
+      fetchOptionalJson<DashboardData | null>(`${API}/api/finance/dashboard`, null, "加载财务看板"),
+      fetchOptionalJson<HealthData | null>(`${API}/health`, null, "加载系统状态"),
+      fetchOptionalJson<{ data?: BranchData[] }>(`${API}/api/finance/branches`, { data: [] }, "加载分公司"),
     ]);
-    dashboard.value = await dashRes.json();
-    health.value = await healthRes.json();
-    const branchData = await branchRes.json();
+    dashboard.value = dashData;
+    health.value = healthData;
     branches.value = branchData.data ?? [];
   } catch (e: any) {
     error.value = e.message;
@@ -2468,74 +2741,212 @@ async function doReloadBill(id: number) {
       <section class="workspace">
       <!-- ════════ Dashboard ════════ -->
       <template v-if="currentNav === 'dashboard'">
-        <header class="topbar">
-          <div>
-            <p>统一驾驶舱</p>
-            <h1>两线业务实时汇总</h1>
+        <header class="dashboard-hero">
+          <div class="dashboard-title">
+            <p>DataGear 风格驾驶舱</p>
+            <h1>两线业务经营看板</h1>
+            <span v-if="dashboard">统计周期 {{ dashboard.period.from }} 至 {{ dashboard.period.to }}</span>
           </div>
-          <button class="primary" @click="fetchDashboard" :disabled="loading">
-            <RefreshCw :size="14" :class="{ spinning: loading }" />
-            刷新数据
-          </button>
+          <div class="dashboard-actions">
+            <span class="live-chip"><span class="pulse-dot" /> 实时汇总</span>
+            <button class="primary" @click="fetchDashboard" :disabled="loading">
+              <RefreshCw :size="14" :class="{ spinning: loading }" />
+              刷新数据
+            </button>
+          </div>
         </header>
 
         <div class="error-bar" v-if="error">{{ error }}</div>
 
-        <section class="metrics" v-if="dashboard">
-          <article>
-            <span>合并总营收</span>
-            <strong>¥{{ fmt(dashboard.combined.totalRevenue) }}</strong>
-          </article>
-          <article>
-            <span>合并总成本</span>
-            <strong>¥{{ fmt(dashboard.combined.totalCost) }}</strong>
-          </article>
-          <article>
-            <span>合并总利润</span>
-            <strong :class="dashboard.combined.totalProfit >= 0 ? 'positive' : 'negative'">
-              ¥{{ fmt(dashboard.combined.totalProfit) }}
-            </strong>
-          </article>
-          <article>
-            <span>统计周期</span>
-            <strong class="period">{{ dashboard.period.from }} ~ {{ dashboard.period.to }}</strong>
+        <section class="dashboard-kpis" v-if="dashboard">
+          <article v-for="item in dashboardKpis" :key="item.label" :class="['kpi-tile', item.tone]">
+            <div class="kpi-icon"><component :is="item.icon" :size="18" /></div>
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+            <small>{{ item.sub }}</small>
           </article>
         </section>
 
-        <section class="two-lines" v-if="dashboard">
-          <article class="line-card acc-card">
-            <h3><Truck :size="18" /> {{ dashboard.acc.label }}</h3>
-            <div class="line-metrics">
-              <div><span>营收</span><strong>¥{{ fmt(dashboard.acc.revenue) }}</strong></div>
-              <div><span>成本</span><strong>¥{{ fmt(dashboard.acc.cost) }}</strong></div>
-              <div><span>利润</span><strong>¥{{ fmt(dashboard.acc.profit) }}</strong></div>
-              <div><span>订单数</span><strong>{{ dashboard.acc.orderCount }}</strong></div>
+        <section class="dashboard-grid" v-if="dashboard">
+          <article class="dashboard-panel tracking-panel">
+            <div class="panel-title">
+              <div>
+                <p>全球物流跟踪</p>
+                <h2>货物轨迹地图</h2>
+              </div>
+              <span>{{ fmtInt(trackingSummary.activeShipments) }} 在途</span>
             </div>
-            <div class="branch-detail" v-if="dashboard.acc.byBranch.length">
-              <h4>按分公司</h4>
-              <table>
-                <tr v-for="b in dashboard.acc.byBranch" :key="b.branch">
-                  <td>{{ b.branch }}</td>
-                  <td>¥{{ fmt(b.revenue) }}</td>
-                  <td>¥{{ fmt(b.profit) }}</td>
-                  <td>{{ b.count }} 单</td>
-                </tr>
-              </table>
+            <div class="tracking-layout">
+              <GlobalTrackingMap
+                :routes="trackingRoutes"
+                :selected-route-id="selectedTrackingRoute?.id"
+                @select="selectTrackingRoute"
+              />
+
+              <aside class="tracking-sidebar">
+                <div class="tracking-stats">
+                  <div v-for="item in trackingStats" :key="item.label" :class="item.tone">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                </div>
+
+                <div class="selected-shipment" v-if="selectedTrackingRoute">
+                  <div>
+                    <span>当前追踪</span>
+                    <strong>{{ selectedTrackingRoute.trackingNo || selectedTrackingRoute.shipmentNo }}</strong>
+                  </div>
+                  <p>{{ selectedTrackingRoute.carrierName }} · {{ selectedTrackingRoute.latestLocation }}</p>
+                  <i><b :style="{ width: selectedTrackingRoute.progress + '%' }" /></i>
+                  <small>{{ fmtTime(selectedTrackingRoute.latestEventTime) }} · {{ selectedTrackingRoute.rawStatus }}</small>
+                </div>
+
+                <div class="route-list" v-if="trackingRoutes.length">
+                  <button
+                    v-for="route in trackingRoutes.slice(0, 5)"
+                    :key="route.id"
+                    :class="{ active: isSelectedTrackingRoute(route) }"
+                    @click="selectTrackingRoute(route)"
+                  >
+                    <span>
+                      <strong>{{ route.shipmentNo }}</strong>
+                      <em>{{ route.destination.countryCode }} · {{ trackingStatusLabel(route.status) }}</em>
+                    </span>
+                    <small>{{ route.progress }}%</small>
+                  </button>
+                </div>
+                <div class="map-empty" v-else>
+                  <Globe :size="28" />
+                  <span>暂无可跟踪运单</span>
+                </div>
+              </aside>
             </div>
           </article>
 
-          <article class="line-card xqt-card">
-            <h3><Package :size="18" /> {{ dashboard.xqt.label }}</h3>
-            <div class="line-metrics">
-              <div><span>营收</span><strong>¥{{ fmt(dashboard.xqt.revenue) }}</strong></div>
-              <div><span>已收</span><strong>¥{{ fmt(dashboard.xqt.paid) }}</strong></div>
-              <div><span>待收</span><strong>¥{{ fmt(dashboard.xqt.unpaid) }}</strong></div>
-              <div><span>运单</span><strong>{{ dashboard.xqt.shipmentCount }}</strong></div>
+          <article class="dashboard-panel flow-panel">
+            <div class="panel-title">
+              <div>
+                <p>业务线结构</p>
+                <h2>卖货客户 / 制单客户</h2>
+              </div>
+              <span>Flow</span>
+            </div>
+            <div class="flow-list">
+              <div v-for="flow in dashboardFlows" :key="flow.code" class="flow-row">
+                <div class="flow-main">
+                  <strong>{{ flow.label }}</strong>
+                  <span>{{ flow.customerDirection }} · {{ fmtInt(flow.orders) }} 单 / {{ fmtInt(flow.shipments) }} 票</span>
+                </div>
+                <div class="flow-money">
+                  <strong>¥{{ fmt(flow.receivable) }}</strong>
+                  <span :class="flow.profit >= 0 ? 'positive' : 'negative'">毛利 ¥{{ fmt(flow.profit) }}</span>
+                </div>
+                <div class="flow-track">
+                  <i :style="{ width: ratio(flow.receivable, maxFlowRevenue) + '%' }" />
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="dashboard-panel mix-panel">
+            <div class="panel-title">
+              <div>
+                <p>收入占比</p>
+                <h2>Revenue Mix</h2>
+              </div>
+              <span>Chart</span>
+            </div>
+            <div class="donut-wrap">
+              <div class="donut" :style="donutStyle">
+                <div>
+                  <strong>¥{{ fmt(dashboard.combined.totalRevenue) }}</strong>
+                  <span>总营收</span>
+                </div>
+              </div>
+              <div class="donut-legend">
+                <div v-for="flow in dashboardFlows" :key="flow.code">
+                  <span />
+                  <strong>{{ flow.label }}</strong>
+                  <em>{{ fmtPercent(ratio(flow.receivable, dashboard.combined.totalRevenue) / 100) }}</em>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="dashboard-panel finance-panel">
+            <div class="panel-title">
+              <div>
+                <p>财务结构</p>
+                <h2>应收 / 应付 / 毛利</h2>
+              </div>
+              <span>Finance</span>
+            </div>
+            <div class="finance-bars">
+              <div v-for="bar in financeBars" :key="bar.label" class="finance-bar">
+                <div>
+                  <span>{{ bar.label }}</span>
+                  <strong>¥{{ fmt(bar.value) }}</strong>
+                </div>
+                <i><b :class="bar.tone" :style="{ width: ratio(Math.abs(bar.value), maxFinanceValue) + '%' }" /></i>
+              </div>
+            </div>
+          </article>
+
+          <article class="dashboard-panel pipeline-panel">
+            <div class="panel-title">
+              <div>
+                <p>经营链路</p>
+                <h2>从接单到毛利</h2>
+              </div>
+              <span>Pipeline</span>
+            </div>
+            <div class="pipeline">
+              <div v-for="node in pipelineNodes" :key="node.label" class="pipeline-node">
+                <strong>{{ node.value }}</strong>
+                <span>{{ node.label }}</span>
+                <small>{{ node.desc }}</small>
+              </div>
+            </div>
+          </article>
+
+          <article class="dashboard-panel alert-panel">
+            <div class="panel-title">
+              <div>
+                <p>关注事项</p>
+                <h2>运营提醒</h2>
+              </div>
+              <span>Notice</span>
+            </div>
+            <div class="alert-list">
+              <div v-for="item in dashboardAlerts" :key="item.title" :class="['alert-row', item.tone]">
+                <span />
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.desc }}</p>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="dashboard-panel branch-panel">
+            <div class="panel-title">
+              <div>
+                <p>组织视图</p>
+                <h2>分公司覆盖</h2>
+              </div>
+              <span>{{ branches.length }} 个</span>
+            </div>
+            <div class="branch-mini-list">
+              <div v-for="b in branches.slice(0, 6)" :key="b.id">
+                <strong>{{ b.name }}</strong>
+                <span>{{ b.code }} · {{ b.org_type }}</span>
+                <em :class="{ active: b.is_active }">{{ b.is_active ? '启用' : '停用' }}</em>
+              </div>
             </div>
           </article>
         </section>
 
-        <section class="module-grid">
+        <section class="module-grid dashboard-modules">
           <article v-for="item in moduleCards" :key="item.title">
             <div class="module-header">
               <component :is="item.icon" :size="20" />

@@ -7,20 +7,28 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.auth.AuthPrincipal;
+import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.AuditService;
+import com.xqt.saas.common.CommandResponse;
+import com.xqt.saas.common.ItemResponse;
 import com.xqt.saas.common.JsonSupport;
+import com.xqt.saas.common.PageResponse;
 import com.xqt.saas.common.RequestContext;
+import com.xqt.saas.orders.OrderResponses.OrderLineView;
+import com.xqt.saas.orders.OrderResponses.OrderView;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-
-import static org.springframework.http.HttpStatus.BAD_REQUEST;
-import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
 public class FlowOrderService {
     private static final DateTimeFormatter ORDER_NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+    private static final int DEFAULT_PAGE = 1;
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 100;
+    private static final String STATUS_CANCELLED = "CANCELLED";
+    private static final String STATUS_DRAFT = "DRAFT";
+    private static final String SOURCE_LOCAL = "LOCAL";
 
     private final JdbcTemplate jdbc;
     private final RequestContext context;
@@ -35,10 +43,12 @@ public class FlowOrderService {
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> search(AuthPrincipal auth, FlowDefinition flow, OrderRequests.Search request) {
+    public PageResponse<OrderView> search(AuthPrincipal auth, FlowDefinition flow, OrderRequests.Search request) {
         context.setTenant(auth);
-        int page = request == null || request.page() == null ? 1 : Math.max(1, request.page());
-        int pageSize = request == null || request.pageSize() == null ? 20 : Math.max(1, Math.min(request.pageSize(), 100));
+        int page = request == null || request.page() == null ? DEFAULT_PAGE : Math.max(1, request.page());
+        int pageSize = request == null || request.pageSize() == null
+            ? DEFAULT_PAGE_SIZE
+            : Math.max(1, Math.min(request.pageSize(), MAX_PAGE_SIZE));
         int offset = (page - 1) * pageSize;
 
         List<Object> args = new ArrayList<>();
@@ -105,25 +115,28 @@ public class FlowOrderService {
         args.add(pageSize);
         args.add(offset);
 
-        List<Map<String, Object>> items = json.rows(jdbc.queryForList(sql.toString(), args.toArray()));
-        return Map.of("ok", true, "items", items, "data", items, "page", page, "pageSize", pageSize);
+        List<OrderView> items = json.rows(jdbc.queryForList(sql.toString(), args.toArray()))
+            .stream()
+            .map(row -> OrderResponses.orderView(row, List.of()))
+            .toList();
+        return new PageResponse<>(items, page, pageSize);
     }
 
     @Transactional(readOnly = true)
-    public Map<String, Object> get(AuthPrincipal auth, FlowDefinition flow, String orderId) {
+    public ItemResponse<OrderView> get(AuthPrincipal auth, FlowDefinition flow, String orderId) {
         context.setTenant(auth);
-        Map<String, Object> order = findOrder(auth, flow, orderId);
+        OrderView order = findOrder(auth, flow, orderId);
         if (order == null) {
-            throw new ResponseStatusException(NOT_FOUND, "order not found");
+            throw ApiException.notFound("order not found");
         }
-        return Map.of("ok", true, "item", order, "data", order);
+        return new ItemResponse<>(order);
     }
 
-    @Transactional
-    public Map<String, Object> create(AuthPrincipal auth, FlowDefinition flow, OrderRequests.Save request) {
+    @Transactional(rollbackFor = Exception.class)
+    public ItemResponse<OrderView> create(AuthPrincipal auth, FlowDefinition flow, OrderRequests.Save request) {
         context.setTenant(auth);
         if (request == null) {
-            throw new ResponseStatusException(BAD_REQUEST, "request body is required");
+            throw ApiException.badRequest("request body is required");
         }
         String customerId = resolveCustomerId(auth, flow, request.customerId(), request.customerCode());
         String orderNo = isBlank(request.orderNo()) ? generateOrderNo(flow.orderNoPrefix()) : request.orderNo().trim();
@@ -149,7 +162,7 @@ public class FlowOrderService {
               ?::uuid,
               NULLIF(?, '')::uuid,
               ?,
-              'LOCAL',
+              ?,
               ?,
               ?::uuid,
               ?::uuid,
@@ -165,7 +178,8 @@ public class FlowOrderService {
             orderNo,
             customerId,
             nullToBlank(request.serviceId()),
-            nonBlank(request.status(), "DRAFT"),
+            nonBlank(request.status(), STATUS_DRAFT),
+            SOURCE_LOCAL,
             request.customerRef(),
             auth.userId(),
             auth.userId(),
@@ -175,21 +189,21 @@ public class FlowOrderService {
             flow.serviceMode()
         );
         replaceLines(auth, orderId, request.lines());
-        Map<String, Object> after = findOrder(auth, flow, orderId);
+        OrderView after = findOrder(auth, flow, orderId);
         auditService.log(auth, "order", orderId, "CREATE", null, after);
-        return Map.of("ok", true, "item", after, "data", after);
+        return new ItemResponse<>(after);
     }
 
-    @Transactional
-    public Map<String, Object> update(AuthPrincipal auth, FlowDefinition flow, String orderId, OrderRequests.Save request) {
+    @Transactional(rollbackFor = Exception.class)
+    public ItemResponse<OrderView> update(AuthPrincipal auth, FlowDefinition flow, String orderId, OrderRequests.Save request) {
         context.setTenant(auth);
-        Map<String, Object> before = findOrder(auth, flow, orderId);
+        OrderView before = findOrder(auth, flow, orderId);
         if (before == null) {
-            throw new ResponseStatusException(NOT_FOUND, "order not found");
+            throw ApiException.notFound("order not found");
         }
 
         String customerId = null;
-        if (request != null && (!isBlank(request.customerId()) || !isBlank(request.customerCode()))) {
+        if (shouldResolveCustomer(request)) {
             customerId = resolveCustomerId(auth, flow, request.customerId(), request.customerCode());
         }
 
@@ -210,10 +224,10 @@ public class FlowOrderService {
             """,
             nullToBlank(customerId),
             request == null ? "" : nullToBlank(request.serviceId()),
-            request == null ? before.get("customer_ref") : request.customerRef(),
+            request == null ? before.customerRef() : request.customerRef(),
             request == null ? "" : nullToBlank(request.status()),
             request == null ? "" : nullToBlank(request.orderEntryType()),
-            json.toJson(request == null ? before.get("metadata") : request.metadata()),
+            json.toJson(request == null ? before.metadata() : request.metadata()),
             auth.userId(),
             auth.tenantId(),
             orderId,
@@ -224,21 +238,21 @@ public class FlowOrderService {
             replaceLines(auth, orderId, request.lines());
         }
 
-        Map<String, Object> after = findOrder(auth, flow, orderId);
+        OrderView after = findOrder(auth, flow, orderId);
         auditService.log(auth, "order", orderId, "UPDATE", before, after);
-        return Map.of("ok", true, "item", after, "data", after);
+        return new ItemResponse<>(after);
     }
 
-    @Transactional
-    public Map<String, Object> delete(AuthPrincipal auth, FlowDefinition flow, String orderId) {
+    @Transactional(rollbackFor = Exception.class)
+    public CommandResponse delete(AuthPrincipal auth, FlowDefinition flow, String orderId) {
         context.setTenant(auth);
-        Map<String, Object> before = findOrder(auth, flow, orderId);
+        OrderView before = findOrder(auth, flow, orderId);
         if (before == null) {
-            throw new ResponseStatusException(NOT_FOUND, "order not found");
+            throw ApiException.notFound("order not found");
         }
         jdbc.update("""
             UPDATE orders
-            SET status = 'CANCELLED',
+            SET status = ?,
                 deleted_at = now(),
                 deleted_by = ?::uuid,
                 updated_by = ?::uuid
@@ -247,12 +261,12 @@ public class FlowOrderService {
               AND customer_direction = ?
               AND service_mode = ?
               AND deleted_at IS NULL
-            """, auth.userId(), auth.userId(), auth.tenantId(), orderId, flow.customerDirection(), flow.serviceMode());
+            """, STATUS_CANCELLED, auth.userId(), auth.userId(), auth.tenantId(), orderId, flow.customerDirection(), flow.serviceMode());
         auditService.log(auth, "order", orderId, "DELETE", before, Map.of("id", orderId, "deleted", true));
-        return Map.of("ok", true);
+        return CommandResponse.ok();
     }
 
-    private Map<String, Object> findOrder(AuthPrincipal auth, FlowDefinition flow, String orderId) {
+    private OrderView findOrder(AuthPrincipal auth, FlowDefinition flow, String orderId) {
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT
               o.id,
@@ -288,7 +302,7 @@ public class FlowOrderService {
             return null;
         }
         Map<String, Object> order = json.row(rows.get(0));
-        List<Map<String, Object>> lines = json.rows(jdbc.queryForList("""
+        List<OrderLineView> lines = json.rows(jdbc.queryForList("""
             SELECT
               id,
               line_no,
@@ -306,9 +320,11 @@ public class FlowOrderService {
               AND order_id = ?::uuid
               AND deleted_at IS NULL
             ORDER BY line_no, created_at
-            """, auth.tenantId(), orderId));
-        order.put("lines", lines);
-        return order;
+            """, auth.tenantId(), orderId))
+            .stream()
+            .map(OrderResponses::orderLineView)
+            .toList();
+        return OrderResponses.orderView(order, lines);
     }
 
     private String resolveCustomerId(AuthPrincipal auth, FlowDefinition flow, String customerId, String customerCode) {
@@ -334,10 +350,10 @@ public class FlowOrderService {
                   AND customer_direction IN (?, 'BOTH')
                 """, auth.tenantId(), customerCode, flow.customerDirection());
         } else {
-            throw new ResponseStatusException(BAD_REQUEST, "customerId or customerCode is required");
+            throw ApiException.badRequest("customerId or customerCode is required");
         }
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(BAD_REQUEST, "customer not found or not allowed for this flow");
+            throw ApiException.badRequest("customer not found or not allowed for this flow");
         }
         return rows.get(0).get("id").toString();
     }
@@ -359,8 +375,9 @@ public class FlowOrderService {
         int index = 1;
         for (OrderRequests.Line line : lines) {
             if (line == null || isBlank(line.itemName())) {
-                throw new ResponseStatusException(BAD_REQUEST, "line itemName is required");
+                throw ApiException.badRequest("line itemName is required");
             }
+            Integer lineNo = line.lineNo();
             jdbc.update("""
                 INSERT INTO order_lines (
                   tenant_id,
@@ -393,7 +410,7 @@ public class FlowOrderService {
                 """,
                 auth.tenantId(),
                 orderId,
-                line.lineNo() == null ? index : line.lineNo(),
+                lineNo == null ? Integer.valueOf(index) : lineNo,
                 line.itemName(),
                 line.sku(),
                 line.quantity(),
@@ -410,6 +427,13 @@ public class FlowOrderService {
 
     private String generateOrderNo(String prefix) {
         return prefix + "-" + ORDER_NO_TIME.format(LocalDateTime.now());
+    }
+
+    private boolean shouldResolveCustomer(OrderRequests.Save request) {
+        if (request == null) {
+            return false;
+        }
+        return !isBlank(request.customerId()) || !isBlank(request.customerCode());
     }
 
     private String nonBlank(String value, String fallback) {

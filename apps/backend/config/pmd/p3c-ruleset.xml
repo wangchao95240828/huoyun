@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<ruleset name="XqtP3cRules"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+    <description>
+        Alibaba P3C rules used by the XQT backend build. The legacy Service/DAO Impl naming rule is excluded
+        because this Spring Boot codebase uses concrete constructor-injected services and repositories.
+    </description>
+
+    <rule ref="rulesets/java/ali-constant.xml"/>
+    <rule ref="rulesets/java/ali-exception.xml"/>
+    <rule ref="rulesets/java/ali-flowcontrol.xml"/>
+    <rule ref="rulesets/java/ali-naming.xml">
+        <exclude name="ServiceOrDaoClassShouldEndWithImplRule"/>
+    </rule>
+    <rule ref="rulesets/java/ali-oop.xml"/>
+    <rule ref="rulesets/java/ali-other.xml"/>
+    <rule ref="rulesets/java/ali-set.xml"/>
+</ruleset>

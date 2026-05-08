@@ -35,9 +35,11 @@ docs/*.pdf
 # Test / cache
 coverage/
 .cache/
+.npm-cache/
 .vite/
 *.tsbuildinfo
 apps/web/src/*.js
+apps/web/src/**/*.js
 
 # Docker local state
 *.pid

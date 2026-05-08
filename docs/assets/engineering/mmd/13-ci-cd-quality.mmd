@@ -6,7 +6,7 @@ flowchart LR
   classDef fail fill:#fef2f2,stroke:#dc2626,color:#7f1d1d
 
   commit["开发提交<br/>feature branch"]:::step
-  lint["前端 lint / typecheck<br/>后端 Checkstyle 可选"]:::step
+  lint["前端 lint / typecheck<br/>后端 Checkstyle + P3C + SpotBugs"]:::step
   unit["单元测试<br/>计费 / 状态机 / 权限"]:::step
   api["接口测试<br/>登录 / 分页 / 权限 / 错误码"]:::step
   migration["数据库迁移验证<br/>RLS / seed / rollback 演练"]:::step
