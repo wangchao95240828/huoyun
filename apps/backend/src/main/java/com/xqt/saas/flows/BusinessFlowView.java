@@ -15,4 +15,8 @@ public record BusinessFlowView(
     String createdAt,
     String updatedAt
 ) {
+    public BusinessFlowView {
+        entryChannels = entryChannels == null ? List.of() : List.copyOf(entryChannels);
+        defaultSteps = defaultSteps == null ? List.of() : List.copyOf(defaultSteps);
+    }
 }

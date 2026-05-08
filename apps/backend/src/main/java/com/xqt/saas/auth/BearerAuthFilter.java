@@ -4,12 +4,16 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import com.xqt.saas.common.ApiResponse;
+import com.xqt.saas.common.ErrorCode;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -18,12 +22,16 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 public class BearerAuthFilter extends OncePerRequestFilter {
+    private static final String AUTHORIZATION_PREFIX = "Bearer ";
+
     private final TokenService tokenService;
     private final AuthService authService;
+    private final ObjectMapper objectMapper;
 
-    public BearerAuthFilter(TokenService tokenService, AuthService authService) {
+    public BearerAuthFilter(TokenService tokenService, AuthService authService, ObjectMapper objectMapper) {
         this.tokenService = tokenService;
         this.authService = authService;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -39,14 +47,14 @@ public class BearerAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
         throws ServletException, IOException {
         String authorization = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
+        if (authorization == null || !authorization.startsWith(AUTHORIZATION_PREFIX)) {
             unauthorized(response, "Missing authorization token");
             return;
         }
 
         AuthPrincipal principal;
         try {
-            principal = tokenService.verify(authorization.substring("Bearer ".length()).trim());
+            principal = tokenService.verify(authorization.substring(AUTHORIZATION_PREFIX.length()).trim());
             authService.validateSession(principal);
             List<SimpleGrantedAuthority> authorities = new ArrayList<>();
             principal.permissions().forEach(code -> authorities.add(new SimpleGrantedAuthority(code)));
@@ -54,7 +62,7 @@ public class BearerAuthFilter extends OncePerRequestFilter {
             SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken(principal, null, authorities)
             );
-        } catch (Exception ex) {
+        } catch (RuntimeException ex) {
             SecurityContextHolder.clearContext();
             unauthorized(response, "Invalid authorization token");
             return;
@@ -65,8 +73,8 @@ public class BearerAuthFilter extends OncePerRequestFilter {
 
     private void unauthorized(HttpServletResponse response, String message) throws IOException {
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-        response.setContentType("application/json");
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("{\"ok\":false,\"error\":\"" + message + "\"}");
+        objectMapper.writeValue(response.getWriter(), ApiResponse.error(ErrorCode.UNAUTHORIZED, message));
     }
 }

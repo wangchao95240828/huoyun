@@ -1,8 +1,10 @@
 # API Request Body 总表
 
-生成日期：2026-05-07  
+生成日期：2026-05-08
 适用范围：新航线统一平台 Spring Boot 正式 API，以及为完全匹配 ACC / 新智慧而规划的目标 API。  
 说明：本文档只定义 request body，不涉及代码实现。`GET`、`DELETE` 接口统一明确为“无 request body”，查询条件放 query string 或 path variable。
+
+所有本文档中的目标 API 必须遵守 `docs/alibaba-java-development-standard.md`：Controller 不直接写 SQL，响应统一为 `ApiResponse<T>`，写接口操作人从 token 获取，后端提交前通过 `./mvnw verify`。
 
 ## 1. 通用约定
 
@@ -94,10 +96,9 @@
   "username": "operator01",
   "displayName": "操作员",
   "email": "operator@example.com",
-  "phone": "",
   "password": "Initial@123456",
   "status": "ACTIVE",
-  "roleIds": []
+  "roleCodes": ["OPERATOR"]
 }
 ```
 
@@ -107,9 +108,8 @@
 {
   "displayName": "操作员",
   "email": "operator@example.com",
-  "phone": "",
   "status": "ACTIVE",
-  "roleIds": []
+  "roleCodes": ["OPERATOR"]
 }
 ```
 

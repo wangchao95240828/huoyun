@@ -1,5 +1,6 @@
 package com.xqt.saas.common;
 
+import java.sql.SQLException;
 import java.sql.Array;
 import java.sql.Timestamp;
 import java.time.LocalDate;
@@ -10,11 +11,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 @Component
 public class JsonSupport {
+    private static final Logger LOGGER = LoggerFactory.getLogger(JsonSupport.class);
+    private static final String POSTGRES_JSON_OBJECT_CLASS = "org.postgresql.util.PGobject";
+
     private final ObjectMapper objectMapper;
 
     public JsonSupport(ObjectMapper objectMapper) {
@@ -44,11 +51,12 @@ public class JsonSupport {
                 if (raw instanceof Object[] values) {
                     return Arrays.stream(values).map(this::value).toList();
                 }
-            } catch (Exception ignored) {
+            } catch (SQLException ex) {
+                LOGGER.debug("Unable to read SQL array value", ex);
                 return List.of();
             }
         }
-        if ("org.postgresql.util.PGobject".equals(value.getClass().getName())) {
+        if (POSTGRES_JSON_OBJECT_CLASS.equals(value.getClass().getName())) {
             return value.toString();
         }
         return value;
@@ -57,7 +65,7 @@ public class JsonSupport {
     public String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value == null ? Map.of() : value);
-        } catch (Exception ex) {
+        } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Unable to serialize JSON payload", ex);
         }
     }

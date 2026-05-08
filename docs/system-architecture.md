@@ -629,16 +629,14 @@ ACC 对照资料流：
 
 ### 10.3 API 规范
 
-建议统一响应格式：
+统一成功响应格式：
 
 ```json
 {
   "ok": true,
   "data": {},
-  "items": [],
-  "page": 1,
-  "pageSize": 30,
-  "total": 0
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -647,9 +645,9 @@ ACC 对照资料流：
 ```json
 {
   "ok": false,
+  "data": null,
   "error": "错误说明",
-  "code": "BUSINESS_ERROR",
-  "details": {}
+  "errorCode": "BUSINESS_ERROR"
 }
 ```
 

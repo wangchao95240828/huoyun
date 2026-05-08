@@ -13,6 +13,14 @@ ACC API 的核心数据模型不是单纯的“订单表”，而是围绕 `Expr
 
 如果要在新 SaaS 中承接 ACC API，建议保留一层 ACC 兼容适配器，把旧字段映射到新系统的 `shipments`、`cartons`、`declarations`、`charges`、`tracking_events`、`ledger_entries`。不要直接把 ACC 表照搬成最终业务模型。
 
+开发规范补充：
+
+1. ACC 旧 API 只作为客户自己制单流程的规则和字段对照，不作为新平台生产接口路径。
+2. 新平台目标接口统一放在 `/api/document/*`、`/api/customer-api/*`、`/api/labels/*`、`/api/tracking/*`。
+3. 所有目标 API 必须返回 `ApiResponse<T>`；错误响应包含 `errorCode`。
+4. Controller 不直接写 SQL，业务逻辑进入 Service，数据访问进入 Repository/DAO。
+5. 写操作必须从 token 获取 `tenantId` 和 `userId`，写入操作人字段和 `audit_logs`。
+
 ## 反推范围
 
 反推来源是本地 ACC 源码中的 API 文件：

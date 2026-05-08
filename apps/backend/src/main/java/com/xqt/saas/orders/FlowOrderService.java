@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.auth.AuthPrincipal;
+import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.AuditService;
 import com.xqt.saas.common.CommandResponse;
 import com.xqt.saas.common.ItemResponse;
@@ -18,10 +19,6 @@ import com.xqt.saas.orders.OrderResponses.OrderView;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-
-import static org.springframework.http.HttpStatus.BAD_REQUEST;
-import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @Service
 public class FlowOrderService {
@@ -130,16 +127,16 @@ public class FlowOrderService {
         context.setTenant(auth);
         OrderView order = findOrder(auth, flow, orderId);
         if (order == null) {
-            throw new ResponseStatusException(NOT_FOUND, "order not found");
+            throw ApiException.notFound("order not found");
         }
         return new ItemResponse<>(order);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ItemResponse<OrderView> create(AuthPrincipal auth, FlowDefinition flow, OrderRequests.Save request) {
         context.setTenant(auth);
         if (request == null) {
-            throw new ResponseStatusException(BAD_REQUEST, "request body is required");
+            throw ApiException.badRequest("request body is required");
         }
         String customerId = resolveCustomerId(auth, flow, request.customerId(), request.customerCode());
         String orderNo = isBlank(request.orderNo()) ? generateOrderNo(flow.orderNoPrefix()) : request.orderNo().trim();
@@ -197,16 +194,16 @@ public class FlowOrderService {
         return new ItemResponse<>(after);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ItemResponse<OrderView> update(AuthPrincipal auth, FlowDefinition flow, String orderId, OrderRequests.Save request) {
         context.setTenant(auth);
         OrderView before = findOrder(auth, flow, orderId);
         if (before == null) {
-            throw new ResponseStatusException(NOT_FOUND, "order not found");
+            throw ApiException.notFound("order not found");
         }
 
         String customerId = null;
-        if (request != null && (!isBlank(request.customerId()) || !isBlank(request.customerCode()))) {
+        if (shouldResolveCustomer(request)) {
             customerId = resolveCustomerId(auth, flow, request.customerId(), request.customerCode());
         }
 
@@ -246,12 +243,12 @@ public class FlowOrderService {
         return new ItemResponse<>(after);
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CommandResponse delete(AuthPrincipal auth, FlowDefinition flow, String orderId) {
         context.setTenant(auth);
         OrderView before = findOrder(auth, flow, orderId);
         if (before == null) {
-            throw new ResponseStatusException(NOT_FOUND, "order not found");
+            throw ApiException.notFound("order not found");
         }
         jdbc.update("""
             UPDATE orders
@@ -353,10 +350,10 @@ public class FlowOrderService {
                   AND customer_direction IN (?, 'BOTH')
                 """, auth.tenantId(), customerCode, flow.customerDirection());
         } else {
-            throw new ResponseStatusException(BAD_REQUEST, "customerId or customerCode is required");
+            throw ApiException.badRequest("customerId or customerCode is required");
         }
         if (rows.isEmpty()) {
-            throw new ResponseStatusException(BAD_REQUEST, "customer not found or not allowed for this flow");
+            throw ApiException.badRequest("customer not found or not allowed for this flow");
         }
         return rows.get(0).get("id").toString();
     }
@@ -378,8 +375,9 @@ public class FlowOrderService {
         int index = 1;
         for (OrderRequests.Line line : lines) {
             if (line == null || isBlank(line.itemName())) {
-                throw new ResponseStatusException(BAD_REQUEST, "line itemName is required");
+                throw ApiException.badRequest("line itemName is required");
             }
+            Integer lineNo = line.lineNo();
             jdbc.update("""
                 INSERT INTO order_lines (
                   tenant_id,
@@ -412,7 +410,7 @@ public class FlowOrderService {
                 """,
                 auth.tenantId(),
                 orderId,
-                line.lineNo() == null ? index : line.lineNo(),
+                lineNo == null ? Integer.valueOf(index) : lineNo,
                 line.itemName(),
                 line.sku(),
                 line.quantity(),
@@ -429,6 +427,13 @@ public class FlowOrderService {
 
     private String generateOrderNo(String prefix) {
         return prefix + "-" + ORDER_NO_TIME.format(LocalDateTime.now());
+    }
+
+    private boolean shouldResolveCustomer(OrderRequests.Save request) {
+        if (request == null) {
+            return false;
+        }
+        return !isBlank(request.customerId()) || !isBlank(request.customerCode());
     }
 
     private String nonBlank(String value, String fallback) {

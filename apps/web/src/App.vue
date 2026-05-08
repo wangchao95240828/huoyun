@@ -1778,9 +1778,10 @@ async function login() {
     });
     const json = await res.json();
     if (!res.ok || !json.ok) throw new Error(json.error ?? "登录失败");
-    authToken.value = json.token;
-    authUser.value = json.user;
-    localStorage.setItem("xqt_auth_token", json.token);
+    const loginData = json.data ?? json;
+    authToken.value = loginData.token;
+    authUser.value = loginData.user;
+    localStorage.setItem("xqt_auth_token", loginData.token);
     await fetchDashboard();
   } catch (e: any) {
     loginError.value = e.message ?? "登录失败";

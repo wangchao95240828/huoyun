@@ -2,7 +2,9 @@ package com.xqt.saas.auth;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.sql.Array;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Arrays;
@@ -10,15 +12,34 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import com.xqt.saas.common.ApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
-
-import static org.springframework.http.HttpStatus.UNAUTHORIZED;
 
 @Service
 public class AuthService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuthService.class);
+    private static final String DEFAULT_TENANT_CODE = "xqt";
+    private static final String FAILURE_BAD_PASSWORD = "BAD_PASSWORD";
+    private static final String FAILURE_USER_LOCKED = "USER_LOCKED";
+    private static final String FAILURE_USER_NOT_ACTIVE = "USER_NOT_ACTIVE";
+    private static final String FAILURE_USER_NOT_FOUND = "USER_NOT_FOUND";
+    private static final String FIELD_DISPLAY_NAME = "display_name";
+    private static final String FIELD_EMAIL = "email";
+    private static final String FIELD_LOCKED_UNTIL = "locked_until";
+    private static final String FIELD_PASSWORD_HASH = "password_hash";
+    private static final String FIELD_PERMISSIONS = "permissions";
+    private static final String FIELD_ROLES = "roles";
+    private static final String FIELD_STATUS = "status";
+    private static final String FIELD_TENANT_CODE = "tenant_code";
+    private static final String FIELD_TENANT_ID = "tenant_id";
+    private static final String FIELD_USERNAME = "username";
+    private static final String FIELD_USER_ID = "user_id";
+    private static final String STATUS_ACTIVE = "ACTIVE";
+
     private final JdbcTemplate jdbc;
     private final PasswordHasher passwordHasher;
     private final TokenService tokenService;
@@ -29,13 +50,67 @@ public class AuthService {
         this.tokenService = tokenService;
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public LoginResponse login(LoginRequest request, String ip, String userAgent) {
         setServiceRole();
 
-        String tenantCode = isBlank(request.tenantCode()) ? "xqt" : request.tenantCode();
+        String tenantCode = isBlank(request.tenantCode()) ? DEFAULT_TENANT_CODE : request.tenantCode();
         String username = request.username().trim();
-        List<Map<String, Object>> rows = jdbc.queryForList("""
+        List<Map<String, Object>> rows = findLoginRows(tenantCode, username);
+
+        if (rows.isEmpty()) {
+            logLogin(null, null, username, false, FAILURE_USER_NOT_FOUND, ip, userAgent);
+            throw ApiException.unauthorized("用户名或密码错误");
+        }
+
+        Map<String, Object> row = rows.get(0);
+        String tenantId = string(row.get(FIELD_TENANT_ID));
+        String userId = string(row.get(FIELD_USER_ID));
+
+        validateStatus(row, tenantId, userId, username, ip, userAgent);
+        validatePassword(request.password(), row, tenantId, userId, username, ip, userAgent);
+
+        AuthPrincipal base = loginPrincipal(row, tenantId, userId);
+        TokenService.IssuedToken issued = tokenService.issue(base);
+
+        createSession(tenantId, userId, issued, ip, userAgent);
+        markLoginSuccess(userId);
+        logLogin(tenantId, userId, username, true, null, ip, userAgent);
+
+        return new LoginResponse(true, issued.token(), issued.expiresIn(), issued.payload());
+    }
+
+    @Transactional(readOnly = true)
+    public void validateSession(AuthPrincipal principal) {
+        setServiceRole();
+        Integer count = jdbc.queryForObject("""
+            SELECT count(*)::int
+            FROM user_sessions
+            WHERE tenant_id = ?::uuid
+              AND user_id = ?::uuid
+              AND session_hash = ?
+              AND revoked_at IS NULL
+              AND expires_at > now()
+            """, Integer.class, principal.tenantId(), principal.userId(), sessionHash(principal.jti()));
+        if (count == null || count == 0) {
+            throw ApiException.unauthorized("Session expired");
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void logout(AuthPrincipal principal) {
+        setServiceRole();
+        jdbc.update("""
+            UPDATE user_sessions
+            SET revoked_at = now()
+            WHERE tenant_id = ?::uuid
+              AND user_id = ?::uuid
+              AND session_hash = ?
+            """, principal.tenantId(), principal.userId(), sessionHash(principal.jti()));
+    }
+
+    private List<Map<String, Object>> findLoginRows(String tenantCode, String username) {
+        return jdbc.queryForList("""
             SELECT
               t.id AS tenant_id,
               t.code AS tenant_code,
@@ -59,50 +134,61 @@ public class AuthService {
             GROUP BY t.id, t.code, u.id, u.username, u.email, u.display_name, u.password_hash, u.status, u.locked_until
             LIMIT 1
             """, tenantCode, username, username);
+    }
 
-        if (rows.isEmpty()) {
-            logLogin(null, null, username, false, "USER_NOT_FOUND", ip, userAgent);
-            throw new ResponseStatusException(UNAUTHORIZED, "用户名或密码错误");
-        }
+    private void validateStatus(Map<String, Object> row, String tenantId, String userId, String username, String ip, String userAgent) {
+        String status = string(row.get(FIELD_STATUS));
+        Timestamp lockedUntil = (Timestamp) row.get(FIELD_LOCKED_UNTIL);
 
-        Map<String, Object> row = rows.get(0);
-        String tenantId = string(row.get("tenant_id"));
-        String userId = string(row.get("user_id"));
-        String status = string(row.get("status"));
-        Timestamp lockedUntil = (Timestamp) row.get("locked_until");
-
-        if (!"ACTIVE".equals(status)) {
-            logLogin(tenantId, userId, username, false, "USER_NOT_ACTIVE", ip, userAgent);
-            throw new ResponseStatusException(UNAUTHORIZED, "用户不可用");
+        if (!STATUS_ACTIVE.equals(status)) {
+            logLogin(tenantId, userId, username, false, FAILURE_USER_NOT_ACTIVE, ip, userAgent);
+            throw ApiException.unauthorized("用户不可用");
         }
         if (lockedUntil != null && lockedUntil.toInstant().isAfter(Instant.now())) {
-            logLogin(tenantId, userId, username, false, "USER_LOCKED", ip, userAgent);
-            throw new ResponseStatusException(UNAUTHORIZED, "用户已临时锁定");
+            logLogin(tenantId, userId, username, false, FAILURE_USER_LOCKED, ip, userAgent);
+            throw ApiException.unauthorized("用户已临时锁定");
         }
-        if (!passwordHasher.verify(request.password(), string(row.get("password_hash")))) {
-            jdbc.update("""
-                UPDATE users
-                SET failed_login_count = failed_login_count + 1,
-                    locked_until = CASE WHEN failed_login_count + 1 >= 5 THEN now() + interval '15 minutes' ELSE locked_until END
-                WHERE id = ?::uuid
-                """, userId);
-            logLogin(tenantId, userId, username, false, "BAD_PASSWORD", ip, userAgent);
-            throw new ResponseStatusException(UNAUTHORIZED, "用户名或密码错误");
+    }
+
+    private void validatePassword(
+        String password,
+        Map<String, Object> row,
+        String tenantId,
+        String userId,
+        String username,
+        String ip,
+        String userAgent
+    ) {
+        if (passwordHasher.verify(password, string(row.get(FIELD_PASSWORD_HASH)))) {
+            return;
         }
 
-        AuthPrincipal base = new AuthPrincipal(
+        jdbc.update("""
+            UPDATE users
+            SET failed_login_count = failed_login_count + 1,
+                locked_until = CASE WHEN failed_login_count + 1 >= 5 THEN now() + interval '15 minutes' ELSE locked_until END
+            WHERE id = ?::uuid
+            """, userId);
+        logLogin(tenantId, userId, username, false, FAILURE_BAD_PASSWORD, ip, userAgent);
+        throw ApiException.unauthorized("用户名或密码错误");
+    }
+
+    private AuthPrincipal loginPrincipal(Map<String, Object> row, String tenantId, String userId) {
+        String username = string(row.get(FIELD_USERNAME));
+        return new AuthPrincipal(
             userId,
             tenantId,
-            string(row.get("tenant_code")),
-            isBlank(string(row.get("username"))) ? string(row.get("email")) : string(row.get("username")),
-            string(row.get("display_name")),
-            textArray(row.get("roles")),
-            textArray(row.get("permissions")),
+            string(row.get(FIELD_TENANT_CODE)),
+            isBlank(username) ? string(row.get(FIELD_EMAIL)) : username,
+            string(row.get(FIELD_DISPLAY_NAME)),
+            textArray(row.get(FIELD_ROLES)),
+            textArray(row.get(FIELD_PERMISSIONS)),
             0,
             ""
         );
-        TokenService.IssuedToken issued = tokenService.issue(base);
+    }
 
+    private void createSession(String tenantId, String userId, TokenService.IssuedToken issued, String ip, String userAgent) {
         jdbc.update("""
             INSERT INTO user_sessions (tenant_id, user_id, session_hash, ip, user_agent, expires_at)
             VALUES (?::uuid, ?::uuid, ?, ?::inet, ?, to_timestamp(?))
@@ -114,43 +200,14 @@ public class AuthService {
             userAgent,
             issued.payload().exp()
         );
+    }
+
+    private void markLoginSuccess(String userId) {
         jdbc.update("""
             UPDATE users
             SET last_login_at = now(), failed_login_count = 0, locked_until = NULL
             WHERE id = ?::uuid
             """, userId);
-        logLogin(tenantId, userId, username, true, null, ip, userAgent);
-
-        return new LoginResponse(true, issued.token(), issued.expiresIn(), issued.payload());
-    }
-
-    @Transactional(readOnly = true)
-    public void validateSession(AuthPrincipal principal) {
-        setServiceRole();
-        Integer count = jdbc.queryForObject("""
-            SELECT count(*)::int
-            FROM user_sessions
-            WHERE tenant_id = ?::uuid
-              AND user_id = ?::uuid
-              AND session_hash = ?
-              AND revoked_at IS NULL
-              AND expires_at > now()
-            """, Integer.class, principal.tenantId(), principal.userId(), sessionHash(principal.jti()));
-        if (count == null || count == 0) {
-            throw new ResponseStatusException(UNAUTHORIZED, "Session expired");
-        }
-    }
-
-    @Transactional
-    public void logout(AuthPrincipal principal) {
-        setServiceRole();
-        jdbc.update("""
-            UPDATE user_sessions
-            SET revoked_at = now()
-            WHERE tenant_id = ?::uuid
-              AND user_id = ?::uuid
-              AND session_hash = ?
-            """, principal.tenantId(), principal.userId(), sessionHash(principal.jti()));
     }
 
     private void logLogin(String tenantId, String userId, String username, boolean success, String reason, String ip, String userAgent) {
@@ -178,7 +235,8 @@ public class AuthService {
                     return Arrays.asList(values);
                 }
             }
-        } catch (Exception ignored) {
+        } catch (SQLException ex) {
+            LOGGER.debug("Unable to read SQL array from login query", ex);
             return Collections.emptyList();
         }
         return Collections.emptyList();
@@ -188,7 +246,7 @@ public class AuthService {
         byte[] digest;
         try {
             digest = MessageDigest.getInstance("SHA-256").digest(jti.getBytes(StandardCharsets.UTF_8));
-        } catch (Exception ex) {
+        } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("Unable to hash session id", ex);
         }
         StringBuilder hex = new StringBuilder(digest.length * 2);

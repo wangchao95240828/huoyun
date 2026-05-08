@@ -28,6 +28,9 @@ public final class OrderResponses {
         String updatedByName,
         List<OrderLineView> lines
     ) {
+        public OrderView {
+            lines = lines == null ? List.of() : List.copyOf(lines);
+        }
     }
 
     public record OrderLineView(

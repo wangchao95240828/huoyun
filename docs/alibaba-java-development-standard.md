@@ -13,9 +13,9 @@
 5. 字符串状态、权限码、来源系统、客户方向、服务模式必须沉淀为常量或枚举；不得在业务代码里散落魔法值。
 6. 写接口必须记录操作人和审计日志，不能接受前端传入的 `createdBy`、`updatedBy`、`deletedBy`。
 7. 所有列表接口必须有分页上限，默认 `pageSize=20`，最大 `pageSize=100`。
-8. 业务异常使用明确错误码或 `ResponseStatusException`，不能吞异常，不能返回含糊的成功结果。
-9. 所有新增 Java 文件必须通过 `./mvnw -DskipTests compile`。
-10. 涉及前端契约变化时，必须同步 `npm run build`。
+8. 业务异常必须使用明确错误码和统一异常处理，不允许 Controller 直接散落 `ResponseStatusException`。
+9. 所有新增 Java 文件必须通过 `./mvnw verify`，包含测试、Checkstyle、P3C/PMD、SpotBugs。
+10. 涉及前端契约变化时，必须同步 `npm run lint -w apps/web` 和 `npm run build -w apps/web`。
 
 ## 2. 分层规范
 
@@ -77,14 +77,15 @@ public ApiResponse<ListResponse<UserView>> users(Authentication authentication) 
 {
   "ok": true,
   "data": {},
-  "error": null
+  "error": null,
+  "errorCode": null
 }
 ```
 
 对应 Java：
 
 ```java
-public record ApiResponse<T>(boolean ok, T data, String error) {
+public record ApiResponse<T>(boolean ok, T data, String error, String errorCode) {
 }
 ```
 
@@ -96,7 +97,8 @@ public record ApiResponse<T>(boolean ok, T data, String error) {
   "data": {
     "items": []
   },
-  "error": null
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -116,7 +118,8 @@ ApiResponse<ListResponse<UserView>>
     "page": 1,
     "pageSize": 20
   },
-  "error": null
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -134,7 +137,8 @@ ApiResponse<PageResponse<OrderView>>
   "data": {
     "item": {}
   },
-  "error": null
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -152,7 +156,8 @@ ApiResponse<ItemResponse<OrderView>>
   "data": {
     "success": true
   },
-  "error": null
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -244,29 +249,31 @@ ApiResponse<CommandResponse>
 
 | 范围 | 修正内容 |
 | --- | --- |
-| Admin API | 公开返回值从裸 `Map` 改为 `ApiResponse<ListResponse/ItemResponse/PageResponse/CommandResponse>` |
-| Auth API | `/api/auth/me`、`/api/auth/logout` 改为明确响应 DTO |
-| Health API | `/api/health` 改为 `HealthResponse` |
+| Admin API | 拆分为 `AdminController`、`AdminService`、`AdminRepository`，公开返回值改为 `ApiResponse<ListResponse/ItemResponse/PageResponse/CommandResponse>` |
+| Auth API | `/api/auth/login`、`/api/auth/me`、`/api/auth/logout` 统一返回 `ApiResponse<T>` |
+| Health API | `/api/health` 改为 `HealthController` + `HealthService` + `HealthResponse` |
 | Business Flow API | Controller 不再直接写 SQL，改由 `BusinessFlowService` 负责查询 |
 | Seller / Document Order API | 公开响应改为 `OrderView`、`OrderLineView`、`PageResponse`、`ItemResponse`、`CommandResponse` |
-| 前端适配 | `loadMe` 兼容统一响应结构 |
+| 统一异常 | 新增 `ApiException`、`ErrorCode`、`GlobalExceptionHandler`，错误响应统一包含 `errorCode` |
+| 质量门禁 | Maven `verify` 接入 Checkstyle、P3C/PMD、SpotBugs，新增 API 契约测试 |
+| 前端适配 | 登录态读取兼容 `ApiResponse<LoginResponse>` |
 
 ## 11. 后续强制检查清单
 
 每次提交前检查：
 
 ```bash
-cd apps/backend && ./mvnw -DskipTests compile
-npm run build
+cd apps/backend && ./mvnw verify
+npm run lint -w apps/web
+npm run build -w apps/web
 rg "public Map<String, Object>" apps/backend/src/main/java/com/xqt/saas
 ```
 
 如果 `public Map<String, Object>` 出现在 Controller 或 Service 的公开方法上，必须重构后再提交。
 
-## 12. 仍需持续治理的内容
+## 12. 长期持续治理项
 
-1. `AdminController` 当前已完成响应类型化，下一阶段继续拆分为 `AdminService`、`AdminRepository`。
-2. 订单模块当前使用 Spring JDBC，后续可把 SQL 下沉到 Repository。
-3. 状态常量后续应集中到枚举类。
-4. 全局异常响应应进一步统一错误码。
-5. P3C/PMD 可作为 CI 检查项接入，但在接入前应先完成已有代码基线清理，避免一次性阻塞开发。
+1. 订单模块和流程模块当前使用 Spring JDBC，后续可按模块体量继续拆 Repository。
+2. 状态常量后续应集中到领域枚举类。
+3. 测试应继续补齐权限、租户隔离、卖货流程、制单流程、审计字段的集成测试。
+4. CI 中必须保留 `./mvnw verify`、前端 lint/build，避免规范退化。

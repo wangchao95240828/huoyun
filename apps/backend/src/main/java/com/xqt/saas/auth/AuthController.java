@@ -22,8 +22,9 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public LoginResponse login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
-        return authService.login(request, httpRequest.getRemoteAddr(), httpRequest.getHeader("user-agent"));
+    public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest httpRequest) {
+        LoginResponse response = authService.login(request, httpRequest.getRemoteAddr(), httpRequest.getHeader("user-agent"));
+        return ApiResponse.ok(response);
     }
 
     @GetMapping("/me")

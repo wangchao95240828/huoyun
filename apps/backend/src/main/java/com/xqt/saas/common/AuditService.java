@@ -16,7 +16,7 @@ public class AuditService {
         this.json = json;
     }
 
-    @Transactional(propagation = Propagation.MANDATORY)
+    @Transactional(propagation = Propagation.MANDATORY, rollbackFor = Exception.class)
     public void log(AuthPrincipal actor, String entityType, String entityId, String action, Object beforeData, Object afterData) {
         jdbc.update("""
             INSERT INTO audit_logs (tenant_id, actor_id, entity_type, entity_id, action, before_data, after_data)
