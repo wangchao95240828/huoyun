@@ -39,8 +39,19 @@ public class FinanceCurrencyExchangeRateHistoryService extends ServiceImpl<Finan
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public void delete(Long id) {
-        removeById(id);
+    public void delete(Long currencyId, Long historyId) {
+        var currency = currencyMapper.selectById(currencyId);
+        if (currency == null) {
+            throw new RuntimeException("无货币");
+        }
+        var history = historyMapper.selectById(historyId);
+        if (history == null) {
+            throw new RuntimeException("无汇率记录");
+        }
+        if (!history.getCode().equals(currency.getCode())) {
+            throw new RuntimeException("货币与汇率记录不对应");
+        }
+        historyMapper.deleteById(historyId);
     }
 
     public IPage<FinanceCurrencyExchangeRateHistoryView> page(String code, Long pageNum, Long pageSize) {
