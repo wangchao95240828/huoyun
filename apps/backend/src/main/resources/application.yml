@@ -22,6 +22,7 @@ logging:
   level:
     root: INFO
     org.springframework.boot.autoconfigure: WARN
+    com.xqt.saas.finance.mapper: DEBUG
 
 management:
   endpoints:
@@ -41,8 +42,10 @@ app:
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: com.xqt.saas.finance.entity
+  type-handlers-package: com.xqt.saas.finance.handler
   configuration:
     map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 springdoc:
   api-docs:

@@ -16,6 +16,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -26,8 +27,16 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
 
     @Transactional(rollbackFor = Exception.class)
     public FinanceFeeTypeView save(FinanceFeeTypeSaveRequest request) {
+        if (request.getTenantId() == null || request.getTenantId().isBlank()) {
+            throw new IllegalArgumentException("租户ID不能为空");
+        }
+        
         FinanceFeeType entity = new FinanceFeeType();
-        entity.setTenantId(request.getTenantId());
+        try {
+            entity.setTenantId(UUID.fromString(request.getTenantId()));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("租户ID格式不正确，应为UUID格式");
+        }
         entity.setCode(request.getCode());
         entity.setName(request.getName());
         entity.setType(request.getType());
