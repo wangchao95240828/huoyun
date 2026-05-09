@@ -16,6 +16,9 @@ public class FinanceFeeType {
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
+    @TableField("tenant_id")
+    private Long tenantId;
+
     @TableField("code")
     private String code;
 

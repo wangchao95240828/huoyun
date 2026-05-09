@@ -27,6 +27,7 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
     @Transactional(rollbackFor = Exception.class)
     public FinanceFeeTypeView save(FinanceFeeTypeSaveRequest request) {
         FinanceFeeType entity = new FinanceFeeType();
+        entity.setTenantId(request.getTenantId());
         entity.setCode(request.getCode());
         entity.setName(request.getName());
         entity.setType(request.getType());

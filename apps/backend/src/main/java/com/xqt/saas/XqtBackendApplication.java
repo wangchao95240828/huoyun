@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.ComponentScan;
 
 @SpringBootApplication
-@ComponentScan(basePackages = {"com.xqt.saas"})
+@ComponentScan(basePackages = {"com.xqt.saas", "com.finance.saas"})
 public class XqtBackendApplication {
 
     public static void main(String[] args) {
