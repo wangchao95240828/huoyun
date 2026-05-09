@@ -5,18 +5,18 @@ spring:
   application:
     name: xqt-backend
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:15432/xqt_saas}
-    username: ${SPRING_DATASOURCE_USERNAME:xqt}
-    password: ${SPRING_DATASOURCE_PASSWORD:xqt_dev_password}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
   sql:
     init:
       mode: never
 
-debug: false
+debug: ${DEBUG:false}
 
 logging:
   level:
@@ -35,7 +35,7 @@ management:
 
 app:
   auth:
-    jwt-secret: ${JWT_SECRET:replace-me-in-real-env}
+    jwt-secret: ${JWT_SECRET}
     token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:28800}
 
 springdoc:
