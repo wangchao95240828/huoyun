@@ -1,4 +1,4 @@
-package com.xqt.saas.config;
+package com.xqt.saas.finance.config;
 
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
