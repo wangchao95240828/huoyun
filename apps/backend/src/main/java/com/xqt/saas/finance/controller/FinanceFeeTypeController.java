@@ -4,6 +4,7 @@ import com.alibaba.excel.EasyExcel;
 import com.alibaba.excel.write.style.column.LongestMatchColumnWidthStyleStrategy;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.xqt.saas.finance.common.R;
+import com.xqt.saas.finance.common.UserContext;
 import com.xqt.saas.finance.dto.excel.FinanceFeeTypeExcelDTO;
 import com.xqt.saas.finance.dto.request.FinanceFeeTypeQueryRequest;
 import com.xqt.saas.finance.dto.request.FinanceFeeTypeSaveRequest;
@@ -23,6 +24,7 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @RestController
@@ -32,8 +34,10 @@ public class FinanceFeeTypeController {
     @Resource
     public FinanceFeeTypeService financeFeeTypeService;
 
-    @PostMapping
-    public R save(@Valid @RequestBody FinanceFeeTypeSaveRequest request) {
+    @PostMapping("/save")
+    public R save(@RequestBody FinanceFeeTypeSaveRequest request) {
+        //获取租户ID
+        request.setTenantId(UserContext.getTenantId());
         return R.success("保存成功", financeFeeTypeService.save(request));
     }
 
@@ -77,9 +81,9 @@ public class FinanceFeeTypeController {
     }
 
     @PostMapping("/import")
-    public R importExcel(@RequestParam("file") MultipartFile file) throws IOException {
+    public R importExcel(@RequestParam("file") MultipartFile file, @RequestParam("tenantId") String tenantId) throws IOException {
         List<FinanceFeeTypeExcelDTO> dataList = EasyExcel.read(file.getInputStream()).head(FinanceFeeTypeExcelDTO.class).sheet().doReadSync();
-        List<FinanceFeeType> entityList = dataList.stream().map(this::convertToEntity).collect(Collectors.toList());
+        List<FinanceFeeType> entityList = dataList.stream().map(dto -> convertToEntity(dto, tenantId)).collect(Collectors.toList());
         financeFeeTypeService.importExcel(entityList);
         return R.success("导入成功");
     }
@@ -106,8 +110,9 @@ public class FinanceFeeTypeController {
         return ResponseEntity.ok().headers(headers).body(outputStream.toByteArray());
     }
 
-    private FinanceFeeType convertToEntity(FinanceFeeTypeExcelDTO dto) {
+    private FinanceFeeType convertToEntity(FinanceFeeTypeExcelDTO dto, String tenantId) {
         FinanceFeeType entity = new FinanceFeeType();
+        entity.setTenantId(UUID.fromString(tenantId));
         entity.setCode(dto.getCode());
         entity.setName(dto.getName());
         entity.setType(dto.getType());

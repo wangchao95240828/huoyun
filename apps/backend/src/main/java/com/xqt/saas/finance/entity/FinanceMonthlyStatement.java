@@ -6,13 +6,12 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Data
-@TableName("finance_fee_type")
-public class FinanceFeeType {
+@TableName("finance_monthly_statement")
+public class FinanceMonthlyStatement {
 
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
@@ -20,20 +19,29 @@ public class FinanceFeeType {
     @TableField("tenant_id")
     private UUID tenantId;
 
-    @TableField("code")
-    private String code;
+    @TableField("start_time")
+    private LocalDateTime startTime;
 
-    @TableField("name")
-    private String name;
+    @TableField("end_time")
+    private LocalDateTime endTime;
 
-    @TableField("type")
-    private String type;
+    @TableField("receivable")
+    private Boolean receivable;
 
-    @TableField("price")
-    private BigDecimal price;
+    @TableField("payable")
+    private Boolean payable;
 
-    @TableField("is_show")
-    private Boolean isShow;
+    @TableField("sales_cost")
+    private Boolean salesCost;
+
+    @TableField("waybill")
+    private Boolean waybill;
+
+    @TableField("bill_of_lading")
+    private Boolean billOfLading;
+
+    @TableField("remark")
+    private String remark;
 
     @TableField("create_by")
     private String createBy;
