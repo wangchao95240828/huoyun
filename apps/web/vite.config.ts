@@ -4,38 +4,14 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [vue()],
   server: {
-    port: Number(process.env.WEB_PORT ?? 5173),
+    port: Number(process.env.WEB_PORT ?? 5174),
     proxy: {
-      "/api/auth": {
-        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
-        changeOrigin: true,
-      },
-      "/api/admin": {
-        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
-        changeOrigin: true,
-      },
-      "/api/business-flows": {
-        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
-        changeOrigin: true,
-      },
-      "/api/seller": {
-        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
-        changeOrigin: true,
-      },
-      "/api/document": {
-        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
-        changeOrigin: true,
-      },
-      "/api/health": {
-        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
-        changeOrigin: true,
-      },
       "/api": {
-        target: `http://localhost:${process.env.API_PORT ?? 18080}`,
+        target: `http://localhost:${process.env.API_PORT ?? 8888}`,
         changeOrigin: true,
       },
       "/health": {
-        target: `http://localhost:${process.env.API_PORT ?? 18080}`,
+        target: `http://localhost:${process.env.API_PORT ?? 8888}`,
         changeOrigin: true,
       },
     },
