@@ -1,5 +1,5 @@
 server:
-  port: ${API_PORT:8080}
+  port: ${API_PORT:8888}
 
 spring:
   application:
@@ -37,6 +37,12 @@ app:
   auth:
     jwt-secret: ${JWT_SECRET:replace-me-in-real-env}
     token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:28800}
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.xqt.saas.finance.entity
+  configuration:
+    map-underscore-to-camel-case: true
 
 springdoc:
   api-docs:
