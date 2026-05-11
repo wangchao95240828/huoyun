@@ -14,7 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.ZonedDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,7 +27,7 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
     @Transactional(rollbackFor = Exception.class)
     public FinanceCurrencyView save(FinanceCurrencySaveRequest req) {
         var entity = new FinanceCurrencyType();
-        var now = ZonedDateTime.now();
+        var now = OffsetDateTime.now();
         entity.setCreatedAt(now);
         entity.setCreatedBy(req.createdBy());
         entity.setUpdatedAt(now);
@@ -44,9 +44,12 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
         removeById(id);
     }
 
+    // fixme: 换成 IPage<FinanceCurrencyWithExchangeRateView>
     public List<FinanceCurrencyWithExchangeRateView> pageCurrencyWithExchangeRate(Long pageNum, Long pageSize) {
         // 先获取到该分页的 codes，根据 code 查询对应的应收、应付
         var currencies = page(pageNum, pageSize);
+
+        // fixme: total > 0，但 records 为空
 
         var res = new ArrayList<FinanceCurrencyWithExchangeRateView>();
         for (var currency : currencies) {

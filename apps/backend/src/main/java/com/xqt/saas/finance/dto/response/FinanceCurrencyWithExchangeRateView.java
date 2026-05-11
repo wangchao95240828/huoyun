@@ -1,15 +1,15 @@
 package com.xqt.saas.finance.dto.response;
 
 import java.math.BigDecimal;
-import java.time.ZonedDateTime;
+import java.time.OffsetDateTime;
 
 public record FinanceCurrencyWithExchangeRateView(
         Long id,
         String code,
         String name,
         BigDecimal fromRate,
-        ZonedDateTime fromRateEffectiveFrom,
+        OffsetDateTime fromRateEffectiveFrom,
         BigDecimal toRate,
-        ZonedDateTime toRateEffectiveFrom
+        OffsetDateTime toRateEffectiveFrom
 ) {
 }

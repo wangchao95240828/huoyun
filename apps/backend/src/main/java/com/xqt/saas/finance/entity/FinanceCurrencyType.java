@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
-import java.time.ZonedDateTime;
+import java.time.OffsetDateTime;
 
 @Data
 @TableName("finance_currency")
@@ -13,9 +13,9 @@ public class FinanceCurrencyType {
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 
-    private ZonedDateTime createdAt;
+    private OffsetDateTime createdAt;
     private String createdBy;
-    private ZonedDateTime updatedAt;
+    private OffsetDateTime updatedAt;
     private String updatedBy;
 
     private String code;

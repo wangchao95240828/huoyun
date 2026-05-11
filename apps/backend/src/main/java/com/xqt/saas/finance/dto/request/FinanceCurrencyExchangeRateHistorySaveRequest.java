@@ -6,13 +6,12 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 
 import java.math.BigDecimal;
-import java.time.ZonedDateTime;
+import java.time.OffsetDateTime;
 
 public record FinanceCurrencyExchangeRateHistorySaveRequest(
         @NotBlank String createdBy,
-        @NotBlank String code,
         @Pattern(regexp = "^(应收|应付)$") String applicationScenario,
         @NotNull @Positive BigDecimal rate,
-        @NotNull ZonedDateTime effectiveFrom
+        @NotNull OffsetDateTime effectiveFrom
 ) {
 }

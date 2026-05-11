@@ -31,19 +31,11 @@ public class FinanceCurrencyController {
         return R.success("删除成功");
     }
 
-    // 获取某个货币的汇率历史
-    @GetMapping("/{id}/page")
-    public R getHistory(@PathVariable Long id, @RequestParam(defaultValue = "1") Long pageNum, @RequestParam(defaultValue = "10") Long pageSize) {
-        var currency = currencyService.getById(id);
-        var histories = historyService.page(currency.getCode(), pageNum, pageSize);
-        return R.success("查询成功", histories);
-    }
-
     // 添加某个货币的汇率历史
     @PostMapping("/{id}/exchange-rate")
     public R saveHistory(@PathVariable Long id, @RequestBody FinanceCurrencyExchangeRateHistorySaveRequest req) {
-        req = new FinanceCurrencyExchangeRateHistorySaveRequest(UserContext.getUserId(), req.code(), req.applicationScenario(), req.rate(), req.effectiveFrom());
-        return R.success("保存成功", historyService.save(req));
+        req = new FinanceCurrencyExchangeRateHistorySaveRequest(UserContext.getUserId(), req.applicationScenario(), req.rate(), req.effectiveFrom());
+        return R.success("保存成功", historyService.save(id, req));
     }
 
     // 删除某个货币的汇率历史
@@ -51,6 +43,13 @@ public class FinanceCurrencyController {
     public R deleteHistory(@PathVariable Long currencyId, @PathVariable Long exchangeRateId) {
         historyService.delete(currencyId, exchangeRateId);
         return R.success("删除成功");
+    }
+
+    // 获取某个货币的汇率历史
+    @GetMapping("/{id}/page")
+    public R getHistory(@PathVariable Long id, @RequestParam(defaultValue = "1") Long pageNum, @RequestParam(defaultValue = "10") Long pageSize) {
+        var histories = historyService.page(id, pageNum, pageSize);
+        return R.success("查询成功", histories);
     }
 
     // 分页获取每个货币的应收/应付汇率与其生效时间

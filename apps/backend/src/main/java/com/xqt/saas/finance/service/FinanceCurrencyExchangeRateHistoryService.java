@@ -13,7 +13,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.ZonedDateTime;
+import java.time.OffsetDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -22,17 +22,22 @@ public class FinanceCurrencyExchangeRateHistoryService extends ServiceImpl<Finan
     private final FinanceCurrencyMapper currencyMapper;
 
     @Transactional(rollbackFor = Exception.class)
-    public FinanceCurrencyExchangeRateHistoryView save(FinanceCurrencyExchangeRateHistorySaveRequest req) {
+    public FinanceCurrencyExchangeRateHistoryView save(Long id, FinanceCurrencyExchangeRateHistorySaveRequest body) {
+        var currency = currencyMapper.selectById(id);
+        if (currency == null) {
+            throw new RuntimeException("无货币");
+        }
+
+        var now = OffsetDateTime.now();
         var entity = new FinanceCurrencyExchangeRateHistoryType();
-        var now = ZonedDateTime.now();
         entity.setCreatedAt(now);
-        entity.setCreatedBy(req.createdBy());
+        entity.setCreatedBy(body.createdBy());
         entity.setUpdatedAt(now);
-        entity.setUpdatedBy(req.createdBy());
-        entity.setCode(req.code());
-        entity.setApplicationScenario(req.applicationScenario());
-        entity.setRate(req.rate());
-        entity.setEffectiveFrom(req.effectiveFrom());
+        entity.setUpdatedBy(body.createdBy());
+        entity.setCode(currency.getCode());
+        entity.setApplicationScenario(body.applicationScenario());
+        entity.setRate(body.rate());
+        entity.setEffectiveFrom(body.effectiveFrom());
 
         save(entity);
         return convertToView(entity);
@@ -54,11 +59,16 @@ public class FinanceCurrencyExchangeRateHistoryService extends ServiceImpl<Finan
         historyMapper.deleteById(historyId);
     }
 
-    public IPage<FinanceCurrencyExchangeRateHistoryView> page(String code, Long pageNum, Long pageSize) {
+    public IPage<FinanceCurrencyExchangeRateHistoryView> page(Long id, Long pageNum, Long pageSize) {
+        var currency = currencyMapper.selectById(id);
+        if (currency == null) {
+            return new Page<>();
+        }
+        // fixme: total > 0，但 records 为空
         var res = historyMapper.selectPage(
                 new Page<>(pageNum, pageSize),
                 new LambdaQueryWrapper<FinanceCurrencyExchangeRateHistoryType>().
-                        eq(FinanceCurrencyExchangeRateHistoryType::getCode, code).
+                        eq(FinanceCurrencyExchangeRateHistoryType::getCode, currency.getCode()).
                         orderByDesc(FinanceCurrencyExchangeRateHistoryType::getCreatedAt)
         );
         return res.convert(this::convertToView);
