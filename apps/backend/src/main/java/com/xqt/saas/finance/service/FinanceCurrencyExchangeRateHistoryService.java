@@ -64,7 +64,6 @@ public class FinanceCurrencyExchangeRateHistoryService extends ServiceImpl<Finan
         if (currency == null) {
             return new Page<>();
         }
-        // fixme: total > 0，但 records 为空
         var res = historyMapper.selectPage(
                 new Page<>(pageNum, pageSize),
                 new LambdaQueryWrapper<FinanceCurrencyExchangeRateHistoryType>().
