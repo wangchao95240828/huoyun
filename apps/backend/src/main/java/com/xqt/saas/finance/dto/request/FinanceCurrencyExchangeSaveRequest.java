@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
-public record FinanceCurrencyExchangeRateHistorySaveRequest(
+public record FinanceCurrencyExchangeSaveRequest(
         @NotBlank String createdBy,
         @Pattern(regexp = "^(应收|应付)$") String applicationScenario,
         @NotNull @Positive BigDecimal rate,

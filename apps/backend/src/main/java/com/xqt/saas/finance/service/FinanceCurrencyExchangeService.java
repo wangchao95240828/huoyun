@@ -4,10 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.dto.request.FinanceCurrencyExchangeRateHistorySaveRequest;
-import com.xqt.saas.finance.dto.response.FinanceCurrencyExchangeRateHistoryView;
-import com.xqt.saas.finance.entity.FinanceCurrencyExchangeRateHistoryType;
-import com.xqt.saas.finance.mapper.FinanceCurrencyExchangeRateHistoryMapper;
+import com.xqt.saas.finance.dto.request.FinanceCurrencyExchangeSaveRequest;
+import com.xqt.saas.finance.dto.response.FinanceCurrencyExchangeView;
+import com.xqt.saas.finance.entity.FinanceCurrencyExchangeType;
+import com.xqt.saas.finance.mapper.FinanceCurrencyExchangeMapper;
 import com.xqt.saas.finance.mapper.FinanceCurrencyMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -17,19 +17,19 @@ import java.time.OffsetDateTime;
 
 @Service
 @RequiredArgsConstructor
-public class FinanceCurrencyExchangeRateHistoryService extends ServiceImpl<FinanceCurrencyExchangeRateHistoryMapper, FinanceCurrencyExchangeRateHistoryType> {
-    private final FinanceCurrencyExchangeRateHistoryMapper historyMapper;
+public class FinanceCurrencyExchangeService extends ServiceImpl<FinanceCurrencyExchangeMapper, FinanceCurrencyExchangeType> {
+    private final FinanceCurrencyExchangeMapper exchangeMapper;
     private final FinanceCurrencyMapper currencyMapper;
 
     @Transactional(rollbackFor = Exception.class)
-    public FinanceCurrencyExchangeRateHistoryView save(Long id, FinanceCurrencyExchangeRateHistorySaveRequest body) {
+    public FinanceCurrencyExchangeView save(Long id, FinanceCurrencyExchangeSaveRequest body) {
         var currency = currencyMapper.selectById(id);
         if (currency == null) {
             throw new RuntimeException("无货币");
         }
 
         var now = OffsetDateTime.now();
-        var entity = new FinanceCurrencyExchangeRateHistoryType();
+        var entity = new FinanceCurrencyExchangeType();
         entity.setCreatedAt(now);
         entity.setCreatedBy(body.createdBy());
         entity.setUpdatedAt(now);
@@ -49,31 +49,31 @@ public class FinanceCurrencyExchangeRateHistoryService extends ServiceImpl<Finan
         if (currency == null) {
             throw new RuntimeException("无货币");
         }
-        var history = historyMapper.selectById(historyId);
+        var history = exchangeMapper.selectById(historyId);
         if (history == null) {
             throw new RuntimeException("无汇率记录");
         }
         if (!history.getCode().equals(currency.getCode())) {
             throw new RuntimeException("货币与汇率记录不对应");
         }
-        historyMapper.deleteById(historyId);
+        exchangeMapper.deleteById(historyId);
     }
 
-    public IPage<FinanceCurrencyExchangeRateHistoryView> page(Long id, Long pageNum, Long pageSize) {
+    public IPage<FinanceCurrencyExchangeView> page(Long id, Long pageNum, Long pageSize) {
         var currency = currencyMapper.selectById(id);
         if (currency == null) {
             return new Page<>();
         }
-        var res = historyMapper.selectPage(
+        var res = exchangeMapper.selectPage(
                 new Page<>(pageNum, pageSize),
-                new LambdaQueryWrapper<FinanceCurrencyExchangeRateHistoryType>().
-                        eq(FinanceCurrencyExchangeRateHistoryType::getCode, currency.getCode()).
-                        orderByDesc(FinanceCurrencyExchangeRateHistoryType::getCreatedAt)
+                new LambdaQueryWrapper<FinanceCurrencyExchangeType>().
+                        eq(FinanceCurrencyExchangeType::getCode, currency.getCode()).
+                        orderByDesc(FinanceCurrencyExchangeType::getCreatedAt)
         );
         return res.convert(this::convertToView);
     }
 
-    private FinanceCurrencyExchangeRateHistoryView convertToView(FinanceCurrencyExchangeRateHistoryType entity) {
-        return new FinanceCurrencyExchangeRateHistoryView(entity.getId(), entity.getCode(), entity.getApplicationScenario(), entity.getRate(), entity.getEffectiveFrom());
+    private FinanceCurrencyExchangeView convertToView(FinanceCurrencyExchangeType entity) {
+        return new FinanceCurrencyExchangeView(entity.getId(), entity.getCode(), entity.getApplicationScenario(), entity.getRate(), entity.getEffectiveFrom());
     }
 }

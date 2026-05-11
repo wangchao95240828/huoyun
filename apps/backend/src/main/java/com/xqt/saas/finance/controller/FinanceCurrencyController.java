@@ -2,9 +2,9 @@ package com.xqt.saas.finance.controller;
 
 import com.xqt.saas.finance.common.R;
 import com.xqt.saas.finance.common.UserContext;
-import com.xqt.saas.finance.dto.request.FinanceCurrencyExchangeRateHistorySaveRequest;
+import com.xqt.saas.finance.dto.request.FinanceCurrencyExchangeSaveRequest;
 import com.xqt.saas.finance.dto.request.FinanceCurrencySaveRequest;
-import com.xqt.saas.finance.service.FinanceCurrencyExchangeRateHistoryService;
+import com.xqt.saas.finance.service.FinanceCurrencyExchangeService;
 import com.xqt.saas.finance.service.FinanceCurrencyService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
@@ -15,7 +15,7 @@ public class FinanceCurrencyController {
     @Resource
     public FinanceCurrencyService currencyService;
     @Resource
-    public FinanceCurrencyExchangeRateHistoryService historyService;
+    public FinanceCurrencyExchangeService historyService;
 
     // 添加货币
     @PostMapping("/save")
@@ -32,16 +32,16 @@ public class FinanceCurrencyController {
     }
 
     // 添加某个货币的汇率历史
-    @PostMapping("/{id}/exchange-rate")
-    public R saveHistory(@PathVariable Long id, @RequestBody FinanceCurrencyExchangeRateHistorySaveRequest req) {
-        req = new FinanceCurrencyExchangeRateHistorySaveRequest(UserContext.getUserId(), req.applicationScenario(), req.rate(), req.effectiveFrom());
+    @PostMapping("/{id}/exchange")
+    public R saveHistory(@PathVariable Long id, @RequestBody FinanceCurrencyExchangeSaveRequest req) {
+        req = new FinanceCurrencyExchangeSaveRequest(UserContext.getUserId(), req.applicationScenario(), req.rate(), req.effectiveFrom());
         return R.success("保存成功", historyService.save(id, req));
     }
 
     // 删除某个货币的汇率历史
-    @DeleteMapping("/{currencyId}/exchange-rate/{exchangeRateId}")
-    public R deleteHistory(@PathVariable Long currencyId, @PathVariable Long exchangeRateId) {
-        historyService.delete(currencyId, exchangeRateId);
+    @DeleteMapping("/{currencyId}/exchange/{exchangeId}")
+    public R deleteHistory(@PathVariable Long currencyId, @PathVariable Long exchangeId) {
+        historyService.delete(currencyId, exchangeId);
         return R.success("删除成功");
     }
 
@@ -55,6 +55,6 @@ public class FinanceCurrencyController {
     // 分页获取每个货币的应收/应付汇率与其生效时间
     @GetMapping("/page")
     public R page(@RequestParam(defaultValue = "1") Long pageNum, @RequestParam(defaultValue = "10") Long pageSize) {
-        return R.success("查询成功", currencyService.pageCurrencyWithExchangeRate(pageNum, pageSize));
+        return R.success("查询成功", currencyService.pageCurrencyWithExchange(pageNum, pageSize));
     }
 }

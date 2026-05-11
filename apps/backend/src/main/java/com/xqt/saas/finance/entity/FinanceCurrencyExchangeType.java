@@ -9,8 +9,8 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 @Data
-@TableName("finance_currency_exchange_rate_history")
-public class FinanceCurrencyExchangeRateHistoryType {
+@TableName("finance_currency_exchange")
+public class FinanceCurrencyExchangeType {
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
 

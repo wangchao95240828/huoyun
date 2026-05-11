@@ -4,7 +4,7 @@ package com.xqt.saas.finance.dto.response;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
-public record FinanceCurrencyExchangeRateHistoryView(
+public record FinanceCurrencyExchangeView(
         Long id,
         String code,
         String applicationScenario,
