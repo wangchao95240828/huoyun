@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS finance_account
 );
 
 COMMENT ON TABLE finance_account IS '账户表';
-
 COMMENT ON COLUMN finance_account.id IS '主键ID';
 COMMENT ON COLUMN finance_account.tenant_id IS '租户ID';
 COMMENT ON COLUMN finance_account.account_name IS '账户名称';

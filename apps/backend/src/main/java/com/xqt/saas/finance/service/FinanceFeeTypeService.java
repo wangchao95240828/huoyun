@@ -90,8 +90,8 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
     }
 
 
-    public IPage<FinanceFeeTypeView> page(FinanceFeeTypeQueryRequest request, Long pageNum, Long pageSize) {
-        Page<FinanceFeeType> page = new Page<>(pageNum, pageSize);
+    public IPage<FinanceFeeTypeView> page(FinanceFeeTypeQueryRequest request) {
+        Page<FinanceFeeType> page = new Page<>(request.getPageNum(), request.getPageSize());
         LambdaQueryWrapper<FinanceFeeType> queryWrapper = buildQueryWrapper(request);
 
         IPage<FinanceFeeType> resultPage = financeFeeTypeMapper.selectPage(page, queryWrapper);

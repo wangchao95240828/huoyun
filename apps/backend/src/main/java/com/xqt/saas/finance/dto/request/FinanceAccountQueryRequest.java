@@ -5,6 +5,10 @@ import lombok.Data;
 @Data
 public class FinanceAccountQueryRequest {
 
+    private Long pageNum = 1L;
+
+    private Long pageSize = 10L;
+
     private String accountName;
 
     private String currency;

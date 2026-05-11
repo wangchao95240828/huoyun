@@ -88,8 +88,8 @@ public class FinanceAccountService extends ServiceImpl<FinanceAccountMapper, Fin
         return convertToView(entity);
     }
 
-    public IPage<FinanceAccountView> page(FinanceAccountQueryRequest request, Long pageNum, Long pageSize) {
-        Page<FinanceAccount> page = new Page<>(pageNum, pageSize);
+    public IPage<FinanceAccountView> page(FinanceAccountQueryRequest request) {
+        Page<FinanceAccount> page = new Page<>(request.getPageNum(), request.getPageSize());
         LambdaQueryWrapper<FinanceAccount> queryWrapper = buildQueryWrapper(request);
 
         IPage<FinanceAccount> resultPage = financeAccountMapper.selectPage(page, queryWrapper);

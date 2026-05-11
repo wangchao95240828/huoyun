@@ -57,26 +57,20 @@ public class FinanceFeeTypeController {
         return R.success(financeFeeTypeService.getById(id));
     }
 
-    @GetMapping("/page")
-    public R page(@RequestParam(defaultValue = "1") Long pageNum, @RequestParam(defaultValue = "10") Long pageSize, @RequestParam(required = false) String code, @RequestParam(required = false) String name, @RequestParam(required = false) String type, @RequestParam(required = false) Boolean isShow) {
-        FinanceFeeTypeQueryRequest queryRequest = new FinanceFeeTypeQueryRequest();
-        queryRequest.setCode(code);
-        queryRequest.setName(name);
-        queryRequest.setType(type);
-        queryRequest.setIsShow(isShow);
-
-        IPage<FinanceFeeTypeView> pageResult = financeFeeTypeService.page(queryRequest, pageNum, pageSize);
+    @PostMapping("/page")
+    public R page(@RequestBody(required = false) FinanceFeeTypeQueryRequest queryRequest) {
+        if (queryRequest == null) {
+            queryRequest = new FinanceFeeTypeQueryRequest();
+        }
+        IPage<FinanceFeeTypeView> pageResult = financeFeeTypeService.page(queryRequest);
         return R.success("查询成功", pageResult.getRecords(), pageResult.getTotal());
     }
 
-    @GetMapping("/list")
-    public R list(@RequestParam(required = false) String code, @RequestParam(required = false) String name, @RequestParam(required = false) String type, @RequestParam(required = false) Boolean isShow) {
-        FinanceFeeTypeQueryRequest queryRequest = new FinanceFeeTypeQueryRequest();
-        queryRequest.setCode(code);
-        queryRequest.setName(name);
-        queryRequest.setType(type);
-        queryRequest.setIsShow(isShow);
-
+    @PostMapping("/list")
+    public R list(@RequestBody(required = false) FinanceFeeTypeQueryRequest queryRequest) {
+        if (queryRequest == null) {
+            queryRequest = new FinanceFeeTypeQueryRequest();
+        }
         return R.success(financeFeeTypeService.list(queryRequest));
     }
 

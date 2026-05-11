@@ -7,6 +7,10 @@ import java.time.LocalDateTime;
 @Data
 public class FinanceMonthlyStatementQueryRequest {
 
+    private Long pageNum = 1L;
+
+    private Long pageSize = 10L;
+
     private LocalDateTime startTime;
 
     private LocalDateTime endTime;

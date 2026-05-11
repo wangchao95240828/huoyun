@@ -38,42 +38,20 @@ public class FinanceAccountController {
         return R.success(financeAccountService.getById(id));
     }
 
-    @GetMapping("/page")
-    public R page(@RequestParam(defaultValue = "1") Long pageNum,
-                  @RequestParam(defaultValue = "10") Long pageSize,
-                  @RequestParam(required = false) String accountName,
-                  @RequestParam(required = false) String currency,
-                  @RequestParam(required = false) String bankName,
-                  @RequestParam(required = false) Integer type,
-                  @RequestParam(required = false) Boolean visible,
-                  @RequestParam(required = false) String remark) {
-        FinanceAccountQueryRequest queryRequest = new FinanceAccountQueryRequest();
-        queryRequest.setAccountName(accountName);
-        queryRequest.setCurrency(currency);
-        queryRequest.setBankName(bankName);
-        queryRequest.setType(type);
-        queryRequest.setVisible(visible);
-        queryRequest.setRemark(remark);
-
-        IPage<FinanceAccountView> pageResult = financeAccountService.page(queryRequest, pageNum, pageSize);
+    @PostMapping("/page")
+    public R page(@RequestBody(required = false) FinanceAccountQueryRequest queryRequest) {
+        if (queryRequest == null) {
+            queryRequest = new FinanceAccountQueryRequest();
+        }
+        IPage<FinanceAccountView> pageResult = financeAccountService.page(queryRequest);
         return R.success("查询成功", pageResult.getRecords(), pageResult.getTotal());
     }
 
-    @GetMapping("/list")
-    public R list(@RequestParam(required = false) String accountName,
-                  @RequestParam(required = false) String currency,
-                  @RequestParam(required = false) String bankName,
-                  @RequestParam(required = false) Integer type,
-                  @RequestParam(required = false) Boolean visible,
-                  @RequestParam(required = false) String remark) {
-        FinanceAccountQueryRequest queryRequest = new FinanceAccountQueryRequest();
-        queryRequest.setAccountName(accountName);
-        queryRequest.setCurrency(currency);
-        queryRequest.setBankName(bankName);
-        queryRequest.setType(type);
-        queryRequest.setVisible(visible);
-        queryRequest.setRemark(remark);
-
+    @PostMapping("/list")
+    public R list(@RequestBody(required = false) FinanceAccountQueryRequest queryRequest) {
+        if (queryRequest == null) {
+            queryRequest = new FinanceAccountQueryRequest();
+        }
         return R.success(financeAccountService.list(queryRequest));
     }
 }

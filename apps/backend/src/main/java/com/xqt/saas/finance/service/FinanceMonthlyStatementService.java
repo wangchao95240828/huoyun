@@ -85,8 +85,8 @@ public class FinanceMonthlyStatementService extends ServiceImpl<FinanceMonthlySt
         return convertToView(entity);
     }
 
-    public IPage<FinanceMonthlyStatementView> page(FinanceMonthlyStatementQueryRequest request, Long pageNum, Long pageSize) {
-        Page<FinanceMonthlyStatement> page = new Page<>(pageNum, pageSize);
+    public IPage<FinanceMonthlyStatementView> page(FinanceMonthlyStatementQueryRequest request) {
+        Page<FinanceMonthlyStatement> page = new Page<>(request.getPageNum(), request.getPageSize());
         LambdaQueryWrapper<FinanceMonthlyStatement> queryWrapper = buildQueryWrapper(request);
 
         IPage<FinanceMonthlyStatement> resultPage = financeMonthlyStatementMapper.selectPage(page, queryWrapper);

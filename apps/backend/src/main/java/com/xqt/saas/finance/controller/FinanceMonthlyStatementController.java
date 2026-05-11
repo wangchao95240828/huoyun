@@ -40,50 +40,20 @@ public class FinanceMonthlyStatementController {
         return R.success(financeMonthlyStatementService.getById(id));
     }
 
-    @GetMapping("/page")
-    public R page(@RequestParam(defaultValue = "1") Long pageNum,
-                  @RequestParam(defaultValue = "10") Long pageSize,
-                  @RequestParam(required = false) LocalDateTime startTime,
-                  @RequestParam(required = false) LocalDateTime endTime,
-                  @RequestParam(required = false) Boolean receivable,
-                  @RequestParam(required = false) Boolean payable,
-                  @RequestParam(required = false) Boolean salesCost,
-                  @RequestParam(required = false) Boolean waybill,
-                  @RequestParam(required = false) Boolean billOfLading,
-                  @RequestParam(required = false) String remark) {
-        FinanceMonthlyStatementQueryRequest queryRequest = new FinanceMonthlyStatementQueryRequest();
-        queryRequest.setStartTime(startTime);
-        queryRequest.setEndTime(endTime);
-        queryRequest.setReceivable(receivable);
-        queryRequest.setPayable(payable);
-        queryRequest.setSalesCost(salesCost);
-        queryRequest.setWaybill(waybill);
-        queryRequest.setBillOfLading(billOfLading);
-        queryRequest.setRemark(remark);
-
-        IPage<FinanceMonthlyStatementView> pageResult = financeMonthlyStatementService.page(queryRequest, pageNum, pageSize);
+    @PostMapping("/page")
+    public R page(@RequestBody(required = false) FinanceMonthlyStatementQueryRequest queryRequest) {
+        if (queryRequest == null) {
+            queryRequest = new FinanceMonthlyStatementQueryRequest();
+        }
+        IPage<FinanceMonthlyStatementView> pageResult = financeMonthlyStatementService.page(queryRequest);
         return R.success("查询成功", pageResult.getRecords(), pageResult.getTotal());
     }
 
-    @GetMapping("/list")
-    public R list(@RequestParam(required = false) LocalDateTime startTime,
-                  @RequestParam(required = false) LocalDateTime endTime,
-                  @RequestParam(required = false) Boolean receivable,
-                  @RequestParam(required = false) Boolean payable,
-                  @RequestParam(required = false) Boolean salesCost,
-                  @RequestParam(required = false) Boolean waybill,
-                  @RequestParam(required = false) Boolean billOfLading,
-                  @RequestParam(required = false) String remark) {
-        FinanceMonthlyStatementQueryRequest queryRequest = new FinanceMonthlyStatementQueryRequest();
-        queryRequest.setStartTime(startTime);
-        queryRequest.setEndTime(endTime);
-        queryRequest.setReceivable(receivable);
-        queryRequest.setPayable(payable);
-        queryRequest.setSalesCost(salesCost);
-        queryRequest.setWaybill(waybill);
-        queryRequest.setBillOfLading(billOfLading);
-        queryRequest.setRemark(remark);
-
+    @PostMapping("/list")
+    public R list(@RequestBody(required = false) FinanceMonthlyStatementQueryRequest queryRequest) {
+        if (queryRequest == null) {
+            queryRequest = new FinanceMonthlyStatementQueryRequest();
+        }
         return R.success(financeMonthlyStatementService.list(queryRequest));
     }
 }
