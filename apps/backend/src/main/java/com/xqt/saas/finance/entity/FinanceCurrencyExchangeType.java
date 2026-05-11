@@ -7,12 +7,14 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 @Data
 @TableName("finance_currency_exchange")
 public class FinanceCurrencyExchangeType {
     @TableId(value = "id", type = IdType.AUTO)
     private Long id;
+    private UUID tenantId;
 
     private OffsetDateTime createdAt;
     private String createdBy;
