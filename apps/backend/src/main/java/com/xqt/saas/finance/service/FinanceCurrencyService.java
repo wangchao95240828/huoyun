@@ -98,22 +98,34 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
         exchangeMapper.deleteById(exchangeId);
     }
 
+    // 获取某个货币的最新应收/应付汇率与汇率生效时间
+    public @Nullable FinanceCurrencyWithExchangeView getCurrencyWithExchange(UUID tenantId, Long currencyId) {
+        var currency = getCurrencyById(tenantId, currencyId);
+        if (currency == null) {
+            return null;
+        }
+
+        var from = getCurrencyLatestExchange(tenantId, currency.getCode(), "应收");
+        var to = getCurrencyLatestExchange(tenantId, currency.getCode(), "应付");
+        return new FinanceCurrencyWithExchangeView(
+                currency.getId(),
+                currency.getCode(),
+                currency.getName(),
+                from == null ? null : from.getRate(),
+                from == null ? null : from.getEffectiveFrom(),
+                to == null ? null : to.getRate(),
+                to == null ? null : to.getEffectiveFrom()
+        );
+    }
+
     public List<FinanceCurrencyWithExchangeView> getCurrenciesWithExchange(UUID tenantId) {
         var currencies = getCurrencies(tenantId);
         var result = new ArrayList<FinanceCurrencyWithExchangeView>();
         for (FinanceCurrencyType c : currencies) {
-            var from = getCurrencyLatestExchange(tenantId, c.getCode(), "应收");
-            var to = getCurrencyLatestExchange(tenantId, c.getCode(), "应付");
-
-            result.add(new FinanceCurrencyWithExchangeView(
-                    c.getId(),
-                    c.getCode(),
-                    c.getName(),
-                    from == null ? null : from.getRate(),
-                    from == null ? null : from.getEffectiveFrom(),
-                    to == null ? null : to.getRate(),
-                    to == null ? null : to.getEffectiveFrom()
-            ));
+            var ce = getCurrencyWithExchange(tenantId, c.getId());
+            if (ce != null) {
+                result.add(ce);
+            }
         }
         return result;
     }
@@ -124,18 +136,10 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
 
         var records = new ArrayList<FinanceCurrencyWithExchangeView>();
         for (var c : currencies.getRecords()) {
-            var from = getCurrencyLatestExchange(tenantId, c.getCode(), "应收");
-            var to = getCurrencyLatestExchange(tenantId, c.getCode(), "应付");
-
-            records.add(new FinanceCurrencyWithExchangeView(
-                    c.getId(),
-                    c.getCode(),
-                    c.getName(),
-                    from == null ? null : from.getRate(),
-                    from == null ? null : from.getEffectiveFrom(),
-                    to == null ? null : to.getRate(),
-                    to == null ? null : to.getEffectiveFrom()
-            ));
+            var ce = getCurrencyWithExchange(tenantId, c.getId());
+            if (ce != null) {
+                records.add(ce);
+            }
         }
         var result = new Page<FinanceCurrencyWithExchangeView>();
         result.setRecords(records);
@@ -193,7 +197,8 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
 
     // 获取所有货币
     private List<FinanceCurrencyType> getCurrencies(UUID tenantId) {
-        return list(new LambdaQueryWrapper<FinanceCurrencyType>());
+        return list(new LambdaQueryWrapper<FinanceCurrencyType>().
+                eq(FinanceCurrencyType::getTenantId, tenantId));
     }
 
     private FinanceCurrencyExchangeView convertToView(FinanceCurrencyExchangeType entity) {
