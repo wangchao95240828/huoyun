@@ -20,12 +20,19 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 账户服务类
+ * 提供账户的CRUD操作
+ */
 @Service
 @RequiredArgsConstructor
 public class FinanceAccountService extends ServiceImpl<FinanceAccountMapper, FinanceAccount> {
 
     private final FinanceAccountMapper financeAccountMapper;
 
+    /**
+     * 保存账户
+     */
     @Transactional(rollbackFor = Exception.class)
     public FinanceAccountView save(FinanceAccountSaveRequest request) {
         FinanceAccount entity = new FinanceAccount();
@@ -46,6 +53,9 @@ public class FinanceAccountService extends ServiceImpl<FinanceAccountMapper, Fin
         return convertToView(entity);
     }
 
+    /**
+     * 更新账户
+     */
     @Transactional(rollbackFor = Exception.class)
     public FinanceAccountView update(FinanceAccountSaveRequest request) {
         FinanceAccount entity = financeAccountMapper.selectById(request.getId());
@@ -71,6 +81,9 @@ public class FinanceAccountService extends ServiceImpl<FinanceAccountMapper, Fin
         return convertToView(entity);
     }
 
+    /**
+     * 删除账户
+     */
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         FinanceAccount entity = financeAccountMapper.selectById(id);
@@ -80,6 +93,9 @@ public class FinanceAccountService extends ServiceImpl<FinanceAccountMapper, Fin
         financeAccountMapper.deleteById(id);
     }
 
+    /**
+     * 根据ID查询账户
+     */
     public FinanceAccountView getById(Long id) {
         FinanceAccount entity = financeAccountMapper.selectById(id);
         if (entity == null) {
@@ -88,6 +104,9 @@ public class FinanceAccountService extends ServiceImpl<FinanceAccountMapper, Fin
         return convertToView(entity);
     }
 
+    /**
+     * 分页查询账户列表
+     */
     public IPage<FinanceAccountView> page(FinanceAccountQueryRequest request) {
         Page<FinanceAccount> page = new Page<>(request.getPageNum(), request.getPageSize());
         LambdaQueryWrapper<FinanceAccount> queryWrapper = buildQueryWrapper(request);
@@ -96,12 +115,18 @@ public class FinanceAccountService extends ServiceImpl<FinanceAccountMapper, Fin
         return resultPage.convert(this::convertToView);
     }
 
+    /**
+     * 查询账户列表
+     */
     public List<FinanceAccountView> list(FinanceAccountQueryRequest request) {
         LambdaQueryWrapper<FinanceAccount> queryWrapper = buildQueryWrapper(request);
         List<FinanceAccount> list = financeAccountMapper.selectList(queryWrapper);
         return list.stream().map(this::convertToView).collect(Collectors.toList());
     }
 
+    /**
+     * 构建查询条件
+     */
     private LambdaQueryWrapper<FinanceAccount> buildQueryWrapper(FinanceAccountQueryRequest request) {
         LambdaQueryWrapper<FinanceAccount> queryWrapper = new LambdaQueryWrapper<>();
         if (StringUtils.hasText(request.getAccountName())) {
@@ -126,6 +151,9 @@ public class FinanceAccountService extends ServiceImpl<FinanceAccountMapper, Fin
         return queryWrapper;
     }
 
+    /**
+     * 转换为视图对象
+     */
     private FinanceAccountView convertToView(FinanceAccount entity) {
         FinanceAccountView view = new FinanceAccountView();
         view.setId(entity.getId());

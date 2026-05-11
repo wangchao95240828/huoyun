@@ -7,10 +7,10 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 账户响应视图
+ * 账户流水响应视图
  */
 @Data
-public class FinanceAccountView {
+public class FinanceAccountTransactionView {
 
     /** 主键ID */
     private Long id;
@@ -18,26 +18,35 @@ public class FinanceAccountView {
     /** 租户ID */
     private UUID tenantId;
 
-    /** 账户名称 */
-    private String accountName;
+    /** 流水号 */
+    private String transactionNo;
+
+    /** 账户ID */
+    private Long accountId;
+
+    /** 客户ID */
+    private Long customerId;
+
+    /** 类型：1.公司 2.客户 3.供应商 4.员工 */
+    private Integer transactionType;
 
     /** 币种 */
     private String currency;
 
-    /** 余额 */
-    private BigDecimal balance;
+    /** 金额 */
+    private BigDecimal amount;
 
-    /** 开户行 */
-    private String bankName;
+    /** 手续费 */
+    private BigDecimal fee;
 
-    /** 类型：1.公司 2.客户 3.供应商 4.员工 */
-    private Integer type;
-
-    /** 用户可见 */
-    private Boolean visible;
+    /** 入账金额 */
+    private BigDecimal creditAmount;
 
     /** 备注 */
     private String remark;
+
+    /** 支付时间 */
+    private LocalDateTime paymentTime;
 
     /** 创建者 */
     private String createBy;

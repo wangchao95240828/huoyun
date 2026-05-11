@@ -20,18 +20,25 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 费用类型服务类
+ * 提供费用类型的CRUD操作
+ */
 @Service
 @RequiredArgsConstructor
 public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, FinanceFeeType> {
 
     private final FinanceFeeTypeMapper financeFeeTypeMapper;
 
+    /**
+     * 保存费用类型
+     */
     @Transactional(rollbackFor = Exception.class)
     public FinanceFeeTypeView save(FinanceFeeTypeSaveRequest request) {
         if (request.getTenantId() == null || request.getTenantId().isBlank()) {
             throw new IllegalArgumentException("租户ID不能为空");
         }
-        
+
         FinanceFeeType entity = new FinanceFeeType();
         try {
             entity.setTenantId(UUID.fromString(request.getTenantId()));
@@ -52,6 +59,9 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
         return convertToView(entity);
     }
 
+    /**
+     * 更新费用类型
+     */
     @Transactional(rollbackFor = Exception.class)
     public FinanceFeeTypeView update(FinanceFeeTypeSaveRequest request) {
         FinanceFeeType entity = financeFeeTypeMapper.selectById(request.getId());
@@ -71,6 +81,9 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
         return convertToView(entity);
     }
 
+    /**
+     * 删除费用类型
+     */
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         FinanceFeeType entity = financeFeeTypeMapper.selectById(id);
@@ -80,7 +93,9 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
         financeFeeTypeMapper.deleteById(id);
     }
 
-
+    /**
+     * 根据ID查询费用类型
+     */
     public FinanceFeeTypeView getById(Long id) {
         FinanceFeeType entity = financeFeeTypeMapper.selectById(id);
         if (entity == null) {
@@ -89,7 +104,9 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
         return convertToView(entity);
     }
 
-
+    /**
+     * 分页查询费用类型列表
+     */
     public IPage<FinanceFeeTypeView> page(FinanceFeeTypeQueryRequest request) {
         Page<FinanceFeeType> page = new Page<>(request.getPageNum(), request.getPageSize());
         LambdaQueryWrapper<FinanceFeeType> queryWrapper = buildQueryWrapper(request);
@@ -98,14 +115,18 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
         return resultPage.convert(this::convertToView);
     }
 
-
+    /**
+     * 查询费用类型列表
+     */
     public List<FinanceFeeTypeView> list(FinanceFeeTypeQueryRequest request) {
         LambdaQueryWrapper<FinanceFeeType> queryWrapper = buildQueryWrapper(request);
         List<FinanceFeeType> list = financeFeeTypeMapper.selectList(queryWrapper);
         return list.stream().map(this::convertToView).collect(Collectors.toList());
     }
 
-
+    /**
+     * 批量导入费用类型
+     */
     @Transactional(rollbackFor = Exception.class)
     public void importExcel(List<FinanceFeeType> dataList) {
         for (FinanceFeeType entity : dataList) {
@@ -117,12 +138,17 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
         }
     }
 
-
+    /**
+     * 导出费用类型
+     */
     public List<FinanceFeeType> exportExcel(FinanceFeeTypeQueryRequest request) {
         LambdaQueryWrapper<FinanceFeeType> queryWrapper = buildQueryWrapper(request);
         return financeFeeTypeMapper.selectList(queryWrapper);
     }
 
+    /**
+     * 构建查询条件
+     */
     private LambdaQueryWrapper<FinanceFeeType> buildQueryWrapper(FinanceFeeTypeQueryRequest request) {
         LambdaQueryWrapper<FinanceFeeType> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.eq(FinanceFeeType::getTenantId, UUID.fromString(UserContext.getTenantId()));
@@ -142,6 +168,9 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
         return queryWrapper;
     }
 
+    /**
+     * 转换为视图对象
+     */
     private FinanceFeeTypeView convertToView(FinanceFeeType entity) {
         FinanceFeeTypeView view = new FinanceFeeTypeView();
         view.setId(entity.getId());

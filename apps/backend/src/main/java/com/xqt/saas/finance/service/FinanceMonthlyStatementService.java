@@ -19,12 +19,19 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 月结单服务类
+ * 提供月结单的CRUD操作
+ */
 @Service
 @RequiredArgsConstructor
 public class FinanceMonthlyStatementService extends ServiceImpl<FinanceMonthlyStatementMapper, FinanceMonthlyStatement> {
 
     private final FinanceMonthlyStatementMapper financeMonthlyStatementMapper;
 
+    /**
+     * 保存月结单
+     */
     @Transactional(rollbackFor = Exception.class)
     public FinanceMonthlyStatementView save(FinanceMonthlyStatementSaveRequest request) {
         FinanceMonthlyStatement entity = new FinanceMonthlyStatement();
@@ -46,6 +53,9 @@ public class FinanceMonthlyStatementService extends ServiceImpl<FinanceMonthlySt
         return convertToView(entity);
     }
 
+    /**
+     * 更新月结单
+     */
     @Transactional(rollbackFor = Exception.class)
     public FinanceMonthlyStatementView update(FinanceMonthlyStatementSaveRequest request) {
         FinanceMonthlyStatement entity = financeMonthlyStatementMapper.selectById(request.getId());
@@ -68,6 +78,9 @@ public class FinanceMonthlyStatementService extends ServiceImpl<FinanceMonthlySt
         return convertToView(entity);
     }
 
+    /**
+     * 删除月结单
+     */
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         FinanceMonthlyStatement entity = financeMonthlyStatementMapper.selectById(id);
@@ -77,6 +90,9 @@ public class FinanceMonthlyStatementService extends ServiceImpl<FinanceMonthlySt
         financeMonthlyStatementMapper.deleteById(id);
     }
 
+    /**
+     * 根据ID查询月结单
+     */
     public FinanceMonthlyStatementView getById(Long id) {
         FinanceMonthlyStatement entity = financeMonthlyStatementMapper.selectById(id);
         if (entity == null) {
@@ -85,6 +101,9 @@ public class FinanceMonthlyStatementService extends ServiceImpl<FinanceMonthlySt
         return convertToView(entity);
     }
 
+    /**
+     * 分页查询月结单列表
+     */
     public IPage<FinanceMonthlyStatementView> page(FinanceMonthlyStatementQueryRequest request) {
         Page<FinanceMonthlyStatement> page = new Page<>(request.getPageNum(), request.getPageSize());
         LambdaQueryWrapper<FinanceMonthlyStatement> queryWrapper = buildQueryWrapper(request);
@@ -93,12 +112,18 @@ public class FinanceMonthlyStatementService extends ServiceImpl<FinanceMonthlySt
         return resultPage.convert(this::convertToView);
     }
 
+    /**
+     * 查询月结单列表
+     */
     public List<FinanceMonthlyStatementView> list(FinanceMonthlyStatementQueryRequest request) {
         LambdaQueryWrapper<FinanceMonthlyStatement> queryWrapper = buildQueryWrapper(request);
         List<FinanceMonthlyStatement> list = financeMonthlyStatementMapper.selectList(queryWrapper);
         return list.stream().map(this::convertToView).collect(Collectors.toList());
     }
 
+    /**
+     * 构建查询条件
+     */
     private LambdaQueryWrapper<FinanceMonthlyStatement> buildQueryWrapper(FinanceMonthlyStatementQueryRequest request) {
         LambdaQueryWrapper<FinanceMonthlyStatement> queryWrapper = new LambdaQueryWrapper<>();
         if (request.getStartTime() != null) {
@@ -129,6 +154,9 @@ public class FinanceMonthlyStatementService extends ServiceImpl<FinanceMonthlySt
         return queryWrapper;
     }
 
+    /**
+     * 转换为视图对象
+     */
     private FinanceMonthlyStatementView convertToView(FinanceMonthlyStatement entity) {
         FinanceMonthlyStatementView view = new FinanceMonthlyStatementView();
         view.setId(entity.getId());

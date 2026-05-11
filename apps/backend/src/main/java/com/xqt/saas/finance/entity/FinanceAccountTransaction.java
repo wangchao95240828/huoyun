@@ -11,12 +11,12 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 账户实体类
- * 对应数据库表：finance_account
+ * 账户流水实体类
+ * 对应数据库表：finance_account_transaction
  */
 @Data
-@TableName("finance_account")
-public class FinanceAccount {
+@TableName("finance_account_transaction")
+public class FinanceAccountTransaction {
 
     /** 主键ID，自增 */
     @TableId(value = "id", type = IdType.AUTO)
@@ -26,33 +26,45 @@ public class FinanceAccount {
     @TableField("tenant_id")
     private UUID tenantId;
 
-    /** 账户名称 */
-    @TableField("account_name")
-    private String accountName;
+    /** 流水号 */
+    @TableField("transaction_no")
+    private String transactionNo;
+
+    /** 账户ID */
+    @TableField("account_id")
+    private Long accountId;
+
+    /** 客户ID */
+    @TableField("customer_id")
+    private Long customerId;
+
+    /** 类型：1.公司 2.客户 3.供应商 4.员工 */
+    @TableField("transaction_type")
+    private Integer transactionType;
 
     /** 币种 */
     @TableField("currency")
     private String currency;
 
-    /** 余额 */
-    @TableField("balance")
-    private BigDecimal balance;
+    /** 金额 */
+    @TableField("amount")
+    private BigDecimal amount;
 
-    /** 开户行 */
-    @TableField("bank_name")
-    private String bankName;
+    /** 手续费 */
+    @TableField("fee")
+    private BigDecimal fee;
 
-    /** 类型：1.公司 2.客户 3.供应商 4.员工 */
-    @TableField("type")
-    private Integer type;
-
-    /** 用户可见 */
-    @TableField("visible")
-    private Boolean visible;
+    /** 入账金额 */
+    @TableField("credit_amount")
+    private BigDecimal creditAmount;
 
     /** 备注 */
     @TableField("remark")
     private String remark;
+
+    /** 支付时间 */
+    @TableField("payment_time")
+    private LocalDateTime paymentTime;
 
     /** 创建者 */
     @TableField("create_by")
