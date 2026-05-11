@@ -49,8 +49,6 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
         // 先获取到该分页的 codes，根据 code 查询对应的应收、应付
         var currencies = page(pageNum, pageSize);
 
-        // fixme: total > 0，但 records 为空
-
         var res = new ArrayList<FinanceCurrencyWithExchangeRateView>();
         for (var currency : currencies) {
             var fromHistory = getLatestRate(currency.getCode(), "应收");
@@ -60,10 +58,10 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
                     currency.getId(),
                     currency.getCode(),
                     currency.getName(),
-                    fromHistory.getRate(),
-                    fromHistory.getEffectiveFrom(),
-                    toHistory.getRate(),
-                    toHistory.getEffectiveFrom()
+                    fromHistory == null ? null : fromHistory.getRate(),
+                    fromHistory == null ? null : fromHistory.getEffectiveFrom(),
+                    toHistory == null ? null : toHistory.getRate(),
+                    toHistory == null ? null : toHistory.getEffectiveFrom()
             ));
         }
 
