@@ -6,16 +6,17 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 月结单实体类
- * 对应数据库表：finance_monthly_statement
+ * 账户实体类
+ * 对应数据库表：finance_account
  */
 @Data
-@TableName("finance_monthly_statement")
-public class FinanceMonthlyStatement {
+@TableName("finance_account")
+public class FinanceAccount {
 
     /** 主键ID，自增 */
     @TableId(value = "id", type = IdType.AUTO)
@@ -25,33 +26,29 @@ public class FinanceMonthlyStatement {
     @TableField("tenant_id")
     private UUID tenantId;
 
-    /** 开始时间 */
-    @TableField("start_time")
-    private LocalDateTime startTime;
+    /** 账户名称 */
+    @TableField("account_name")
+    private String accountName;
 
-    /** 结束时间 */
-    @TableField("end_time")
-    private LocalDateTime endTime;
+    /** 币种 */
+    @TableField("currency")
+    private String currency;
 
-    /** 应收（锁定/开启） */
-    @TableField("receivable")
-    private Boolean receivable;
+    /** 余额 */
+    @TableField("balance")
+    private BigDecimal balance;
 
-    /** 应付（锁定/开启） */
-    @TableField("payable")
-    private Boolean payable;
+    /** 开户行 */
+    @TableField("bank_name")
+    private String bankName;
 
-    /** 销售成本（锁定/开启） */
-    @TableField("sales_cost")
-    private Boolean salesCost;
+    /** 类型：1.公司 2.客户 3.供应商 4.员工 */
+    @TableField("type")
+    private Integer type;
 
-    /** 运单（锁定/开启） */
-    @TableField("waybill")
-    private Boolean waybill;
-
-    /** 提单（锁定/开启） */
-    @TableField("bill_of_lading")
-    private Boolean billOfLading;
+    /** 用户可见 */
+    @TableField("visible")
+    private Boolean visible;
 
     /** 备注 */
     @TableField("remark")

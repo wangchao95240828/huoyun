@@ -27,6 +27,10 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 费用类型控制器
+ * 提供费用类型的RESTful API接口
+ */
 @RestController
 @RequestMapping("/api/finance-fee-types")
 public class FinanceFeeTypeController {
@@ -34,52 +38,66 @@ public class FinanceFeeTypeController {
     @Resource
     public FinanceFeeTypeService financeFeeTypeService;
 
+    /**
+     * 保存费用类型
+     */
     @PostMapping("/save")
     public R save(@RequestBody FinanceFeeTypeSaveRequest request) {
-        //获取租户ID
         request.setTenantId(UserContext.getTenantId());
         return R.success("保存成功", financeFeeTypeService.save(request));
     }
 
+    /**
+     * 更新费用类型
+     */
     @PutMapping
     public R update(@Valid @RequestBody FinanceFeeTypeSaveRequest request) {
         return R.success("更新成功", financeFeeTypeService.update(request));
     }
 
+    /**
+     * 删除费用类型
+     */
     @DeleteMapping("/{id}")
     public R delete(@PathVariable Long id) {
         financeFeeTypeService.delete(id);
         return R.success("删除成功");
     }
 
+    /**
+     * 根据ID查询费用类型
+     */
     @GetMapping("/{id}")
     public R getById(@PathVariable Long id) {
         return R.success(financeFeeTypeService.getById(id));
     }
 
-    @GetMapping("/page")
-    public R page(@RequestParam(defaultValue = "1") Long pageNum, @RequestParam(defaultValue = "10") Long pageSize, @RequestParam(required = false) String code, @RequestParam(required = false) String name, @RequestParam(required = false) String type, @RequestParam(required = false) Boolean isShow) {
-        FinanceFeeTypeQueryRequest queryRequest = new FinanceFeeTypeQueryRequest();
-        queryRequest.setCode(code);
-        queryRequest.setName(name);
-        queryRequest.setType(type);
-        queryRequest.setIsShow(isShow);
-
-        IPage<FinanceFeeTypeView> pageResult = financeFeeTypeService.page(queryRequest, pageNum, pageSize);
+    /**
+     * 分页查询费用类型列表
+     */
+    @PostMapping("/page")
+    public R page(@RequestBody(required = false) FinanceFeeTypeQueryRequest queryRequest) {
+        if (queryRequest == null) {
+            queryRequest = new FinanceFeeTypeQueryRequest();
+        }
+        IPage<FinanceFeeTypeView> pageResult = financeFeeTypeService.page(queryRequest);
         return R.success("查询成功", pageResult.getRecords(), pageResult.getTotal());
     }
 
-    @GetMapping("/list")
-    public R list(@RequestParam(required = false) String code, @RequestParam(required = false) String name, @RequestParam(required = false) String type, @RequestParam(required = false) Boolean isShow) {
-        FinanceFeeTypeQueryRequest queryRequest = new FinanceFeeTypeQueryRequest();
-        queryRequest.setCode(code);
-        queryRequest.setName(name);
-        queryRequest.setType(type);
-        queryRequest.setIsShow(isShow);
-
+    /**
+     * 查询费用类型列表
+     */
+    @PostMapping("/list")
+    public R list(@RequestBody(required = false) FinanceFeeTypeQueryRequest queryRequest) {
+        if (queryRequest == null) {
+            queryRequest = new FinanceFeeTypeQueryRequest();
+        }
         return R.success(financeFeeTypeService.list(queryRequest));
     }
 
+    /**
+     * 导入费用类型Excel
+     */
     @PostMapping("/import")
     public R importExcel(@RequestParam("file") MultipartFile file, @RequestParam("tenantId") String tenantId) throws IOException {
         List<FinanceFeeTypeExcelDTO> dataList = EasyExcel.read(file.getInputStream()).head(FinanceFeeTypeExcelDTO.class).sheet().doReadSync();
@@ -88,6 +106,9 @@ public class FinanceFeeTypeController {
         return R.success("导入成功");
     }
 
+    /**
+     * 导出费用类型Excel
+     */
     @GetMapping("/export")
     public ResponseEntity<byte[]> exportExcel(@RequestParam(required = false) String code, @RequestParam(required = false) String name, @RequestParam(required = false) String type, @RequestParam(required = false) Boolean isShow) throws IOException {
         FinanceFeeTypeQueryRequest queryRequest = new FinanceFeeTypeQueryRequest();
@@ -110,6 +131,9 @@ public class FinanceFeeTypeController {
         return ResponseEntity.ok().headers(headers).body(outputStream.toByteArray());
     }
 
+    /**
+     * 转换为实体对象
+     */
     private FinanceFeeType convertToEntity(FinanceFeeTypeExcelDTO dto, String tenantId) {
         FinanceFeeType entity = new FinanceFeeType();
         entity.setTenantId(UUID.fromString(tenantId));
@@ -121,6 +145,9 @@ public class FinanceFeeTypeController {
         return entity;
     }
 
+    /**
+     * 转换为ExcelDTO对象
+     */
     private FinanceFeeTypeExcelDTO convertToExcelDTO(FinanceFeeType entity) {
         FinanceFeeTypeExcelDTO dto = new FinanceFeeTypeExcelDTO();
         dto.setCode(entity.getCode());
