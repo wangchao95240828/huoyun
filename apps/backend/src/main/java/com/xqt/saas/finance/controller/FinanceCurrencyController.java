@@ -30,8 +30,14 @@ public class FinanceCurrencyController {
         return R.success("删除成功");
     }
 
-    // 分页获取每个货币的应收/应付汇率与其生效时间
+    // 获取所有货币的应收/应付汇率与其生效时间
     @GetMapping
+    public R getAll() {
+        return R.success(service.getCurrenciesWithExchange(UUID.fromString(UserContext.getTenantId())));
+    }
+
+    // 分页获取每个货币的应收/应付汇率与其生效时间
+    @GetMapping("/page")
     public R pageCurrencies(@RequestParam(defaultValue = "1") Long pageNum, @RequestParam(defaultValue = "10") Long pageSize) {
         return R.success("查询成功", service.getCurrenciesWithExchangePage(UUID.fromString(UserContext.getTenantId()), pageNum, pageSize));
     }

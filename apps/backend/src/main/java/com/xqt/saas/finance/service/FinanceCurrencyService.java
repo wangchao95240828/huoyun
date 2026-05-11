@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -97,6 +98,26 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
         exchangeMapper.deleteById(exchangeId);
     }
 
+    public List<FinanceCurrencyWithExchangeView> getCurrenciesWithExchange(UUID tenantId) {
+        var currencies = getCurrencies(tenantId);
+        var result = new ArrayList<FinanceCurrencyWithExchangeView>();
+        for (FinanceCurrencyType c : currencies) {
+            var from = getCurrencyLatestExchange(tenantId, c.getCode(), "应收");
+            var to = getCurrencyLatestExchange(tenantId, c.getCode(), "应付");
+
+            result.add(new FinanceCurrencyWithExchangeView(
+                    c.getId(),
+                    c.getCode(),
+                    c.getName(),
+                    from == null ? null : from.getRate(),
+                    from == null ? null : from.getEffectiveFrom(),
+                    to == null ? null : to.getRate(),
+                    to == null ? null : to.getEffectiveFrom()
+            ));
+        }
+        return result;
+    }
+
     public IPage<FinanceCurrencyWithExchangeView> getCurrenciesWithExchangePage(UUID tenantId, Long pageNum, Long pageSize) {
         // 先获取到该分页的 codes，根据 code 查询对应的应收、应付
         var currencies = getCurrencyPage(tenantId, pageNum, pageSize);
@@ -168,6 +189,11 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
                 eq(FinanceCurrencyType::getTenantId, tenantId).
                 eq(FinanceCurrencyType::getId, currencyId)
         );
+    }
+
+    // 获取所有货币
+    private List<FinanceCurrencyType> getCurrencies(UUID tenantId) {
+        return list(new LambdaQueryWrapper<FinanceCurrencyType>());
     }
 
     private FinanceCurrencyExchangeView convertToView(FinanceCurrencyExchangeType entity) {
