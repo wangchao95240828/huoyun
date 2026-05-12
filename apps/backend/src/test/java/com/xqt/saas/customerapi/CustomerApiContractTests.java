@@ -37,7 +37,7 @@ class CustomerApiContractTests {
             )
         ));
         withPrincipal(principal, () -> {
-            CustomerApiController controller = new CustomerApiController(service);
+            CustomerApiController controller = new CustomerApiController(service, mock(com.xqt.saas.rates.RateEngine.class));
             ApiResponse<ItemResponse<BalanceList>> response = controller.balance();
 
             assertThat(response.ok()).isTrue();
@@ -62,7 +62,7 @@ class CustomerApiContractTests {
             "00000000-0000-0000-0000-000000000001", "DOC-20260512000000000-ORDER-0001", "DRAFT", "DOC-DEMO"
         ));
         withPrincipal(principal, () -> {
-            CustomerApiController controller = new CustomerApiController(service);
+            CustomerApiController controller = new CustomerApiController(service, mock(com.xqt.saas.rates.RateEngine.class));
             ApiResponse<ItemResponse<PreOrderResult>> response = controller.preOrder(body);
 
             assertThat(response.ok()).isTrue();

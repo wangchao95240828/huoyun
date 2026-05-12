@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FindBugsFilter>
     <Match>
-        <Class name="~com\.xqt\.saas\..*(Controller|Service|Repository|RequestContext|JsonSupport|BearerAuthFilter|TokenService|CustomerApiAuthFilter)"/>
+        <Class name="~com\.xqt\.saas\..*(Controller|Service|Repository|RequestContext|JsonSupport|BearerAuthFilter|TokenService|CustomerApiAuthFilter|RateEngine)"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
         <Class name="~com\.xqt\.saas\.customerapi\.(CustomerApiRequests.*|CustomerApiResponses.*|CachedBodyHttpServletRequest|CustomerApiAuthFilter)"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="~com\.xqt\.saas\.rates\.RateQuoteResponse.*"/>
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
 </FindBugsFilter>

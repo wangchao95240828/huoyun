@@ -27,6 +27,7 @@ services:
       - ../db/migrations/014_common_saas_foundation.sql:/docker-entrypoint-initdb.d/014_common_saas_foundation.sql:ro
       - ../db/migrations/015_drop_sys_proto_tables.sql:/docker-entrypoint-initdb.d/015_drop_sys_proto_tables.sql:ro
       - ../db/migrations/016_acc_customerapi_seed.sql:/docker-entrypoint-initdb.d/016_acc_customerapi_seed.sql:ro
+      - ../db/migrations/017_acc_rates_seed.sql:/docker-entrypoint-initdb.d/017_acc_rates_seed.sql:ro
       - ../db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/101_seed.sql:ro
       - ../db/seeds/002_ledger_seed.sql:/docker-entrypoint-initdb.d/102_ledger_seed.sql:ro
       - ../db/seeds/003_auth_seed.sql:/docker-entrypoint-initdb.d/103_auth_seed.sql:ro
