@@ -6,7 +6,6 @@ CREATE TABLE finance_approval
     updated_at           timestamptz NOT NULL,
     created_by           TEXT        NOT NULL,
     updated_by           TEXT        NOT NULL,
-    approval_id          BIGINT,           -- 审批编号
     type                 TEXT,             -- 类型
     associate_order_id   TEXT,             -- 关联单号
     associate_order_user TEXT,             -- 关联单号用户
