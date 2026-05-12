@@ -40,6 +40,7 @@ public class BearerAuthFilter extends OncePerRequestFilter {
         return "OPTIONS".equalsIgnoreCase(request.getMethod())
             || "/api/auth/login".equals(path)
             || "/api/health".equals(path)
+            || path.startsWith("/api/customer-api/")
             || path.startsWith("/actuator/health")
             || path.startsWith("/v3/api-docs")
             || path.startsWith("/swagger-ui")

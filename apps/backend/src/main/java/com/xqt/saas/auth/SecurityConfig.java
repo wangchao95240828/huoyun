@@ -1,7 +1,9 @@
 package com.xqt.saas.auth;
 
+import com.xqt.saas.customerapi.CustomerApiAuthFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -18,7 +20,28 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 @Configuration
 @EnableMethodSecurity
 public class SecurityConfig {
+
     @Bean
+    @Order(1)
+    SecurityFilterChain customerApiSecurityFilterChain(HttpSecurity http, CustomerApiAuthFilter customerApiAuthFilter) throws Exception {
+        return http
+            .securityMatcher("/api/customer-api/**")
+            .csrf(AbstractHttpConfigurer::disable)
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            .httpBasic(AbstractHttpConfigurer::disable)
+            .formLogin(AbstractHttpConfigurer::disable)
+            .logout(AbstractHttpConfigurer::disable)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.OPTIONS, "/api/customer-api/**").permitAll()
+                .anyRequest().hasRole("CUSTOMER_API")
+            )
+            .addFilterBefore(customerApiAuthFilter, UsernamePasswordAuthenticationFilter.class)
+            .build();
+    }
+
+    @Bean
+    @Order(2)
     SecurityFilterChain securityFilterChain(HttpSecurity http, BearerAuthFilter bearerAuthFilter) throws Exception {
         return http
             .csrf(AbstractHttpConfigurer::disable)
