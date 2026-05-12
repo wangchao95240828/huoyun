@@ -4,9 +4,8 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.xqt.saas.finance.typehandler.StringListTypeHandler;
-import com.xqt.saas.finance.typehandler.UuidListTypeHandler;
 import lombok.Data;
+import org.apache.ibatis.type.ArrayTypeHandler;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -28,8 +27,8 @@ public class FinanceApprovalType {
     private String approvalType;
     private String reason;
     private String remark;
-    @TableField(typeHandler = UuidListTypeHandler.class)
+    @TableField(typeHandler = ArrayTypeHandler.class)
     private List<UUID> ccUserIds;
-    @TableField(typeHandler = StringListTypeHandler.class)
+    @TableField(typeHandler = ArrayTypeHandler.class)
     private List<String> fileUrls;
 }
