@@ -42,40 +42,6 @@ public class FinanceSalesCommissionController {
     public R save(@RequestBody FinanceSalesCommissionSaveRequest request) {
         request.setTenantId(UserContext.getTenantId());
         return R.success("保存成功", financeSalesCommissionService.save(request));
-
-
-
-
-
-        //TODO
-        /**
-         在260513sql 创建运价维护表：
-         名称	服务	收货区域	优先级	用户等级	用户	最小重量	最大重量	邮编开头	父级	状态 价格类型 1.公布价 2.销售员底价 3.成本价
-         并在finance编写CRUD接口
-
-         在260513sql 创建应付报表表：
-         用户
-         币种
-         营业额
-         已支付
-         待支付
-         已出账单
-         待出账单
-         已付账单
-         待付账单
-         并在finance编写CRUD接口和导出
-
-         在260513sql 创建运单审计表：
-         运单号	用户	服务	国家	件数	实重	材重	收费重	供应商重量 状态：1已收货 2转运中 3已签收 4退件	应收	应付	销售成本	销售提成	毛利	客服代表	销售代表	拣货时间
-         并在finance编写CRUD接口和导入导出接口
-
-         在260513sql 创建财务流水表：
-         流水号	用户	公司账户	用户账户	币种	金额	手续费 类型 1客户充值 2客户提现 3支付供应商 4供应商退款 5经营收入 6经营支出 7工资发放 8提成发放 9内部转账	审核流水号	支付状态	是否已开票	账单	审核时间	支付时间
-         并在finance编写CRUD接口和导入导出接口
-         */
-
-
-
     }
 
     /**
