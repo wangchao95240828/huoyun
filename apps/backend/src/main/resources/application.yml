@@ -1,22 +1,22 @@
 server:
-  port: ${API_PORT:8888}
+  port: ${API_PORT:8080}
 
 spring:
   application:
     name: xqt-backend
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:15432/xqt_saas}
-    username: ${SPRING_DATASOURCE_USERNAME:xqt}
-    password: ${SPRING_DATASOURCE_PASSWORD:38a1ba65af3599208b327625cec5279c698f}
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   data:
     redis:
-      host: ${REDIS_HOST:8.148.227.76}
-      port: ${REDIS_PORT:6379}
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT}
   sql:
     init:
       mode: never
 
-debug: false
+debug: ${DEBUG:false}
 
 logging:
   level:
@@ -36,16 +36,8 @@ management:
 
 app:
   auth:
-    jwt-secret: ${JWT_SECRET:replace-me-in-real-env}
+    jwt-secret: ${JWT_SECRET}
     token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:28800}
-
-mybatis-plus:
-  mapper-locations: classpath*:mapper/**/*.xml
-  type-aliases-package: com.xqt.saas.finance.entity
-  type-handlers-package: com.xqt.saas.finance.handler
-  configuration:
-    map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
 springdoc:
   api-docs:
@@ -54,3 +46,11 @@ springdoc:
     path: /swagger-ui.html
     operations-sorter: method
     tags-sorter: alpha
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.xqt.saas.finance.entity
+  type-handlers-package: com.xqt.saas.finance.handler
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
