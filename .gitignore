@@ -43,3 +43,4 @@ apps/web/src/**/*.js
 
 # Docker local state
 *.pid
+/ssh-tun.ps1
