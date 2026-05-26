@@ -1718,3 +1718,40 @@ input, select, textarea { font: inherit; }
     padding: 28px;
   }
 }
+
+/* ─── 审核流视觉提示 ─── */
+.audit-status-col { white-space: nowrap; width: 80px; text-align: center; }
+.audit-status-cell { text-align: center; }
+.audit-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+.audit-badge.audited {
+  background: rgba(220, 38, 38, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+.audit-badge.unaudited {
+  background: rgba(217, 119, 6, 0.1);
+  color: #d97706;
+  border: 1px solid rgba(217, 119, 6, 0.3);
+}
+.audit-badge.pending {
+  background: rgba(100, 116, 139, 0.1);
+  color: #64748b;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+}
+.audited-row {
+  background: rgba(220, 38, 38, 0.03);
+}
+.audited-row:hover {
+  background: rgba(220, 38, 38, 0.06);
+}
+.action-btn.audit-btn { color: #059669; }
+.action-btn.audit-btn:hover { background: rgba(5, 150, 105, 0.1); }
+.action-btn.undo-btn { color: #d97706; }
+.action-btn.undo-btn:hover { background: rgba(217, 119, 6, 0.1); }

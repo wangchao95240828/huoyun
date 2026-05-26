@@ -372,33 +372,41 @@ const sysColumns: Record<string, Array<{ key: string; label: string }>> = {
   ],
 };
 
+// 后端实际暴露的 admin 端点：/api/admin/{users,roles,permissions,audit-logs}。
+// 旧 sys 命名空间的其余 tab（menus/configs/sys-info/db-stats/sms-logs/hardware/...）
+// 在新平台没有对应控制器，暂时返回空数组并由 UI 提示"未上线"。
+const SYS_TAB_API_MAP: Record<string, string> = {
+  users: '/api/admin/users',
+  roles: '/api/admin/roles',
+  'op-logs': '/api/admin/audit-logs',
+  configs: '/api/admin/permissions',
+};
+const SYS_TAB_UNAVAILABLE: Set<string> = new Set([
+  'menus', 'error-logs', 'sms-logs', 'sys-info',
+  'db-stats', 'cust-accounts', 'service-msg', 'hardware', 'tools',
+]);
+
 async function loadSystemData() {
   sysLoading.value = true;
   try {
     const tab = sysTab.value;
-    const apiMap: Record<string, string> = {
-      users: '/api/sys/users', roles: '/api/sys/roles', menus: '/api/sys/menus',
-      'op-logs': '/api/sys/logs/operations', 'error-logs': '/api/sys/logs/errors',
-      'sms-logs': '/api/sys/sms/logs', configs: '/api/sys/configs',
-      'sys-info': '/api/sys/info', 'db-stats': '/api/sys/tools/db-stats',
-      'cust-accounts': '/api/sys/customer-accounts', 'service-msg': '/api/sys/service/messages?customerId=0',
-      hardware: '/api/sys/hardware', tools: '/api/sys/info',
-    };
-    const url = apiMap[tab];
+    if (SYS_TAB_UNAVAILABLE.has(tab)) {
+      sysData.value = [];
+      sysTotal.value = 0;
+      sysInfo.value = { unavailable: true, message: '此模块尚未在新后端上线' };
+      return;
+    }
+    const url = SYS_TAB_API_MAP[tab];
     if (!url) { sysData.value = []; return; }
     const res = await apiFetch(`${API}${url}`);
     const json = await res.json();
 
-    if (tab === 'sys-info' || tab === 'tools') {
-      sysInfo.value = json;
-      sysData.value = [];
-    } else if (tab === 'db-stats') {
-      sysData.value = json.tables ?? [];
-    } else if (Array.isArray(json)) {
+    if (Array.isArray(json)) {
       sysData.value = json;
+      sysTotal.value = json.length;
     } else if (json.data) {
       sysData.value = json.data;
-      sysTotal.value = json.total ?? 0;
+      sysTotal.value = json.total ?? json.data.length;
     } else {
       sysData.value = [];
     }
@@ -2000,7 +2008,8 @@ async function readJson(response: Response, label = "请求") {
 }
 
 async function fetchJson(input: string, init: RequestInit = {}, label = "请求") {
-  const response = await fetch(input, init);
+  // 默认走 apiFetch 注入 Bearer；对于明确无需鉴权的路径（如 /api/public/*）调用方可自行用原始 fetch。
+  const response = await apiFetch(input, init);
   const json = await readJson(response, label);
   if (!response.ok || json?.ok === false) {
     throw new Error(json?.error ?? `${label}失败 (${response.status})`);
@@ -2092,7 +2101,7 @@ async function fetchDashboard() {
   try {
     const [dashData, healthData, branchData] = await Promise.all([
       fetchOptionalJson<DashboardData | null>(`${API}/api/finance/dashboard`, null, "加载财务看板"),
-      fetchOptionalJson<HealthData | null>(`${API}/health`, null, "加载系统状态"),
+      fetchOptionalJson<HealthData | null>(`${API}/api/finance/dashboard/health`, null, "加载系统状态"),
       fetchOptionalJson<{ data?: BranchData[] }>(`${API}/api/finance/branches`, { data: [] }, "加载分公司"),
     ]);
     dashboard.value = dashData;
@@ -2125,7 +2134,7 @@ async function fetchAccData() {
   if (accDateTo.value && !noDateTabs.has(accTab.value)) params.set("dateTo", accDateTo.value);
 
   try {
-    const res = await fetch(`${API}/api/acc/${tab.api}?${params}`);
+    const res = await apiFetch(`${API}/api/acc/${tab.api}?${params}`);
     const json = await res.json();
     if (Array.isArray(json)) {
       accData.value = json;
@@ -2144,7 +2153,7 @@ async function fetchAccData() {
 
 async function fetchAccStats() {
   try {
-    const res = await fetch(`${API}/api/acc/stats`);
+    const res = await apiFetch(`${API}/api/acc/stats`);
     accStats.value = await res.json();
   } catch {
     accStats.value = null;
@@ -2190,7 +2199,7 @@ async function loadSelectOptions(fields: FormField[]) {
     const ep = refEndpoints[r];
     if (!ep) continue;
     try {
-      const res = await fetch(`${API}/api/acc/${ep.api}?pageSize=9999`);
+      const res = await apiFetch(`${API}/api/acc/${ep.api}?pageSize=9999`);
       const json = await res.json();
       const list = Array.isArray(json) ? json : (json.data ?? []);
       selectOptions.value[r] = list.map((row: any) => ({
@@ -2226,7 +2235,7 @@ async function openEdit(row: any) {
   const tab = accTabs.find(t => t.key === accTab.value);
   if (!tab) return;
   try {
-    const res = await fetch(`${API}/api/acc/${tab.api}/${row.id}/raw`);
+    const res = await apiFetch(`${API}/api/acc/${tab.api}/${row.id}/raw`);
     const raw = await res.json();
     if (raw?.error) { formError.value = raw.error; return; }
     Object.keys(formData).forEach(k => delete formData[k]);
@@ -2289,7 +2298,7 @@ async function doDelete() {
   const tab = accTabs.find(t => t.key === accTab.value);
   if (!tab) return;
   try {
-    await fetch(`${API}/api/acc/${tab.api}/${deleteTarget.value.id}`, { method: 'DELETE' });
+    await apiFetch(`${API}/api/acc/${tab.api}/${deleteTarget.value.id}`, { method: 'DELETE' });
     showDeleteConfirm.value = false;
     fetchAccData();
   } catch (e: any) {
@@ -2345,23 +2354,22 @@ function toggleSelectAll() {
   }
 }
 
-async function doAudit(id: number) {
+async function doAudit(id: any) {
   bizLoading.value = true;
   bizMessage.value = '';
   const tab = accTabs.find(t => t.key === accTab.value);
   if (!tab) return;
   try {
-    const res = await fetch(`${API}/api/acc/${tab.api}/audit-biz`, {
+    // 新后端：id 在 URL 里、不需要 body
+    const res = await apiFetch(`${API}/api/acc/${tab.api}/${encodeURIComponent(String(id))}/audit-biz`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, auditor: 'admin' }),
     });
-    const json = await res.json();
-    if (json.ok) {
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
       bizMessage.value = '审核成功';
       fetchAccData();
     } else {
-      bizMessage.value = '审核失败: ' + (json.error ?? '未知错误');
+      bizMessage.value = '审核失败: ' + (json.error ?? `HTTP ${res.status}`);
     }
   } catch (e: any) {
     bizMessage.value = '审核失败: ' + e.message;
@@ -2371,23 +2379,21 @@ async function doAudit(id: number) {
   }
 }
 
-async function doUndoAudit(id: number) {
+async function doUndoAudit(id: any) {
   bizLoading.value = true;
   bizMessage.value = '';
   const tab = accTabs.find(t => t.key === accTab.value);
   if (!tab) return;
   try {
-    const res = await fetch(`${API}/api/acc/${tab.api}/undo-biz`, {
+    const res = await apiFetch(`${API}/api/acc/${tab.api}/${encodeURIComponent(String(id))}/undo-biz`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
     });
-    const json = await res.json();
-    if (json.ok) {
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
       bizMessage.value = '反审核成功';
       fetchAccData();
     } else {
-      bizMessage.value = '反审核失败: ' + (json.error ?? '未知错误');
+      bizMessage.value = '反审核失败: ' + (json.error ?? `HTTP ${res.status}`);
     }
   } catch (e: any) {
     bizMessage.value = '反审核失败: ' + e.message;
@@ -2404,15 +2410,19 @@ async function doBatchAudit() {
   const tab = accTabs.find(t => t.key === accTab.value);
   if (!tab) return;
   try {
-    const res = await fetch(`${API}/api/acc/${tab.api}/batch-audit`, {
+    const res = await apiFetch(`${API}/api/acc/${tab.api}/batch-audit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids: [...selectedIds.value], auditor: 'admin' }),
+      body: JSON.stringify({ ids: [...selectedIds.value].map(String) }),
     });
-    const json = await res.json();
-    bizMessage.value = `批量审核完成，已审核 ${json.audited ?? 0} 条`;
-    selectedIds.value.clear();
-    fetchAccData();
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
+      bizMessage.value = `批量审核完成：${json.audited ?? 0} 条成功，${json.skipped ?? 0} 条跳过`;
+      selectedIds.value.clear();
+      fetchAccData();
+    } else {
+      bizMessage.value = '批量审核失败: ' + (json.error ?? `HTTP ${res.status}`);
+    }
   } catch (e: any) {
     bizMessage.value = '批量审核失败: ' + e.message;
   } finally {
@@ -2451,7 +2461,7 @@ async function executeBizDialog() {
   bizMessage.value = '';
   try {
     if (bizDialogType.value === 'generate-bill') {
-      const res = await fetch(`${API}/api/acc/bills/generate`, {
+      const res = await apiFetch(`${API}/api/acc/bills/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2469,7 +2479,7 @@ async function executeBizDialog() {
         bizMessage.value = '生成失败: ' + (json.error ?? '');
       }
     } else if (bizDialogType.value === 'quick-payment') {
-      const res = await fetch(`${API}/api/acc/receiveds/quick`, {
+      const res = await apiFetch(`${API}/api/acc/receiveds/quick`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2487,7 +2497,7 @@ async function executeBizDialog() {
         bizMessage.value = '收款失败: ' + (json.error ?? '');
       }
     } else if (bizDialogType.value === 'calc-commission') {
-      const res = await fetch(`${API}/api/acc/commissions/calculate`, {
+      const res = await apiFetch(`${API}/api/acc/commissions/calculate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ month: bizDialogData.month }),
@@ -2503,7 +2513,7 @@ async function executeBizDialog() {
         dateTo: bizDialogData.dateTo,
         groupBy: bizDialogData.groupBy,
       });
-      const res = await fetch(`${API}/api/acc/profits/summary?${params}`);
+      const res = await apiFetch(`${API}/api/acc/profits/summary?${params}`);
       const json = await res.json();
       detailData.value = json;
       detailType.value = 'profit-summary';
@@ -2527,7 +2537,7 @@ async function doExport() {
     if (accKeyword.value) params.set('keyword', accKeyword.value);
     if (accDateFrom.value) params.set('dateFrom', accDateFrom.value);
     if (accDateTo.value) params.set('dateTo', accDateTo.value);
-    const res = await fetch(`${API}/api/acc/export/${tab.api}?${params}`);
+    const res = await apiFetch(`${API}/api/acc/export/${tab.api}?${params}`);
     const json = await res.json();
     if (Array.isArray(json) && json.length > 0) {
       const headers = Object.keys(json[0]);
@@ -2560,19 +2570,19 @@ async function viewDetail(row: any) {
   const tab = accTabs.find(t => t.key === accTab.value);
   if (!tab) return;
   if (accTab.value === 'shipments') {
-    const res = await fetch(`${API}/api/acc/shipments/${row.id}/items`);
+    const res = await apiFetch(`${API}/api/acc/shipments/${row.id}/items`);
     detailData.value = await res.json();
     detailType.value = 'shipment-items';
   } else if (accTab.value === 'bills') {
-    const res = await fetch(`${API}/api/acc/bills/${row.id}/items`);
+    const res = await apiFetch(`${API}/api/acc/bills/${row.id}/items`);
     detailData.value = await res.json();
     detailType.value = 'bill-items';
   } else if (accTab.value === 'stowages') {
-    const res = await fetch(`${API}/api/acc/stowages/${row.id}/packages`);
+    const res = await apiFetch(`${API}/api/acc/stowages/${row.id}/packages`);
     detailData.value = await res.json();
     detailType.value = 'stowage-packages';
   } else {
-    const res = await fetch(`${API}/api/acc/${tab.api}/${row.id}/raw`);
+    const res = await apiFetch(`${API}/api/acc/${tab.api}/${row.id}/raw`);
     detailData.value = await res.json();
     detailType.value = 'raw';
   }
@@ -2582,7 +2592,7 @@ async function viewDetail(row: any) {
 async function doSyncStowage(id: number) {
   bizLoading.value = true;
   try {
-    const res = await fetch(`${API}/api/acc/stowages/sync`, {
+    const res = await apiFetch(`${API}/api/acc/stowages/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
@@ -2601,7 +2611,7 @@ async function doSyncStowage(id: number) {
 async function doReloadBill(id: number) {
   bizLoading.value = true;
   try {
-    const res = await fetch(`${API}/api/acc/bills/reload`, {
+    const res = await apiFetch(`${API}/api/acc/bills/reload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
@@ -3076,19 +3086,21 @@ async function doReloadBill(id: number) {
                   <input type="checkbox" @change="toggleSelectAll()" :checked="selectedIds.size > 0 && selectedIds.size === accData.length" />
                 </th>
                 <th v-for="col in accColumns[accTab]" :key="col.key">{{ col.label }}</th>
+                <th class="audit-status-col">审核状态</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="accLoading">
-                <td :colspan="accColumns[accTab].length + 1 + (canBatchAudit ? 1 : 0)" class="loading-cell">
+                <td :colspan="accColumns[accTab].length + 2 + (canBatchAudit ? 1 : 0)" class="loading-cell">
                   <RefreshCw :size="16" class="spinning" /> 加载中...
                 </td>
               </tr>
               <tr v-else-if="accData.length === 0">
-                <td :colspan="accColumns[accTab].length + 1 + (canBatchAudit ? 1 : 0)" class="empty-cell">暂无数据</td>
+                <td :colspan="accColumns[accTab].length + 2 + (canBatchAudit ? 1 : 0)" class="empty-cell">暂无数据</td>
               </tr>
-              <tr v-for="row in accData" :key="row.id ?? row.code ?? row.no" v-else>
+              <tr v-for="row in accData" :key="row.id ?? row.code ?? row.no"
+                  :class="{ 'audited-row': row.auditStatus === 'AUDITED' }" v-else>
                 <td v-if="canBatchAudit" class="check-col">
                   <input type="checkbox" :checked="selectedIds.has(row.id)" @change="toggleSelect(row.id)" />
                 </td>
@@ -3096,17 +3108,27 @@ async function doReloadBill(id: number) {
                     :class="{ 'money-cell': col.fmt === 'money' }">
                   {{ fmtCell(row[col.key], col.fmt) }}
                 </td>
+                <td class="audit-status-cell">
+                  <span v-if="row.auditStatus === 'AUDITED'" class="audit-badge audited" :title="`审核人: ${row.auditName ?? ''}\n审核时间: ${row.auditedAt ?? ''}`">已审核</span>
+                  <span v-else-if="row.auditStatus === 'UNAUDITED'" class="audit-badge unaudited">已反审</span>
+                  <span v-else-if="row.auditStatus === 'PENDING'" class="audit-badge pending">待审核</span>
+                </td>
                 <td class="action-cell">
                   <button class="action-btn" @click="viewDetail(row)" title="详情">
                     <Eye :size="12" />
                   </button>
-                  <button class="action-btn" v-if="canCrud" @click="openEdit(row)" title="编辑">
+                  <button class="action-btn" v-if="canCrud && row.auditStatus !== 'AUDITED'"
+                          @click="openEdit(row)" title="编辑">
                     <Pencil :size="12" />
                   </button>
-                  <button class="action-btn" v-if="canAudit" @click="doAudit(row.id)" title="审核" :disabled="bizLoading">
+                  <button class="action-btn audit-btn"
+                          v-if="canAudit && row.auditStatus !== 'AUDITED'"
+                          @click="doAudit(row.id)" title="审核" :disabled="bizLoading">
                     <CheckCircle :size="12" />
                   </button>
-                  <button class="action-btn" v-if="canAudit" @click="doUndoAudit(row.id)" title="反审核" :disabled="bizLoading">
+                  <button class="action-btn undo-btn"
+                          v-if="canAudit && row.auditStatus === 'AUDITED'"
+                          @click="doUndoAudit(row.id)" title="反审核" :disabled="bizLoading">
                     <XCircle :size="12" />
                   </button>
                   <button class="action-btn" v-if="accTab === 'stowages'" @click="doSyncStowage(row.id)" title="同步" :disabled="bizLoading">
@@ -3115,7 +3137,8 @@ async function doReloadBill(id: number) {
                   <button class="action-btn" v-if="accTab === 'bills'" @click="doReloadBill(row.id)" title="重算" :disabled="bizLoading">
                     <Calculator :size="12" />
                   </button>
-                  <button class="action-btn del" v-if="canCrud" @click="confirmDeleteRow(row)" title="删除">
+                  <button class="action-btn del" v-if="canCrud && row.auditStatus !== 'AUDITED'"
+                          @click="confirmDeleteRow(row)" title="删除">
                     <Trash2 :size="12" />
                   </button>
                 </td>
