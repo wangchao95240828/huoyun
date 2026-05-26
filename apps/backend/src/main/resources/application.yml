@@ -7,7 +7,7 @@ spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:15432/xqt_saas}
     username: ${SPRING_DATASOURCE_USERNAME:xqt}
-    password: ${SPRING_DATASOURCE_PASSWORD:xqt_dev_password}
+    password: ${SPRING_DATASOURCE_PASSWORD:38a1ba65af3599208b327625cec5279c698f}
     hikari:
       connection-test-query: select 1
       validation-timeout: 3000
@@ -17,8 +17,8 @@ spring:
       keepalive-time: 60000
   data:
     redis:
-      host: ${REDIS_HOST}
-      port: ${REDIS_PORT}
+      host: ${REDIS_HOST:8.148.227.76}
+      port: ${REDIS_PORT:6379}
   sql:
     init:
       mode: never
@@ -45,7 +45,7 @@ management:
 
 app:
   auth:
-    jwt-secret: ${JWT_SECRET}
+    jwt-secret: ${JWT_SECRET:replace-me-in-real-env}
     token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:28800}
 
 springdoc:
