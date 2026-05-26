@@ -1,6 +1,6 @@
 # ACC Customer-API 重构落地
 
-生成日期：2026-05-12
+生成日期：2026-05-12（最后更新：2026-05-20）
 范围：把 `acc/api/APIClass.php`、`acc/CustomerAPI.php`、`acc/api/getNewLabel.php` 涉及的客户外部 API 能力迁移到 xqt-saas 的 Spring Boot 后端，作为 ACC 全量重构的第一个模板模块。
 
 ## 1. 模块边界
@@ -9,10 +9,21 @@
 | --- | --- | --- |
 | `api/APIClass.php?act=Balance` | `GET /api/customer-api/balance` | 已实现，对照样本通过 |
 | `api/APIClass.php?act=PreOrder` | `POST /api/customer-api/orders` | 已实现到 DRAFT 落表，未做费率/取号 |
-| `api/APIClass.php?act=Submit` | 未实现，留待 `rates` + 渠道适配器模块 | L1 |
-| `api/APIClass.php?act=Cancel` / `Query` / `Track` / `Label` / `Price` / `Status` / `Product` / `Sync` | 未实现 | L1 |
+| `api/APIClass.php?act=Price` | `POST /api/customer-api/rates/quote` | 已实现 MVP（详见 `acc-rates-migration.md`） |
+| `api/APIClass.php?act=Status` | `POST /api/customer-api/orders/status` | **L3 已实现**，按 customer_ref/order_no 反查，未命中返回 -1 |
+| `api/APIClass.php?act=Query` | `POST /api/customer-api/orders/query` | **L3 已实现**（Draft 阶段从 metadata.acc_compat 还原 receiver/declare） |
+| `api/APIClass.php?act=Product` / `Channel` | `GET /api/customer-api/channels` | **L3 已实现**，列出租户启用渠道 |
+| `api/APIClass.php?act=Track` | `POST /api/customer-api/tracking/query` | **L3 已实现**，从 `tracking_events` 读多源轨迹；Draft 阶段无数据时返回空 Track |
+| `api/Track.php`（匿名公开版） | `POST /api/public/tracking/query` | **L3 已实现**，单单号公开查询；走 service_role 跨租户，等价旧版"单号即凭证"语义 |
+| `api/APIClass.php?act=Submit` | `POST /api/customer-api/orders/{no}/submit` | **L3 已实现** MVP：DRAFT→SUBMITTED，落 shipments/cartons/declarations，调 `CarrierGateway` 取号（默认 NoopCarrierGateway 占位） |
+| `api/APIClass.php?act=Modify` | `PUT /api/customer-api/orders/{no}` | **L3 已实现**：仅 DRAFT 允许，合并字段到 metadata.acc_compat |
+| `api/APIClass.php?act=Cancel` | `POST /api/customer-api/orders/{no}/cancel` | **L3 已实现**：状态机校验 + shipments 同步标 EXCEPTION |
+| `api/APIClass.php?act=Label` | `POST /api/customer-api/labels/generate` | **L3 已实现**：method=0 返回 base64 / method=1 落盘返 URL；批量 No 单条错误不破坏批量；子单号写 cartons；状态写 tracking_events；默认 `NoopLabelGateway` 生成占位 PDF |
+| `api/getNewLabel.php` | `POST /api/customer-api/labels/relabel` | **L3 已实现**：完整复刻 `queryNo` 三段查找（`relabel_no_map` scope=CARRIER → CUSTOMER → 直接）+ 按 carton 序号兜底定位文件 + `hasSingle` 多页 PDF 真分页提取；PDF 缩放走 **Apache PDFBox**，等价 ACC FPDI/TCPDF |
+| `api/APIClass.php?act=Sync` | `POST /api/customer-api/stowages/sync` | **L3 已实现**：完整复刻 11 项校验 + 跨客户检查 + TrackNo 冲突 + insert/update + attach/detach；新建 `stowages` / `stowage_categories` / `stowage_ports` 表，`cartons` 加 `stowage_id` 列承担 `Online_Package_Item.Stowage` 关系 |
 | `CustomerAPI.php`（后台 CRUD） | 走 xqt-saas `admin` 模块统一后台，不单独重构 | 跳过 |
 | `api/getNewLabel.php` | 移交 `labels` 模块 | 跳过 |
+| `api/APIClass2.php` | 不迁移（签名校验被注释，高危副本） | 弃用 |
 
 ## 2. 包结构
 
@@ -126,13 +137,20 @@ balances:    CNY 10000.00, USD 500.00
 
 ## 9. 后续模块按本模板复刻
 
-模板顺序：
+已完成（在 `customerapi` 包内合并实现，未单独抽包）：
 
-1. `com.xqt.saas.rates` — Price 试算
-2. `com.xqt.saas.labels` — Label / Relabel / 文件下载
-3. `com.xqt.saas.tracking` — Track 多源聚合
-4. `com.xqt.saas.shipments` — Submit + 渠道取号 + 状态机
-5. `com.xqt.saas.documentcharges` — Express_Charge 预扣 + 账单闭环
+1. ✅ `rates` — Price 试算
+2. ✅ Status / Query / Channels — 只读对照接口
+3. ✅ Track — 轨迹聚合（从 `tracking_events`）
+4. ✅ Submit / Modify / Cancel — 写状态机 + `CarrierGateway` 抽象（默认 `NoopCarrierGateway`）
+5. ✅ `com.xqt.saas.labels` — Label / Relabel：`LabelGateway` 抽象 + 默认 `NoopLabelGateway`，`LabelStorage` + 默认 `LocalFileLabelStorage`；新建 `label_files` / `relabel_no_map` 两张表对齐 ACC `Online_File` / `Change` / `Change_No`
+
+仍待办：
+
+6. `com.xqt.saas.documentcharges` — Express_Charge 预扣 + 账单闭环
+7. 真渠道适配器：UPS / FedEx / 自营 EDI 各做一个 `CarrierGateway` / `LabelGateway` Bean，按 `channels.metadata` 路由
+8. `api/Scale.php` 称重设备（独立设备协议）
+9. `api/sumy.php` 第三方推单
 
 每个模块复用：
 - CustomerApiAuthFilter（已在 /api/customer-api/** 路径下生效）
