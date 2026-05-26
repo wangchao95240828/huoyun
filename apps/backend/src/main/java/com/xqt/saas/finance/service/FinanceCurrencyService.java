@@ -61,7 +61,7 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
                         eq(FinanceCurrencyType::getId, currencyId)
         );
         if (currency == null) {
-            throw new RuntimeException("无货币");
+            throw new IllegalArgumentException("currency not found");
         }
 
         var now = OffsetDateTime.now();
@@ -93,7 +93,7 @@ public class FinanceCurrencyService extends ServiceImpl<FinanceCurrencyMapper, F
         }
 
         if (!exchange.getCode().equals(currency.getCode())) {
-            throw new RuntimeException("货币与汇率记录不对应");
+            throw new IllegalArgumentException("currency and exchange record mismatch");
         }
         exchangeMapper.deleteById(exchangeId);
     }

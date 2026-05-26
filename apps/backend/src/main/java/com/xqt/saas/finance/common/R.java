@@ -7,6 +7,7 @@ import java.util.Objects;
  * 统一响应结果封装类
  * 用于API接口返回统一格式的数据
  */
+@SuppressWarnings("PMD.ClassNamingShouldBeCamelRule")
 public class R extends HashMap<String, Object> {
     private static final long serialVersionUID = 1L;
 

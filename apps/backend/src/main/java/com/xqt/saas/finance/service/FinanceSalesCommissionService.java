@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.common.UserContext;
+import com.xqt.saas.finance.common.TenantUtils;
 import com.xqt.saas.finance.dto.request.FinanceSalesCommissionQueryRequest;
 import com.xqt.saas.finance.dto.request.FinanceSalesCommissionSaveRequest;
 import com.xqt.saas.finance.dto.response.FinanceSalesCommissionView;
@@ -142,7 +142,7 @@ public class FinanceSalesCommissionService extends ServiceImpl<FinanceSalesCommi
      */
     private LambdaQueryWrapper<FinanceSalesCommission> buildQueryWrapper(FinanceSalesCommissionQueryRequest request) {
         LambdaQueryWrapper<FinanceSalesCommission> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceSalesCommission::getTenantId, UUID.fromString(UserContext.getTenantId()));
+        queryWrapper.eq(FinanceSalesCommission::getTenantId, TenantUtils.currentUuid());
         
         if (StringUtils.hasText(request.getCommissionNo())) {
             queryWrapper.like(FinanceSalesCommission::getCommissionNo, request.getCommissionNo());

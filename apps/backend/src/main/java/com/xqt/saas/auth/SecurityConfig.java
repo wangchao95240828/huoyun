@@ -59,11 +59,15 @@ public class SecurityConfig {
                     "/api/auth/me",
                     "/api/auth/logout",
                     "/api/health",
+                    "/api/public/**",
                     "/actuator/health/**",
                     "/v3/api-docs/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html"
                 ).permitAll()
+                // Finance routes: authenticated users only.
+                // Fine-grained RBAC can be added here or via @PreAuthorize on individual controllers.
+                .requestMatchers("/api/finance/**").authenticated()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(bearerAuthFilter, UsernamePasswordAuthenticationFilter.class)

@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.common.UserContext;
+import com.xqt.saas.finance.common.TenantUtils;
 import com.xqt.saas.finance.dto.excel.FinanceCustomerBillExcelDTO;
 import com.xqt.saas.finance.dto.request.FinanceCustomerBillQueryRequest;
 import com.xqt.saas.finance.dto.request.FinanceCustomerBillSaveRequest;
@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -167,7 +166,7 @@ public class FinanceCustomerBillService extends ServiceImpl<FinanceCustomerBillM
      */
     private LambdaQueryWrapper<FinanceCustomerBill> buildQueryWrapper(FinanceCustomerBillQueryRequest request) {
         LambdaQueryWrapper<FinanceCustomerBill> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceCustomerBill::getTenantId, UUID.fromString(UserContext.getTenantId()));
+        queryWrapper.eq(FinanceCustomerBill::getTenantId, TenantUtils.currentUuid());
 
         if (StringUtils.hasText(request.getBillNo())) {
             queryWrapper.like(FinanceCustomerBill::getBillNo, request.getBillNo());

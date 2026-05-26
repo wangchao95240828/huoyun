@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.common.UserContext;
+import com.xqt.saas.finance.common.TenantUtils;
 import com.xqt.saas.finance.dto.excel.FinanceTransactionExcelDTO;
 import com.xqt.saas.finance.dto.request.FinanceTransactionQueryRequest;
 import com.xqt.saas.finance.dto.request.FinanceTransactionSaveRequest;
@@ -135,7 +135,7 @@ public class FinanceTransactionService extends ServiceImpl<FinanceTransactionMap
 
     private LambdaQueryWrapper<FinanceTransaction> buildQueryWrapper(FinanceTransactionQueryRequest request) {
         LambdaQueryWrapper<FinanceTransaction> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceTransaction::getTenantId, UUID.fromString(UserContext.getTenantId()));
+        queryWrapper.eq(FinanceTransaction::getTenantId, TenantUtils.currentUuid());
 
         if (StringUtils.hasText(request.getTransactionNo())) {
             queryWrapper.like(FinanceTransaction::getTransactionNo, request.getTransactionNo());

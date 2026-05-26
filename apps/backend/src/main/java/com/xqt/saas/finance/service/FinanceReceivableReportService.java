@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.common.UserContext;
+import com.xqt.saas.finance.common.TenantUtils;
 import com.xqt.saas.finance.dto.request.FinanceReceivableReportQueryRequest;
 import com.xqt.saas.finance.dto.request.FinanceReceivableReportSaveRequest;
 import com.xqt.saas.finance.dto.response.FinanceReceivableReportView;
@@ -127,7 +127,7 @@ public class FinanceReceivableReportService extends ServiceImpl<FinanceReceivabl
 
     private LambdaQueryWrapper<FinanceReceivableReport> buildQueryWrapper(FinanceReceivableReportQueryRequest request) {
         LambdaQueryWrapper<FinanceReceivableReport> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceReceivableReport::getTenantId, UUID.fromString(UserContext.getTenantId()));
+        queryWrapper.eq(FinanceReceivableReport::getTenantId, TenantUtils.currentUuid());
 
         if (StringUtils.hasText(request.getUserName())) {
             queryWrapper.like(FinanceReceivableReport::getUserName, request.getUserName());

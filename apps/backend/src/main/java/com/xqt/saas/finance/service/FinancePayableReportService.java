@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.common.UserContext;
+import com.xqt.saas.finance.common.TenantUtils;
 import com.xqt.saas.finance.dto.request.FinancePayableReportQueryRequest;
 import com.xqt.saas.finance.dto.request.FinancePayableReportSaveRequest;
 import com.xqt.saas.finance.dto.response.FinancePayableReportView;
@@ -113,7 +113,7 @@ public class FinancePayableReportService extends ServiceImpl<FinancePayableRepor
 
     private LambdaQueryWrapper<FinancePayableReport> buildQueryWrapper(FinancePayableReportQueryRequest request) {
         LambdaQueryWrapper<FinancePayableReport> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinancePayableReport::getTenantId, UUID.fromString(UserContext.getTenantId()));
+        queryWrapper.eq(FinancePayableReport::getTenantId, TenantUtils.currentUuid());
 
         if (StringUtils.hasText(request.getUserName())) {
             queryWrapper.like(FinancePayableReport::getUserName, request.getUserName());

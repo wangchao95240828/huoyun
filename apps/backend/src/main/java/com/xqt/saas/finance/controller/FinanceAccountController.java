@@ -8,7 +8,14 @@ import com.xqt.saas.finance.dto.response.FinanceAccountView;
 import com.xqt.saas.finance.service.FinanceAccountService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 账户控制器
@@ -19,7 +26,7 @@ import org.springframework.web.bind.annotation.*;
 public class FinanceAccountController {
 
     @Resource
-    public FinanceAccountService financeAccountService;
+    private FinanceAccountService financeAccountService;
 
     /**
      * 保存账户

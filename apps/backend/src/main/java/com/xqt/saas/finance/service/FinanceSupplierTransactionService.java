@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.common.UserContext;
+import com.xqt.saas.finance.common.TenantUtils;
 import com.xqt.saas.finance.dto.excel.FinanceSupplierTransactionExcelDTO;
 import com.xqt.saas.finance.dto.request.FinanceSupplierTransactionQueryRequest;
 import com.xqt.saas.finance.dto.request.FinanceSupplierTransactionSaveRequest;
@@ -16,7 +16,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -169,7 +168,7 @@ public class FinanceSupplierTransactionService extends ServiceImpl<FinanceSuppli
      */
     private LambdaQueryWrapper<FinanceSupplierTransaction> buildQueryWrapper(FinanceSupplierTransactionQueryRequest request) {
         LambdaQueryWrapper<FinanceSupplierTransaction> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceSupplierTransaction::getTenantId, UUID.fromString(UserContext.getTenantId()));
+        queryWrapper.eq(FinanceSupplierTransaction::getTenantId, TenantUtils.currentUuid());
 
         if (StringUtils.hasText(request.getTransactionNo())) {
             queryWrapper.like(FinanceSupplierTransaction::getTransactionNo, request.getTransactionNo());

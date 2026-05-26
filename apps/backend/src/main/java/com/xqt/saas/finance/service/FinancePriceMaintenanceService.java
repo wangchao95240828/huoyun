@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.common.UserContext;
+import com.xqt.saas.finance.common.TenantUtils;
 import com.xqt.saas.finance.dto.request.FinancePriceMaintenanceQueryRequest;
 import com.xqt.saas.finance.dto.request.FinancePriceMaintenanceSaveRequest;
 import com.xqt.saas.finance.dto.response.FinancePriceMaintenanceView;
@@ -114,7 +114,7 @@ public class FinancePriceMaintenanceService extends ServiceImpl<FinancePriceMain
 
     private LambdaQueryWrapper<FinancePriceMaintenance> buildQueryWrapper(FinancePriceMaintenanceQueryRequest request) {
         LambdaQueryWrapper<FinancePriceMaintenance> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinancePriceMaintenance::getTenantId, UUID.fromString(UserContext.getTenantId()));
+        queryWrapper.eq(FinancePriceMaintenance::getTenantId, TenantUtils.currentUuid());
 
         if (StringUtils.hasText(request.getName())) {
             queryWrapper.like(FinancePriceMaintenance::getName, request.getName());

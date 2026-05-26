@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,6 +68,17 @@ public class JsonSupport {
             return objectMapper.writeValueAsString(value == null ? Map.of() : value);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Unable to serialize JSON payload", ex);
+        }
+    }
+
+    public <T> T fromJson(String json, TypeReference<T> type) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, type);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to deserialize JSON payload", ex);
         }
     }
 }

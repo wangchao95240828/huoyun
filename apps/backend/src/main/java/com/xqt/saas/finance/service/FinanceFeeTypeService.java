@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.xqt.saas.finance.common.UserContext;
+import com.xqt.saas.finance.common.TenantUtils;
 import com.xqt.saas.finance.dto.request.FinanceFeeTypeQueryRequest;
 import com.xqt.saas.finance.dto.request.FinanceFeeTypeSaveRequest;
 import com.xqt.saas.finance.dto.response.FinanceFeeTypeView;
@@ -151,7 +151,7 @@ public class FinanceFeeTypeService extends ServiceImpl<FinanceFeeTypeMapper, Fin
      */
     private LambdaQueryWrapper<FinanceFeeType> buildQueryWrapper(FinanceFeeTypeQueryRequest request) {
         LambdaQueryWrapper<FinanceFeeType> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(FinanceFeeType::getTenantId, UUID.fromString(UserContext.getTenantId()));
+        queryWrapper.eq(FinanceFeeType::getTenantId, TenantUtils.currentUuid());
         if (StringUtils.hasText(request.getCode())) {
             queryWrapper.like(FinanceFeeType::getCode, request.getCode());
         }
