@@ -4,14 +4,23 @@ import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.ApiResponse;
 import com.xqt.saas.common.ItemResponse;
 import com.xqt.saas.customerapi.CustomerApiResponses.BalanceList;
+import com.xqt.saas.customerapi.CustomerApiResponses.CancelResult;
+import com.xqt.saas.customerapi.CustomerApiResponses.ChannelList;
+import com.xqt.saas.customerapi.CustomerApiResponses.OrderDetail;
+import com.xqt.saas.customerapi.CustomerApiResponses.OrderDetailList;
 import com.xqt.saas.customerapi.CustomerApiResponses.PreOrderResult;
+import com.xqt.saas.customerapi.CustomerApiResponses.StatusList;
+import com.xqt.saas.customerapi.CustomerApiResponses.SubmitResult;
+import com.xqt.saas.customerapi.CustomerApiResponses.TrackingList;
 import com.xqt.saas.rates.RateEngine;
 import com.xqt.saas.rates.RateQuoteRequest;
 import com.xqt.saas.rates.RateQuoteResponse.Quote;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,9 +46,51 @@ public class CustomerApiController {
         return ApiResponse.ok(new ItemResponse<>(service.preOrder(principal(), body)));
     }
 
+    @PutMapping("/orders/{no}")
+    public ApiResponse<ItemResponse<OrderDetail>> modifyOrder(@PathVariable("no") String no,
+                                                              @RequestBody CustomerApiRequests.ModifyOrder body) {
+        return ApiResponse.ok(new ItemResponse<>(service.modifyOrder(principal(), no, body)));
+    }
+
+    @PostMapping("/orders/{no}/pre-submit")
+    public ApiResponse<ItemResponse<com.xqt.saas.customerapi.CustomerApiResponses.PreSubmitResult>>
+            preSubmitOrder(@PathVariable("no") String no) {
+        return ApiResponse.ok(new ItemResponse<>(service.preSubmitOrder(principal(), no)));
+    }
+
+    @PostMapping("/orders/{no}/submit")
+    public ApiResponse<ItemResponse<SubmitResult>> submitOrder(@PathVariable("no") String no) {
+        return ApiResponse.ok(new ItemResponse<>(service.submitOrder(principal(), no)));
+    }
+
+    @PostMapping("/orders/{no}/cancel")
+    public ApiResponse<ItemResponse<CancelResult>> cancelOrder(@PathVariable("no") String no) {
+        return ApiResponse.ok(new ItemResponse<>(service.cancelOrder(principal(), no)));
+    }
+
     @PostMapping("/rates/quote")
     public ApiResponse<ItemResponse<Quote>> quote(@RequestBody RateQuoteRequest body) {
         return ApiResponse.ok(new ItemResponse<>(rateEngine.quote(principal().tenantId(), body)));
+    }
+
+    @PostMapping("/orders/status")
+    public ApiResponse<ItemResponse<StatusList>> orderStatus(@RequestBody CustomerApiRequests.OrderRefList body) {
+        return ApiResponse.ok(new ItemResponse<>(service.queryStatus(principal(), body)));
+    }
+
+    @PostMapping("/orders/query")
+    public ApiResponse<ItemResponse<OrderDetailList>> orderQuery(@RequestBody CustomerApiRequests.OrderRefList body) {
+        return ApiResponse.ok(new ItemResponse<>(service.queryDetail(principal(), body)));
+    }
+
+    @GetMapping("/channels")
+    public ApiResponse<ItemResponse<ChannelList>> channels() {
+        return ApiResponse.ok(new ItemResponse<>(service.listChannels(principal())));
+    }
+
+    @PostMapping("/tracking/query")
+    public ApiResponse<ItemResponse<TrackingList>> trackingQuery(@RequestBody CustomerApiRequests.OrderRefList body) {
+        return ApiResponse.ok(new ItemResponse<>(service.queryTracking(principal(), body)));
     }
 
     @GetMapping("/ping")

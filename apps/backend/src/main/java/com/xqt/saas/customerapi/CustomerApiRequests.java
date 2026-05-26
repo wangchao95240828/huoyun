@@ -34,4 +34,41 @@ public final class CustomerApiRequests {
             extra = extra == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(extra));
         }
     }
+
+    /**
+     * 对应 ACC act=Modify 的输入：仅 DRAFT 阶段允许，未提供的字段保持原值。
+     */
+    public record ModifyOrder(
+        String product,
+        String country,
+        BigDecimal weight,
+        Integer piece,
+        BigDecimal volume,
+        String currency,
+        Map<String, Object> receiver,
+        Map<String, Object> shipper,
+        Map<String, Object> shipTo,
+        List<Map<String, Object>> declare,
+        String remark
+    ) {
+    }
+
+    /**
+     * 对应 ACC act=Status / act=Query 的输入。旧 PHP 接受 No 为字符串或数组，
+     * 这里统一接受字符串数组，并保留 no 字段做单条兼容。
+     */
+    public record OrderRefList(
+        String no,
+        List<String> nos
+    ) {
+        public List<String> resolved() {
+            if (nos != null && !nos.isEmpty()) {
+                return nos;
+            }
+            if (no != null && !no.isBlank()) {
+                return List.of(no);
+            }
+            return List.of();
+        }
+    }
 }
