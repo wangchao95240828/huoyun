@@ -1,6 +1,6 @@
 # XQT Spring Boot Backend
 
-Java/Spring Boot 版后端骨架，目标是逐步替代当前 `apps/api` 的 Fastify 实现。
+Java/Spring Boot 后端，平台 API 唯一入口。
 
 ## 技术栈
 
@@ -59,6 +59,10 @@ env -u DEBUG API_PORT=18103 SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:54
 | `GET /api/business-flows` | 两套业务流程 |
 | `/api/seller/orders` | 客户卖货订单 CRUD |
 | `/api/document/orders` | 客户自己制单订单 CRUD |
+| `POST /api/document/rates/quote` | 内部运费试算（Bearer + flow.document.read） |
+| `POST /api/customer-api/orders` | 客户 API 预报单（签名鉴权） |
+| `GET /api/customer-api/balance` | 客户 API 余额查询 |
+| `POST /api/customer-api/rates/quote` | 客户 API 运费试算 |
 
 默认本地账号仍使用主库种子：
 

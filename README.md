@@ -4,8 +4,7 @@
 
 ## 目录
 
-- `apps/backend`: Java/Spring Boot 主后端，后续平台 API 以这里为准。
-- `apps/api`: 早期 Fastify API 原型，后续逐步迁移到 Spring Boot。
+- `apps/backend`: Java/Spring Boot 主后端，平台 API 唯一入口。
 - `apps/web`: 运营后台前端脚手架。
 - `packages/shared`: 前后端共享枚举与类型。
 - `db/migrations`: PostgreSQL 数据库迁移。
@@ -75,14 +74,13 @@ cd apps/backend && ./mvnw test
 
 ### 4. 启动开发服务
 
+前端：
+
 ```bash
 npm run dev
 ```
 
-默认端口：
-
-- Fastify 原型 API: `http://localhost:8080`
-- Web: `http://localhost:5173`
+默认 Web 地址 `http://localhost:5173`。
 
 Spring Boot 后端：
 
@@ -108,12 +106,6 @@ env -u DEBUG API_PORT=18103 SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:54
 ```bash
 curl http://localhost:8080/api/health
 curl -H 'x-tenant-code: xqt' http://localhost:8080/api/finance/overview
-```
-
-如 `8080` 被占用，可以临时指定：
-
-```bash
-API_PORT=18080 npm run dev -w apps/api
 ```
 
 ## 常用命令
