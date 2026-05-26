@@ -80,7 +80,35 @@ public class AccAuditController {
         Map.entry("borrowings", "acc_borrowings"),
         Map.entry("assets", "acc_assets"),
         Map.entry("cycles", "acc_cycles"),
-        Map.entry("received-sms", "acc_received_sms")
+        Map.entry("received-sms", "acc_received_sms"),
+        // 026 HR 人事 + 提成
+        Map.entry("employees", "acc_employees"),
+        Map.entry("attendances", "acc_attendances"),
+        Map.entry("wages", "acc_wages"),
+        Map.entry("commission-rules", "acc_commission_rules"),
+        Map.entry("commissions", "acc_commissions"),
+        Map.entry("socials", "acc_socials"),
+        Map.entry("social-persons", "acc_social_persons"),
+        Map.entry("funds", "acc_funds"),
+        Map.entry("fund-persons", "acc_fund_persons"),
+        // 027 物流扩展
+        Map.entry("stowages", "stowages"),
+        Map.entry("stowage-categories", "stowage_categories"),
+        Map.entry("ports", "stowage_ports"),
+        Map.entry("stowage-steps", "acc_stowage_steps"),
+        Map.entry("transits", "acc_transits"),
+        Map.entry("dispatches", "acc_dispatches"),
+        Map.entry("forecasts", "acc_forecasts"),
+        Map.entry("tracks", "acc_track_items"),
+        // 028 客户产品 + 系统杂项
+        Map.entry("channel-accounts", "acc_channel_accounts"),
+        Map.entry("product-items", "acc_product_items"),
+        Map.entry("sold-tos", "acc_sold_tos"),
+        Map.entry("potentials", "acc_potentials"),
+        Map.entry("notices", "acc_notices"),
+        Map.entry("logistics-interfaces", "acc_logistics_interfaces"),
+        Map.entry("tasks", "acc_scheduled_tasks"),
+        Map.entry("templates", "acc_message_templates")
     );
 
     private final AuditService auditService;

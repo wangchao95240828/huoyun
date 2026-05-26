@@ -146,6 +146,70 @@ public class CascadeChecker {
             CascadeRule.of("acc_dividends", "bank_account_id",
                 "账户有 {n} 笔分红记录，不能删除")
         ));
+
+        // ─── 026 HR 人事 + 提成 ───
+        register("acc_employees", List.of(
+            CascadeRule.of("acc_wages", "employee_id",
+                "员工有 {n} 条工资记录，请先删除工资"),
+            CascadeRule.of("acc_attendances", "employee_id",
+                "员工有 {n} 条考勤记录，请先删除考勤"),
+            CascadeRule.of("acc_commissions", "employee_id",
+                "员工有 {n} 条提成记录，请先删除提成"),
+            CascadeRule.of("acc_social_persons", "employee_id",
+                "员工有 {n} 条社保记录，请先删除"),
+            CascadeRule.of("acc_fund_persons", "employee_id",
+                "员工有 {n} 条公积金记录，请先删除")
+        ));
+        register("acc_attendances", List.of());
+        register("acc_wages", List.of());
+        register("acc_commission_rules", List.of(
+            CascadeRule.of("acc_commissions", "rule_id",
+                "提成规则已被 {n} 条提成记录引用，请先删除提成")
+        ));
+        register("acc_commissions", List.of());
+        register("acc_socials", List.of(
+            CascadeRule.of("acc_social_persons", "social_id",
+                "社保有 {n} 条人员明细，请先删除人员")
+        ));
+        register("acc_social_persons", List.of());
+        register("acc_funds", List.of(
+            CascadeRule.of("acc_fund_persons", "fund_id",
+                "公积金有 {n} 条人员明细，请先删除人员")
+        ));
+        register("acc_fund_persons", List.of());
+
+        // ─── 027 物流扩展 ───
+        register("stowages", List.of(
+            CascadeRule.of("cartons", "stowage_id",
+                "配载有 {n} 个箱单关联，请先移除"),
+            CascadeRule.of("acc_stowage_steps", "stowage_id",
+                "配载有 {n} 个步骤，请先删除步骤")
+        ));
+        register("stowage_categories", List.of(
+            CascadeRule.of("stowages", "category_id",
+                "配载分类有 {n} 个配载单引用，不能删除")
+        ));
+        register("stowage_ports", List.of(
+            CascadeRule.of("stowages", "departure_port_id",
+                "港口有 {n} 个配载单引用（始发港），不能删除"),
+            CascadeRule.of("acc_transits", "from_port_id",
+                "港口有 {n} 个转运记录引用，不能删除")
+        ));
+        register("acc_stowage_steps", List.of());
+        register("acc_transits", List.of());
+        register("acc_dispatches", List.of());
+        register("acc_forecasts", List.of());
+        register("acc_track_items", List.of());
+
+        // ─── 028 客户产品 + 系统杂项 ───
+        register("acc_channel_accounts", List.of());
+        register("acc_product_items", List.of());
+        register("acc_sold_tos", List.of());
+        register("acc_potentials", List.of());
+        register("acc_notices", List.of());
+        register("acc_logistics_interfaces", List.of());
+        register("acc_scheduled_tasks", List.of());
+        register("acc_message_templates", List.of());
     }
 
     public void register(String entity, List<CascadeRule> rules) {

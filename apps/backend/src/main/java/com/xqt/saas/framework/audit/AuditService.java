@@ -45,7 +45,16 @@ public class AuditService {
         "acc_finance_txns", "acc_expense_categories", "acc_fee_item_types",
         // 025 资金管理（banks 复用 financial_accounts）
         "acc_expenses", "financial_accounts", "acc_transfers", "acc_dividends",
-        "acc_borrowings", "acc_assets", "acc_cycles", "acc_received_sms"
+        "acc_borrowings", "acc_assets", "acc_cycles", "acc_received_sms",
+        // 026 HR 人事 + 提成
+        "acc_employees", "acc_attendances", "acc_wages", "acc_commission_rules",
+        "acc_commissions", "acc_socials", "acc_social_persons", "acc_funds", "acc_fund_persons",
+        // 027 物流扩展（stowages/stowage_categories/stowage_ports 复用 020）
+        "stowages", "stowage_categories", "stowage_ports",
+        "acc_stowage_steps", "acc_transits", "acc_dispatches", "acc_forecasts", "acc_track_items",
+        // 028 客户产品 + 系统杂项
+        "acc_channel_accounts", "acc_product_items", "acc_sold_tos", "acc_potentials",
+        "acc_notices", "acc_logistics_interfaces", "acc_scheduled_tasks", "acc_message_templates"
     );
 
     private final JdbcTemplate jdbc;
