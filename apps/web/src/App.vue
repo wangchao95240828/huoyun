@@ -236,6 +236,12 @@ const showBizDialog = ref(false);
 const bizDialogType = ref('');
 const bizDialogData = reactive<Record<string, any>>({});
 
+// Audit history drawer state (审核流转抽屉)
+const showAuditHistory = ref(false);
+const auditHistoryRows = ref<Array<any>>([]);
+const auditHistoryRowLabel = ref('');
+const auditHistoryLoading = ref(false);
+
 // System management state
 const sysTab = ref('users');
 const sysData = ref<any[]>([]);
@@ -2329,7 +2335,15 @@ const bizAuditTabs = new Set([
   'assets', 'funds', 'socials',
 ]);
 
-const batchAuditTabs = new Set(['charges', 'costs']);
+// 批量审核：所有业务可审核 tab 都启用（ACC 原行为也是凡审核处都能批量）
+const batchAuditTabs = new Set([
+  'orders', 'shipments', 'stowages', 'charges', 'costs', 'bills',
+  'receiveds', 'payments', 'commissions', 'transits',
+  'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
+  'customer-fines', 'supplier-fines', 'customer-adjusts', 'supplier-adjusts',
+  'customer-rebates', 'supplier-rebates', 'customer-refunds', 'supplier-refunds',
+  'assets', 'funds', 'socials',
+]);
 const importTabs = new Set(['orders', 'charges', 'costs']);
 const exportTabs = new Set([
   'orders', 'shipments', 'charges', 'costs', 'bills', 'payments', 'receiveds',
@@ -2428,6 +2442,24 @@ async function doBatchAudit() {
   } finally {
     bizLoading.value = false;
     setTimeout(() => { bizMessage.value = ''; }, 5000);
+  }
+}
+
+async function openAuditHistory(row: any) {
+  const tab = accTabs.find(t => t.key === accTab.value);
+  if (!tab) return;
+  auditHistoryRowLabel.value = `${tab.label} · ${row.no ?? row.code ?? row.name ?? row.id}`;
+  auditHistoryLoading.value = true;
+  showAuditHistory.value = true;
+  auditHistoryRows.value = [];
+  try {
+    const res = await apiFetch(`${API}/api/acc/${tab.api}/${encodeURIComponent(String(row.id))}/audit-history?limit=50`);
+    const json = await res.json();
+    auditHistoryRows.value = Array.isArray(json.data) ? json.data : [];
+  } catch (e: any) {
+    bizMessage.value = '加载审核流转失败: ' + e.message;
+  } finally {
+    auditHistoryLoading.value = false;
   }
 }
 
@@ -3131,6 +3163,11 @@ async function doReloadBill(id: number) {
                           @click="doUndoAudit(row.id)" title="反审核" :disabled="bizLoading">
                     <XCircle :size="12" />
                   </button>
+                  <button class="action-btn history-btn"
+                          v-if="canAudit && row.auditStatus"
+                          @click="openAuditHistory(row)" title="审核流转" :disabled="bizLoading">
+                    <Clock :size="12" />
+                  </button>
                   <button class="action-btn" v-if="accTab === 'stowages'" @click="doSyncStowage(row.id)" title="同步" :disabled="bizLoading">
                     <RefreshCw :size="12" />
                   </button>
@@ -3499,6 +3536,49 @@ async function doReloadBill(id: number) {
         </div>
         <div class="modal-footer">
           <button class="secondary" @click="showDetail = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Audit history drawer：查看单条单据的审核流转（audit_events 时间线） -->
+    <div class="modal-backdrop" v-if="showAuditHistory" @click.self="showAuditHistory = false">
+      <div class="modal-dialog audit-history-dialog">
+        <div class="modal-header">
+          <h3>审核流转 · {{ auditHistoryRowLabel }}</h3>
+          <button class="modal-close" @click="showAuditHistory = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <div v-if="auditHistoryLoading" class="loading-cell">
+            <RefreshCw :size="16" class="spinning" /> 加载中...
+          </div>
+          <div v-else-if="auditHistoryRows.length === 0" class="empty-cell">
+            暂无审核流转记录
+          </div>
+          <ol v-else class="audit-history-timeline">
+            <li v-for="evt in auditHistoryRows" :key="evt.id"
+                :class="['audit-history-item', `act-${(evt.action ?? '').toLowerCase()}`]">
+              <div class="audit-history-marker">
+                <CheckCircle v-if="evt.action === 'AUDIT'" :size="14" />
+                <XCircle v-else-if="evt.action === 'UNDO_AUDIT'" :size="14" />
+                <Clock v-else :size="14" />
+              </div>
+              <div class="audit-history-body">
+                <div class="audit-history-title">
+                  <strong>{{
+                    evt.action === 'AUDIT' ? '审核通过'
+                      : evt.action === 'UNDO_AUDIT' ? '反审核'
+                      : evt.action
+                  }}</strong>
+                  <span class="audit-history-actor">{{ evt.actor_name ?? '系统' }}</span>
+                </div>
+                <div class="audit-history-time">{{ evt.occurred_at }}</div>
+                <div class="audit-history-remark" v-if="evt.remark">{{ evt.remark }}</div>
+              </div>
+            </li>
+          </ol>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showAuditHistory = false">关闭</button>
         </div>
       </div>
     </div>
