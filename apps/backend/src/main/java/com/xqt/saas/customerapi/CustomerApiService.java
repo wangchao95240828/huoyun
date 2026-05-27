@@ -29,6 +29,9 @@ import com.xqt.saas.customerapi.CustomerApiResponses.SubmitResult;
 import com.xqt.saas.customerapi.CustomerApiResponses.TrackingDetail;
 import com.xqt.saas.customerapi.CustomerApiResponses.TrackingEvent;
 import com.xqt.saas.customerapi.CustomerApiResponses.TrackingList;
+import com.xqt.saas.rates.RateEngine;
+import com.xqt.saas.rates.RateQuoteRequest;
+import com.xqt.saas.rates.RateQuoteResponse.Quote;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,13 +47,16 @@ public class CustomerApiService {
     private final JsonSupport json;
     private final JdbcTemplate jdbc;
     private final CarrierGatewayRegistry carrierGateways;
+    private final RateEngine rateEngine;
 
     public CustomerApiService(CustomerApiRepository repository, JsonSupport json,
-                              JdbcTemplate jdbc, CarrierGatewayRegistry carrierGateways) {
+                              JdbcTemplate jdbc, CarrierGatewayRegistry carrierGateways,
+                              RateEngine rateEngine) {
         this.repository = repository;
         this.json = json;
         this.jdbc = jdbc;
         this.carrierGateways = carrierGateways;
+        this.rateEngine = rateEngine;
     }
 
     @Transactional(readOnly = true)
@@ -150,11 +156,44 @@ public class CustomerApiService {
             shipmentNo, customerRef, country, declaredValue, currency
         );
 
-        // ─── 复刻 ACC Submit：余额预扣 ───
-        // ACC 行为：从 Customer_Balance 扣预估运费，写 Express_Charge 记录。
-        // 新版用 financial_accounts.balance + charges(status='ESTIMATED', evidence.prepaid=true)。
+        // ─── 调 RateEngine 算 AR/AP 真实费用 ───
+        // 对应 ACC Submit 行为：先调 Freight::getFee 算客户应收 + 成本应付，
+        // 再扣客户余额。引擎拿不到价表/报价失败时退化为简化估算，保持向后兼容。
         String prepayCurrency = currency == null ? "CNY" : currency;
-        BigDecimal prepayAmount = estimatePrepayAmount(weight, declaredValue);
+        Quote quote = null;
+        BigDecimal prepayAmount;
+        try {
+            RateQuoteRequest req = new RateQuoteRequest(
+                principal.customerId(),
+                stringOrNull(accCompat.get("customerGroupId")),
+                channelCode,
+                stringOrNull(accCompat.get("serviceCode")),
+                stringOrNull(accCompat.get("channelAccount")),
+                country,
+                stringOrNull(accCompat.get("postcode")),
+                weight,
+                piece,
+                asBigDecimal(accCompat.get("volume")),
+                declaredValue,
+                prepayCurrency,
+                java.time.LocalDate.now(),
+                asInteger(accCompat.get("batteryType")),
+                asInteger(accCompat.get("specialType")),
+                asInteger(accCompat.get("type"))
+            );
+            quote = rateEngine.quote(principal.tenantId(), req);
+            if (quote != null && !quote.blockers().isEmpty()) {
+                throw ApiException.badRequest("报价被拒：" + String.join("; ", quote.blockers()));
+            }
+            prepayAmount = quote == null ? estimatePrepayAmount(weight, declaredValue) : quote.totalAmount();
+        } catch (ApiException ex) {
+            // 价表配置不全时退化为简化估算，保证 MVP 客户能继续下单
+            if (ex.getMessage() != null && ex.getMessage().startsWith("报价被拒")) {
+                throw ex; // blockers 是硬性拒绝，不能退化
+            }
+            prepayAmount = estimatePrepayAmount(weight, declaredValue);
+        }
+
         String balanceAccountId = null;
         String prepaidChargeId = null;
         if (prepayAmount.signum() > 0) {
@@ -176,9 +215,35 @@ public class CustomerApiService {
                 evidence.put("prepaid", true);
                 evidence.put("balance_account_id", balanceAccountId);
                 evidence.put("prepay_at", java.time.Instant.now().toString());
+                if (quote != null) {
+                    evidence.put("rate_card_id", quote.matched().rateCardId());
+                    evidence.put("rate_card_line_id", quote.matched().rateCardLineId());
+                    evidence.put("customer_rate_matched", quote.matched().customerRateMatched());
+                    evidence.put("group_rate_matched", quote.matched().groupRateMatched());
+                    evidence.put("commission_rule_id", quote.matched().commissionRuleId());
+                    evidence.put("remote_level", quote.remoteLevel());
+                    evidence.put("freight", quote.freight());
+                    evidence.put("fuel", quote.fuelAmount());
+                    evidence.put("surcharge", quote.surchargeAmount());
+                    evidence.put("commission", quote.commission());
+                    evidence.put("chargeable_weight_kg", quote.chargeableWeightKg());
+                }
                 prepaidChargeId = repository.insertPrepaidCharge(
                     principal.tenantId(), shipmentId, chargeItemId,
                     prepayAmount, prepayCurrency, json.toJson(evidence));
+
+                // 引擎产出成本价时同时写一条 AP 行（status=ESTIMATED, side=AP）
+                if (quote != null && quote.costTotal() != null && quote.costTotal().signum() > 0) {
+                    Map<String, Object> apEvidence = new LinkedHashMap<>();
+                    apEvidence.put("cost_estimated", true);
+                    apEvidence.put("rate_card_id", quote.matched().costRateCardId());
+                    apEvidence.put("freight", quote.costFreight());
+                    apEvidence.put("fuel", quote.costFuel());
+                    apEvidence.put("surcharge", quote.costSurcharge());
+                    repository.insertCostCharge(
+                        principal.tenantId(), shipmentId, chargeItemId,
+                        quote.costTotal(), prepayCurrency, json.toJson(apEvidence));
+                }
             }
             // 若客户没建预付账户，跳过预扣（兼容部分 B2B 月结客户）
         }

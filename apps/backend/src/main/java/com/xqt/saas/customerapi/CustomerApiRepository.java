@@ -383,6 +383,22 @@ public class CustomerApiRepository {
             currency, amount, evidenceJson);
     }
 
+    /** 落 AP 成本估算行（status='ESTIMATED' side='AP'）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public String insertCostCharge(String tenantId, String shipmentId, String chargeItemId,
+                                   BigDecimal amount, String currency, String evidenceJson) {
+        return jdbc.queryForObject("""
+            INSERT INTO charges (
+              tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
+              evidence
+            ) VALUES (
+              ?::uuid, ?::uuid, ?::uuid, 'AP', 'ESTIMATED', ?, ?, ?::jsonb
+            )
+            RETURNING id::text
+            """, String.class, tenantId, shipmentId, chargeItemId,
+            currency, amount, evidenceJson);
+    }
+
     /** 找一条默认 FREIGHT 类型的 charge_item，用于落预扣行。 */
     public String findDefaultFreightChargeItemId(String tenantId) {
         try {
