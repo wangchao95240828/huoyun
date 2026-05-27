@@ -96,6 +96,37 @@ public class FieldGate {
         registerMutable("acc_assets", "AUDITED", Set.of("name", "remark", "audit_name", "audited_at"));
         registerMutable("acc_cycles", "AUDITED", Set.of("remark", "audit_name", "audited_at"));
         registerMutable("acc_received_sms", "AUDITED", Set.of("raw_content", "audit_name", "audited_at"));
+
+        // ─── 026 HR 人事 + 提成 ───
+        registerMutable("acc_employees", "AUDITED", Set.of("name", "mobile", "position", "status", "entry_date", "audit_name", "audited_at"));
+        registerMutable("acc_attendances", "AUDITED", Set.of("status", "sign_in_time", "sign_out_time", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_wages", "AUDITED", Set.of("remark", "audit_name", "audited_at"));
+        registerMutable("acc_commission_rules", "AUDITED", Set.of("name", "percent", "amount", "sales", "profit", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_commissions", "AUDITED", Set.of("status", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_socials", "AUDITED", Set.of("remark", "audit_name", "audited_at"));
+        registerMutable("acc_social_persons", "AUDITED", Set.of("person_amount", "company_amount", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_funds", "AUDITED", Set.of("remark", "audit_name", "audited_at"));
+        registerMutable("acc_fund_persons", "AUDITED", Set.of("person_amount", "company_amount", "remark", "audit_name", "audited_at"));
+
+        // ─── 027 物流扩展 ───
+        registerMutable("stowages", "AUDITED", Set.of("status", "remark", "audit_name", "audited_at"));
+        registerMutable("stowage_categories", "AUDITED", Set.of("name", "sort_order", "is_active", "audit_name", "audited_at"));
+        registerMutable("stowage_ports", "AUDITED", Set.of("name", "country", "is_active", "audit_name", "audited_at"));
+        registerMutable("acc_stowage_steps", "AUDITED", Set.of("name", "step_order", "location", "status", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_transits", "AUDITED", Set.of("status", "tariff", "cost", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_dispatches", "AUDITED", Set.of("contact_name", "contact_mobile", "pick_address", "status", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_forecasts", "AUDITED", Set.of("package_count", "weight", "volume", "status", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_track_items", "AUDITED", Set.of("name", "name_en", "sort_order", "is_active", "audit_name", "audited_at"));
+
+        // ─── 028 客户产品 + 系统杂项 ───
+        registerMutable("acc_channel_accounts", "AUDITED", Set.of("account_name", "api_key", "api_secret", "endpoint_url", "is_active", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_product_items", "AUDITED", Set.of("name", "name_en", "hs_code", "category", "unit_price", "is_active", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_sold_tos", "AUDITED", Set.of("contact_name", "contact_mobile", "company_name", "country", "state", "city", "address", "postcode", "is_default", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_potentials", "AUDITED", Set.of("company_name", "contact_name", "contact_mobile", "source", "status", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_notices", "AUDITED", Set.of("title", "content", "notice_type", "audit_name", "audited_at"));
+        registerMutable("acc_logistics_interfaces", "AUDITED", Set.of("name", "api_key", "api_secret", "endpoint_url", "is_enabled", "config_json", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_scheduled_tasks", "AUDITED", Set.of("task_name", "cron_expr", "is_enabled", "config_json", "remark", "audit_name", "audited_at"));
+        registerMutable("acc_message_templates", "AUDITED", Set.of("template_name", "title", "content", "is_active", "remark", "audit_name", "audited_at"));
     }
 
     public void registerMutable(String entity, String auditStatus, Set<String> allowedFields) {
