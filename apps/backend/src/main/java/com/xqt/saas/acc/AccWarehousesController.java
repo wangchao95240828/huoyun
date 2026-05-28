@@ -56,6 +56,7 @@ public class AccWarehousesController {
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id::text AS id, code, name, warehouse_type, country_code,
                        province, city, address, status,
+                       consignee, company, postcode,
                        audit_status, audited_at, audit_name
                 FROM warehouses
                 WHERE (?::text IS NULL OR code ILIKE ? OR name ILIKE ?)
@@ -79,16 +80,18 @@ public class AccWarehousesController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String id = jdbc.queryForObject("""
             INSERT INTO warehouses (
-              tenant_id, code, name, warehouse_type, country_code, province, city, address
+              tenant_id, code, name, warehouse_type, country_code, province, city, address,
+              consignee, company, postcode
             ) VALUES (
-              current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?, ?, ?
+              current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             RETURNING id::text
             """, String.class,
             body.get("code"), body.get("name"),
             body.getOrDefault("type", "STANDARD"),
             body.getOrDefault("country", body.get("country_code")),
-            body.get("province"), body.get("city"), body.get("address"));
+            body.get("province"), body.get("city"), body.get("address"),
+            body.get("consignee"), body.get("company"), body.get("postcode"));
         return Map.of("id", id);
     }
 
@@ -104,14 +107,21 @@ public class AccWarehousesController {
         Map<String, Object> allowed = gate.allowed();
         jdbc.update("""
             UPDATE warehouses SET
-              code = coalesce(?, code),
-              name = coalesce(?, name),
-              province = coalesce(?, province),
-              city = coalesce(?, city)
+              code      = coalesce(?, code),
+              name      = coalesce(?, name),
+              province  = coalesce(?, province),
+              city      = coalesce(?, city),
+              address   = coalesce(?, address),
+              consignee = coalesce(?, consignee),
+              company   = coalesce(?, company),
+              postcode  = coalesce(?, postcode)
             WHERE id = ?::uuid
             """,
             (String) allowed.get("code"), (String) allowed.get("name"),
-            (String) allowed.get("province"), (String) allowed.get("city"), id);
+            (String) allowed.get("province"), (String) allowed.get("city"),
+            (String) allowed.get("address"),
+            (String) allowed.get("consignee"), (String) allowed.get("company"),
+            (String) allowed.get("postcode"), id);
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
 
@@ -132,11 +142,11 @@ public class AccWarehousesController {
         out.put("id", row.get("id"));
         out.put("code", row.get("code"));
         out.put("name", row.get("name"));
-        out.put("consignee", "");      // 新模型未建模
-        out.put("company", "");        // 同上
+        out.put("consignee", row.get("consignee") == null ? "" : row.get("consignee"));
+        out.put("company", row.get("company") == null ? "" : row.get("company"));
         out.put("country", row.get("country_code"));
         out.put("province", row.get("province"));
-        out.put("postcode", "");
+        out.put("postcode", row.get("postcode") == null ? "" : row.get("postcode"));
         out.put("type", row.get("warehouse_type"));
         out.put("city", row.get("city"));
         out.put("address", row.get("address"));
