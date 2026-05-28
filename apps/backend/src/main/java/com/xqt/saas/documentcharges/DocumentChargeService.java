@@ -126,6 +126,10 @@ public class DocumentChargeService {
         // 联动 invoice + lines + charges
         Map<String, Object> updated = repository.applyPaymentToInvoice(
             principal.tenantId(), body.invoiceId(), body.amount());
+        // 资金流水：收款让收款银行账户余额增加（CREDIT），记 before/after 可追溯
+        recordBankLedger(principal, body.bankAccountId(), "CUSTOMER", customerId,
+            "RECEIPT", "invoice", (String) invoice.get("invoice_no"),
+            currency, body.amount(), "客户收款核销");
         return new SettleResult(
             body.invoiceId(),
             (String) updated.get("invoice_no"),
@@ -215,6 +219,10 @@ public class DocumentChargeService {
         repository.insertFxSnapshot(principal.tenantId(), currency, "CNY", BigDecimal.ONE, "PARTNER_SETTLE");
         Map<String, Object> updated = repository.applyPaymentToPartnerInvoice(
             principal.tenantId(), body.invoiceId(), body.amount());
+        // 资金流水：付款让付款银行账户余额减少（DEBIT）
+        recordBankLedger(principal, body.bankAccountId(), "SUPPLIER", partnerId,
+            "PAYMENT", "partner_invoice", (String) invoice.get("invoice_no"),
+            currency, body.amount(), "供应商付款核销");
         return new SettleResult(
             body.invoiceId(),
             (String) updated.get("invoice_no"),
@@ -223,6 +231,31 @@ public class DocumentChargeService {
             (String) updated.get("writeoff_status"),
             paymentId
         );
+    }
+
+    /**
+     * 资金账户流水通用写入：在指定银行账户上记一笔流水并同步余额。
+     * RECEIPT（收款）→ 账户余额增加；PAYMENT（付款）→ 减少。
+     * amount 可能为负（反核销），方向随符号翻转。bankAccountId 为空则跳过（核销主流程不依赖此）。
+     */
+    private void recordBankLedger(AuthPrincipal principal, String bankAccountId,
+                                  String ownerType, String ownerId, String bizType,
+                                  String sourceType, String sourceRef,
+                                  String currency, BigDecimal amount, String remark) {
+        if (bankAccountId == null || bankAccountId.isBlank() || amount == null || amount.signum() == 0) {
+            return;
+        }
+        BigDecimal before = repository.findAccountBalance(bankAccountId);
+        if (before == null) return; // 账户不存在则不记（避免脏流水）
+        // RECEIPT 进账（+amount），PAYMENT 出账（-amount）
+        BigDecimal delta = "RECEIPT".equals(bizType) ? amount : amount.negate();
+        repository.adjustAccountBalance(bankAccountId, delta);
+        BigDecimal after = before.add(delta);
+        String direction = delta.signum() >= 0 ? "CREDIT" : "DEBIT";
+        repository.recordBalanceLedger(
+            principal.tenantId(), bankAccountId, ownerType, ownerId, bizType,
+            sourceType, sourceRef, currency, direction,
+            delta.abs(), before, after, principal.username(), remark);
     }
 
     private Map<String, Object> sumChargesByOrder(String tenantId, String orderId) {

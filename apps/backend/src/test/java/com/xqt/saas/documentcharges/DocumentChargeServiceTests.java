@@ -342,4 +342,76 @@ class DocumentChargeServiceTests {
             .isInstanceOf(ApiException.class)
             .hasMessageContaining("partner invoice not found");
     }
+
+    // ─── 17. 客户收款指定银行账户 → 写 RECEIPT 流水 + 账户余额增加 ───
+    @Test
+    void settleCustomerInvoiceWritesReceiptLedger() {
+        when(repo.findInvoice(TENANT, "inv-1")).thenReturn(Map.of(
+            "id", "inv-1", "invoice_no", "INV-1", "currency", "CNY",
+            "customer_id", "cust-1",
+            "total_amount", new BigDecimal("100"),
+            "paid_amount", BigDecimal.ZERO, "writeoff_status", "UNPAID"));
+        when(repo.insertPayment(any(), any(), any(), any(), any())).thenReturn("pay-1");
+        when(repo.applyPaymentToInvoice(TENANT, "inv-1", new BigDecimal("100")))
+            .thenReturn(Map.of("invoice_no", "INV-1", "paid_amount", new BigDecimal("100"),
+                "unpaid_amount", BigDecimal.ZERO, "writeoff_status", "PAID"));
+        when(repo.findAccountBalance("bank-1")).thenReturn(new BigDecimal("1000"));
+
+        service.settleCustomerInvoice(principal(),
+            new SettleCustomerInvoice("inv-1", new BigDecimal("100"), "CNY", null, "bank-1", "PAY-1", null));
+
+        // 收款进账：银行账户 +100，记 RECEIPT/CREDIT before=1000 after=1100
+        verify(repo, times(1)).adjustAccountBalance("bank-1", new BigDecimal("100"));
+        verify(repo, times(1)).recordBalanceLedger(
+            eq(TENANT), eq("bank-1"), eq("CUSTOMER"), eq("cust-1"),
+            eq("RECEIPT"), eq("invoice"), eq("INV-1"), eq("CNY"), eq("CREDIT"),
+            eq(new BigDecimal("100")), eq(new BigDecimal("1000")), eq(new BigDecimal("1100")),
+            any(), any());
+    }
+
+    // ─── 18. 客户收款未指定银行账户 → 跳过流水（核销主流程仍成功） ───
+    @Test
+    void settleCustomerInvoiceSkipsLedgerWhenNoBank() {
+        when(repo.findInvoice(TENANT, "inv-1")).thenReturn(Map.of(
+            "id", "inv-1", "invoice_no", "INV-1", "currency", "CNY",
+            "customer_id", "cust-1",
+            "total_amount", new BigDecimal("100"),
+            "paid_amount", BigDecimal.ZERO, "writeoff_status", "UNPAID"));
+        when(repo.insertPayment(any(), any(), any(), any(), any())).thenReturn("pay-1");
+        when(repo.applyPaymentToInvoice(TENANT, "inv-1", new BigDecimal("100")))
+            .thenReturn(Map.of("invoice_no", "INV-1", "paid_amount", new BigDecimal("100"),
+                "unpaid_amount", BigDecimal.ZERO, "writeoff_status", "PAID"));
+
+        service.settleCustomerInvoice(principal(),
+            new SettleCustomerInvoice("inv-1", new BigDecimal("100"), "CNY", null, null, "PAY-1", null));
+
+        verify(repo, org.mockito.Mockito.never()).recordBalanceLedger(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    // ─── 19. 供应商付款指定银行账户 → 写 PAYMENT 流水 + 账户余额减少 ───
+    @Test
+    void settlePartnerInvoiceWritesPaymentLedger() {
+        when(repo.findPartnerInvoice(TENANT, "pinv-1")).thenReturn(Map.of(
+            "id", "pinv-1", "invoice_no", "PINV-1", "currency", "CNY",
+            "partner_id", "partner-1",
+            "total_amount", new BigDecimal("94.80"),
+            "paid_amount", BigDecimal.ZERO, "writeoff_status", "UNPAID"));
+        when(repo.insertPartnerPayment(any(), any(), any(), any(), any(), any())).thenReturn("pp-1");
+        when(repo.applyPaymentToPartnerInvoice(TENANT, "pinv-1", new BigDecimal("94.80")))
+            .thenReturn(Map.of("invoice_no", "PINV-1", "paid_amount", new BigDecimal("94.80"),
+                "unpaid_amount", BigDecimal.ZERO, "writeoff_status", "PAID"));
+        when(repo.findAccountBalance("bank-2")).thenReturn(new BigDecimal("5000"));
+
+        service.settlePartnerInvoice(principal(),
+            new SettlePartnerInvoice("pinv-1", new BigDecimal("94.80"), "CNY", "bank-2", "PAY-AP", null));
+
+        // 付款出账：银行账户 -94.80，记 PAYMENT/DEBIT before=5000 after=4905.20
+        verify(repo, times(1)).adjustAccountBalance("bank-2", new BigDecimal("-94.80"));
+        verify(repo, times(1)).recordBalanceLedger(
+            eq(TENANT), eq("bank-2"), eq("SUPPLIER"), eq("partner-1"),
+            eq("PAYMENT"), eq("partner_invoice"), eq("PINV-1"), eq("CNY"), eq("DEBIT"),
+            eq(new BigDecimal("94.80")), eq(new BigDecimal("5000")), eq(new BigDecimal("4905.20")),
+            any(), any());
+    }
 }

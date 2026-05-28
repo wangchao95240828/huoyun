@@ -363,6 +363,51 @@ public class DocumentChargeRepository {
         return inv;
     }
 
+    // ───────────────────── 资金账户流水（balance_ledger） ─────────────────────
+
+    /** 读资金账户当前余额（写流水时取 before/after 用）。 */
+    public BigDecimal findAccountBalance(String accountId) {
+        try {
+            return jdbc.queryForObject(
+                "SELECT balance FROM financial_accounts WHERE id = ?::uuid", BigDecimal.class, accountId);
+        } catch (DataAccessException ex) {
+            return null;
+        }
+    }
+
+    /** 调整资金账户余额（delta 正负皆可），返回是否命中。 */
+    @Transactional(rollbackFor = Exception.class)
+    public boolean adjustAccountBalance(String accountId, BigDecimal delta) {
+        return jdbc.update(
+            "UPDATE financial_accounts SET balance = balance + ?, last_update = now() WHERE id = ?::uuid",
+            delta, accountId) > 0;
+    }
+
+    /**
+     * 写一条资金账户流水（balance_ledger）。对应 ACC Customer_Balance_History。
+     * amount 传正数，方向由 direction（CREDIT 增 / DEBIT 减）表达。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void recordBalanceLedger(String tenantId, String accountId, String ownerType,
+                                    String ownerId, String bizType, String sourceType,
+                                    String sourceRef, String currency, String direction,
+                                    BigDecimal amount, BigDecimal balanceBefore,
+                                    BigDecimal balanceAfter, String operator, String remark) {
+        jdbc.update("""
+            INSERT INTO balance_ledger (
+              tenant_id, account_id, owner_type, owner_id, biz_type,
+              source_type, source_ref, currency, direction, amount,
+              balance_before, balance_after, operator, remark
+            ) VALUES (
+              ?::uuid, ?::uuid, ?, ?::uuid, ?::balance_ledger_biz_type,
+              ?, ?, ?, ?::balance_ledger_direction, ?,
+              ?, ?, ?, ?
+            )
+            """, tenantId, accountId, ownerType, ownerId, bizType,
+            sourceType, sourceRef, currency, direction, amount,
+            balanceBefore, balanceAfter, operator, remark);
+    }
+
     /** 记一笔汇率快照（金额动作发生时调用，便于事后对账重现）。 */
     @Transactional(rollbackFor = Exception.class)
     public String insertFxSnapshot(String tenantId, String fromCurrency, String toCurrency,
