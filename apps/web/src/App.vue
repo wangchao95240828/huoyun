@@ -2337,44 +2337,42 @@ async function doDelete() {
 
 // ═══════════════ Business Operations ═══════════════
 
-const auditableTabs = new Set([
-  'orders', 'collects', 'shipments', 'packages', 'stowages', 'charges', 'costs',
-  'bills', 'payments', 'receiveds', 'commissions', 'transfers',
-  'expenses', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
-  'transits', 'customer-fines', 'supplier-fines',
-  'customer-adjusts', 'supplier-adjusts',
-  'customer-rebates', 'supplier-rebates',
-  'customer-refunds', 'supplier-refunds',
-  'assets', 'funds', 'socials',
-  // 2026-05-28 阶段 1：对齐后端 AuditService.AUDITABLE_ENTITIES（HR + 配置类）
-  'employees', 'attendances', 'social-persons', 'fund-persons',
-  'channel-accounts', 'logistics-interfaces', 'templates',
-]);
-
+// bizAuditTabs 控制 ACC 列表行内的 [审核/反审/历史] 按钮显示。
+// 与后端 AuditService.AUDITABLE_ENTITIES 对齐，限定为"业务单据流转"类。
+// 主数据/字典类（customers/channels/currencies/bank-names/postcodes 等）后端
+// 也可审核但前端不显示按钮——审核策略由运营在后端 API 调用而非每行按钮决定。
 const bizAuditTabs = new Set([
-  'orders', 'shipments', 'packages', 'stowages', 'charges', 'costs', 'bills',
-  'receiveds', 'payments', 'commissions', 'transits',
+  // 订单 / 出货 / 配载
+  'orders', 'shipments', 'packages', 'stowages', 'transits',
+  // 财务核心
+  'charges', 'costs', 'bills', 'receiveds', 'payments', 'commissions',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
+  // 调账 / 罚款 / 退款 / 返利
   'customer-fines', 'supplier-fines', 'customer-adjusts', 'supplier-adjusts',
   'customer-rebates', 'supplier-rebates',
   'customer-refunds', 'supplier-refunds',
+  // 资金管理
   'assets', 'funds', 'socials',
-  // 2026-05-28 阶段 1：HR + 配置类
+  // HR
   'employees', 'attendances', 'social-persons', 'fund-persons',
+  // 配置类
   'channel-accounts', 'logistics-interfaces', 'templates',
+  // 异常流（2026-05-28 任务8 补：审核通过后触发财务副作用，需 list 行内按钮）
+  'collects', 'asks', 'detains', 'dispatches', 'forecasts',
 ]);
 
-// 批量审核：所有业务可审核 tab 都启用（ACC 原行为也是凡审核处都能批量）
+// 批量审核：与 bizAuditTabs 同口径，ACC 原行为也是凡审核处都能批量
 const batchAuditTabs = new Set([
-  'orders', 'shipments', 'packages', 'stowages', 'charges', 'costs', 'bills',
-  'receiveds', 'payments', 'commissions', 'transits',
+  'orders', 'shipments', 'packages', 'stowages', 'transits',
+  'charges', 'costs', 'bills', 'receiveds', 'payments', 'commissions',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
   'customer-fines', 'supplier-fines', 'customer-adjusts', 'supplier-adjusts',
   'customer-rebates', 'supplier-rebates', 'customer-refunds', 'supplier-refunds',
   'assets', 'funds', 'socials',
-  // 2026-05-28 阶段 1：HR + 配置类
   'employees', 'attendances', 'social-persons', 'fund-persons',
   'channel-accounts', 'logistics-interfaces', 'templates',
+  // 2026-05-28 任务8 补
+  'collects', 'asks', 'detains', 'dispatches', 'forecasts',
 ]);
 const importTabs = new Set(['orders', 'charges', 'costs']);
 const exportTabs = new Set([
