@@ -178,7 +178,17 @@ public class DocumentChargeRepository {
         }
     }
 
-    /** 利润聚合：按 by 维度（branch/customer/channel/month）+ 日期段。 */
+    /**
+     * 利润聚合：按 by 维度（customer/channel/branch/month/day）+ 日期段。
+     *
+     * 与 AccProfitsController.summary 同口径（消除双轨）：
+     *   profit = AR收入 - AP成本 + adjustments(finance_txns+fines) - reparation
+     *   adjustments 方向：side='CUSTOMER' → +amount；side='SUPPLIER' → -amount
+     *
+     * 维度可分摊性：
+     *   customer / month / day：finance_txns/fines 可按 customer_id 或 the_date 分摊
+     *   channel / branch：无可分摊键，adjustments=0
+     */
     public List<Map<String, Object>> aggregateProfit(String tenantId, String groupBy,
                                                      LocalDate dateFrom, LocalDate dateTo) {
         String dim = switch (groupBy == null ? "" : groupBy) {
@@ -189,12 +199,16 @@ public class DocumentChargeRepository {
             default -> "to_char(ch.created_at, 'YYYY-MM-DD')";
         };
         try {
-            return jdbc.queryForList("""
+            // 1) 主体：两层聚合（per-shipment → per-dim），含 reparation 子查询
+            String innerSql = ("""
                 SELECT %s AS dim,
+                       sh.id AS shipment_id,
                        sum(CASE WHEN ch.side = 'AR' THEN ch.amount ELSE 0 END) AS revenue,
                        sum(CASE WHEN ch.side = 'AP' THEN ch.amount ELSE 0 END) AS cost,
-                       sum(CASE WHEN ch.side = 'AR' THEN ch.amount ELSE -ch.amount END) AS profit,
-                       count(distinct ch.shipment_id) AS shipment_count
+                       coalesce((
+                         SELECT sum(r.apply_amount) FROM acc_reparations r
+                         WHERE r.shipment_id = sh.id AND r.audit_status = 'AUDITED'
+                       ), 0) AS reparation
                 FROM charges ch
                 LEFT JOIN shipments sh ON sh.id = ch.shipment_id
                 WHERE ch.tenant_id = ?::uuid
@@ -202,11 +216,95 @@ public class DocumentChargeRepository {
                   AND ch.settlement_status <> 'VOID'
                   AND ch.created_at >= ?
                   AND ch.created_at < ? + interval '1 day'
-                GROUP BY %s
-                ORDER BY profit DESC
-                """.formatted(dim, dim), tenantId, dateFrom, dateTo);
+                GROUP BY %s, sh.id
+                """).formatted(dim, dim);
+            List<Map<String, Object>> rows = jdbc.queryForList(("""
+                SELECT
+                  dim,
+                  count(*) AS shipment_count,
+                  sum(revenue) AS revenue,
+                  sum(cost) AS cost,
+                  sum(reparation) AS reparation
+                FROM (%s) sub
+                GROUP BY dim
+                """).formatted(innerSql), tenantId, dateFrom, dateTo);
+
+            // 2) 调整项（仅 customer / month / day 维度可分摊）
+            Map<String, BigDecimal> adj = aggregateAdjustments(tenantId, groupBy, dateFrom, dateTo);
+            boolean adjSupported = !adj.isEmpty()
+                || "customer".equals(groupBy) || "month".equals(groupBy) || "day".equals(groupBy)
+                || (groupBy != null && groupBy.isEmpty())  // default = day
+                || groupBy == null;
+
+            // 3) 合并到每行，重算 profit = revenue - cost - reparation + adjustments
+            List<Map<String, Object>> out = new java.util.ArrayList<>();
+            for (Map<String, Object> r : rows) {
+                Map<String, Object> m = new java.util.LinkedHashMap<>(r);
+                BigDecimal revenue = (BigDecimal) m.getOrDefault("revenue", BigDecimal.ZERO);
+                BigDecimal cost = (BigDecimal) m.getOrDefault("cost", BigDecimal.ZERO);
+                BigDecimal reparation = (BigDecimal) m.getOrDefault("reparation", BigDecimal.ZERO);
+                if (reparation == null) reparation = BigDecimal.ZERO;
+                BigDecimal a = adj.getOrDefault((String) m.get("dim"), BigDecimal.ZERO);
+                m.put("adjustments", a);
+                m.put("adjustments_supported", adjSupported);
+                m.put("profit", revenue.subtract(cost).add(a).subtract(reparation));
+                out.add(m);
+            }
+            out.sort((x, y) -> ((BigDecimal) y.get("profit"))
+                .compareTo((BigDecimal) x.get("profit")));
+            return out;
         } catch (DataAccessException ex) {
             return List.of();
+        }
+    }
+
+    /** 仅 customer / month / day 维度有可分摊键；其它返回空 map。 */
+    private Map<String, BigDecimal> aggregateAdjustments(String tenantId, String groupBy,
+                                                          LocalDate dateFrom, LocalDate dateTo) {
+        Map<String, BigDecimal> bucket = new java.util.LinkedHashMap<>();
+        String dimExprTemplate;
+        switch (groupBy == null ? "" : groupBy) {
+            case "customer" -> dimExprTemplate = "%s.customer_id::text";
+            case "month" -> dimExprTemplate = "to_char(%s.the_date, 'YYYY-MM')";
+            case "channel", "branch" -> { return bucket; }
+            default -> dimExprTemplate = "to_char(%s.the_date, 'YYYY-MM-DD')";
+        }
+        // finance_txns
+        String tDim = dimExprTemplate.formatted("t");
+        addBucket(bucket,
+            "SELECT " + tDim + " AS dim,"
+          + " sum(CASE WHEN t.side='CUSTOMER' THEN t.amount ELSE -t.amount END) AS adj"
+          + " FROM acc_finance_txns t"
+          + " WHERE t.tenant_id = ?::uuid AND t.audit_status = 'AUDITED'"
+          + "   AND t.the_date IS NOT NULL"
+          + "   AND t.the_date >= ? AND t.the_date <= ?"
+          + " GROUP BY " + tDim,
+            tenantId, dateFrom, dateTo);
+        // fines
+        String fDim = dimExprTemplate.formatted("f");
+        addBucket(bucket,
+            "SELECT " + fDim + " AS dim,"
+          + " sum(CASE WHEN f.side='CUSTOMER' THEN f.amount ELSE -f.amount END) AS adj"
+          + " FROM acc_fines f"
+          + " WHERE f.tenant_id = ?::uuid AND f.audit_status = 'AUDITED'"
+          + "   AND f.the_date IS NOT NULL"
+          + "   AND f.the_date >= ? AND f.the_date <= ?"
+          + " GROUP BY " + fDim,
+            tenantId, dateFrom, dateTo);
+        return bucket;
+    }
+
+    private void addBucket(Map<String, BigDecimal> bucket, String sql,
+                            String tenantId, LocalDate dateFrom, LocalDate dateTo) {
+        try {
+            for (Map<String, Object> row : jdbc.queryForList(sql, tenantId, dateFrom, dateTo)) {
+                String dim = (String) row.get("dim");
+                if (dim == null) continue;
+                BigDecimal v = (BigDecimal) row.get("adj");
+                if (v == null) continue;
+                bucket.merge(dim, v, BigDecimal::add);
+            }
+        } catch (DataAccessException ignored) {
         }
     }
 

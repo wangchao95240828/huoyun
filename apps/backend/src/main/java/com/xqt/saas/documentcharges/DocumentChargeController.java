@@ -80,8 +80,17 @@ public class DocumentChargeController {
         LocalDate from = dateFrom == null ? LocalDate.now().withDayOfMonth(1) : LocalDate.parse(dateFrom);
         LocalDate to = dateTo == null ? LocalDate.now() : LocalDate.parse(dateTo);
         List<Map<String, Object>> rows = service.profitSummary(principal(), groupBy, from, to);
+        // 取第一行的 adjustments_supported 暴露到顶层（每行同维度同值）；
+        // 与 AccProfitsController.summary 字段名对齐：adjustmentsSupported
+        boolean adjSupported = !rows.isEmpty()
+            && Boolean.TRUE.equals(rows.get(0).get("adjustments_supported"));
+        // 当无数据时，仍按维度判定支持性，便于前端 UI 提示
+        if (rows.isEmpty()) {
+            adjSupported = "customer".equals(groupBy) || "month".equals(groupBy)
+                || "day".equals(groupBy) || groupBy == null;
+        }
         return Map.of("groupBy", groupBy, "dateFrom", from.toString(), "dateTo", to.toString(),
-            "data", rows);
+            "adjustmentsSupported", adjSupported, "data", rows);
     }
 
     private AuthPrincipal principal() {
