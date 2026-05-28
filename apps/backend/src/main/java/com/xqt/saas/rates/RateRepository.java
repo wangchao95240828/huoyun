@@ -292,6 +292,40 @@ public class RateRepository {
     }
 
     /**
+     * 任务 S3 A1：查命中品名关键词的附加费规则。
+     * declarationNames 是订单申报明细的品名集合。返回按 fee_code 分组、每组 priority 最高的一条。
+     */
+    public List<Map<String, Object>> findKeywordSurcharges(String tenantId,
+                                                            List<String> declarationNames,
+                                                            LocalDate chargeDate) {
+        if (declarationNames == null || declarationNames.isEmpty()) return List.of();
+        // 用 DISTINCT ON 按 fee_code 取 priority 最高的一条
+        try {
+            return jdbc.queryForList("""
+                SELECT DISTINCT ON (fee_code)
+                  id, keyword, match_type, fee_code, charge_unit,
+                  amount, rate, currency, priority
+                FROM product_keyword_rules
+                WHERE tenant_id = ?::uuid
+                  AND is_active = true
+                  AND (effective_from IS NULL OR effective_from <= ?)
+                  AND (effective_to IS NULL OR effective_to >= ?)
+                  AND EXISTS (
+                    SELECT 1 FROM unnest(?::text[]) AS dn(name)
+                    WHERE
+                      (match_type = 'EXACT' AND lower(dn.name) = lower(keyword))
+                      OR (match_type = 'CONTAINS' AND lower(dn.name) LIKE '%' || lower(keyword) || '%')
+                      OR (match_type = 'PREFIX' AND lower(dn.name) LIKE lower(keyword) || '%')
+                  )
+                ORDER BY fee_code, priority DESC
+                """, tenantId, chargeDate, chargeDate,
+                declarationNames.toArray(new String[0]));
+        } catch (org.springframework.dao.DataAccessException ex) {
+            return List.of();
+        }
+    }
+
+    /**
      * 佣金规则：客户 > 客户组 > 服务 > 渠道。
      * 命中后返回 rule_type / rate / fixed_amount。
      */

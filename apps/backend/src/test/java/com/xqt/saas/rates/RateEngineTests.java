@@ -400,4 +400,118 @@ class RateEngineTests {
         ))).isInstanceOf(ApiException.class)
            .hasMessageContaining("channelCode is required");
     }
+
+    // ═══════════════ 任务 S3 A1：品名关键词附加费 ═══════════════
+    private static HashMap<String, Object> keywordRow(String feeCode, String unit, BigDecimal amount,
+                                                       BigDecimal rate, int priority) {
+        HashMap<String, Object> m = new HashMap<>();
+        m.put("fee_code", feeCode);
+        m.put("charge_unit", unit);
+        m.put("amount", amount);
+        m.put("rate", rate);
+        m.put("priority", priority);
+        return m;
+    }
+
+    @Test
+    void caseA1KeywordSurchargeFixedAmount() {
+        setupMocks();
+        when(repo.findKeywordSurcharges(eq(TENANT), any(), any())).thenReturn(java.util.List.of(
+            keywordRow("BATTERY_SURCHARGE", "FIXED", new BigDecimal("100.00"), null, 10)
+        ));
+
+        java.util.List<RateQuoteResponse.BreakdownLine> lines = engine.applyKeywordSurcharges(
+            TENANT, java.util.List.of("Lithium Battery"), new BigDecimal("200.00"), DATE);
+
+        assertThat(lines).hasSize(1);
+        assertThat(lines.get(0).code()).isEqualTo("BATTERY_SURCHARGE");
+        assertThat(lines.get(0).amount()).isEqualByComparingTo("100.00");
+    }
+
+    @Test
+    void caseA1KeywordSurchargePercentOfFreight() {
+        setupMocks();
+        when(repo.findKeywordSurcharges(eq(TENANT), any(), any())).thenReturn(java.util.List.of(
+            keywordRow("DANGEROUS_GOODS", "PCT", null, new BigDecimal("0.0500"), 5)
+        ));
+
+        java.util.List<RateQuoteResponse.BreakdownLine> lines = engine.applyKeywordSurcharges(
+            TENANT, java.util.List.of("Magnetic Toy"), new BigDecimal("200.00"), DATE);
+
+        assertThat(lines).hasSize(1);
+        assertThat(lines.get(0).code()).isEqualTo("DANGEROUS_GOODS");
+        assertThat(lines.get(0).amount()).isEqualByComparingTo("10.00"); // 200 * 0.05
+    }
+
+    @Test
+    void caseA1KeywordSurchargeEmptyDeclarations() {
+        setupMocks();
+        java.util.List<RateQuoteResponse.BreakdownLine> lines = engine.applyKeywordSurcharges(
+            TENANT, java.util.List.of(), new BigDecimal("200.00"), DATE);
+        assertThat(lines).isEmpty();
+        // 空品名时不查 DB
+        Mockito.verify(repo, Mockito.never()).findKeywordSurcharges(any(), any(), any());
+    }
+
+    // ═══════════════ 任务 S3 A4：按箱最低计费 ═══════════════
+    @Test
+    void caseA4MinWeightPerBoxFloorsChargeable() {
+        setupMocks();
+        lenient().when(repo.findActiveRateCard(eq(TENANT), eq(CHANNEL_ID), eq("AR"), eq("CNY"), any()))
+            .thenReturn(Map.of("id", "rc-a4", "status", "ACTIVE"));
+        lenient().when(repo.findRemoteLevel(eq(TENANT), eq(CHANNEL_ID), eq("US"), any()))
+            .thenReturn("NONE");
+        Map<String, Object> tier = baseTier("line-a4", new BigDecimal("10.0"));
+        tier.put("min_weight_per_box", new BigDecimal("3.000")); // 单箱 3kg 底
+        when(repo.findTier(eq(TENANT), eq("rc-a4"), eq("ZONE_A"), any(BigDecimal.class), any()))
+            .thenReturn(tier);
+
+        // 2 箱 × 实重 1kg = 2kg。单箱最低 3kg → 总 6kg。 6 × 10 = 60
+        Quote q = engine.quote(TENANT, new RateQuoteRequest(
+            null, null, CHANNEL_CODE, null, null, "US", null,
+            new BigDecimal("2"), 2, null, null, "CNY", DATE, 0, 0, 0));
+
+        assertThat(q.freight()).isEqualByComparingTo("60.00");
+    }
+
+    @Test
+    void caseA4MinAmountPerBoxFloorsFreight() {
+        setupMocks();
+        lenient().when(repo.findActiveRateCard(eq(TENANT), eq(CHANNEL_ID), eq("AR"), eq("CNY"), any()))
+            .thenReturn(Map.of("id", "rc-a4b", "status", "ACTIVE"));
+        lenient().when(repo.findRemoteLevel(eq(TENANT), eq(CHANNEL_ID), eq("US"), any()))
+            .thenReturn("NONE");
+        Map<String, Object> tier = baseTier("line-a4b", new BigDecimal("5.0"));
+        tier.put("min_amount_per_box", new BigDecimal("30.00")); // 单箱 30 元底
+        when(repo.findTier(eq(TENANT), eq("rc-a4b"), eq("ZONE_A"), any(BigDecimal.class), any()))
+            .thenReturn(tier);
+
+        // 1 箱 × 2kg × 5元/kg = 10 元，被单箱最低 30 元拉到 30
+        Quote q = engine.quote(TENANT, new RateQuoteRequest(
+            null, null, CHANNEL_CODE, null, null, "US", null,
+            new BigDecimal("2"), 1, null, null, "CNY", DATE, 0, 0, 0));
+
+        assertThat(q.freight()).isEqualByComparingTo("30.00");
+    }
+
+    // ═══════════════ 任务 S3 A6：PER_CBM 按体积计费 ═══════════════
+    @Test
+    void caseA6PerCbmCalculation() {
+        setupMocks();
+        lenient().when(repo.findActiveRateCard(eq(TENANT), eq(CHANNEL_ID), eq("AR"), eq("CNY"), any()))
+            .thenReturn(Map.of("id", "rc-cbm", "status", "ACTIVE"));
+        lenient().when(repo.findRemoteLevel(eq(TENANT), eq(CHANNEL_ID), eq("US"), any()))
+            .thenReturn("NONE");
+        Map<String, Object> tier = baseTier("line-cbm", new BigDecimal("3000.0"));
+        tier.put("calculation_type", "PER_CBM");
+        when(repo.findTier(eq(TENANT), eq("rc-cbm"), eq("ZONE_A"), any(BigDecimal.class), any()))
+            .thenReturn(tier);
+
+        // 0.5 cbm × 3000元/cbm = 1500
+        Quote q = engine.quote(TENANT, new RateQuoteRequest(
+            null, null, CHANNEL_CODE, null, null, "US", null,
+            new BigDecimal("100"), 1, new BigDecimal("0.5"), null, "CNY", DATE, 0, 0, 0));
+
+        assertThat(q.freight()).isEqualByComparingTo("1500.00");
+    }
 }

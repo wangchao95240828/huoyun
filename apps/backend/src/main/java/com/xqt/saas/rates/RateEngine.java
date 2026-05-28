@@ -135,7 +135,7 @@ public class RateEngine {
         String postalPriorityLabel = formatPostalPriority(tier);
 
         // ─── 多段计费 ───
-        BigDecimal freight = calculateFreight(tier, chargeable, request.pieces());
+        BigDecimal freight = calculateFreight(tier, chargeable, request.pieces(), request.volumeCbm());
 
         // ─── 燃油 ───
         String yearMonth = request.chargeDate().format(YEAR_MONTH);
@@ -179,7 +179,7 @@ public class RateEngine {
             Map<String, Object> apTier = repository.findTier(
                 tenantId, costRateCardId, DEFAULT_ZONE, chargeable, request.postalCode());
             if (apTier != null) {
-                costFreight = calculateFreight(apTier, chargeable, request.pieces());
+                costFreight = calculateFreight(apTier, chargeable, request.pieces(), request.volumeCbm());
                 costFuel = costFreight.multiply(fuelRate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
                 costSurcharge = remoteRule == null ? BigDecimal.ZERO
                     : applyRemoteRule(remoteRule, costFreight);
@@ -240,9 +240,22 @@ public class RateEngine {
 
     // ───────────────────── helpers ─────────────────────
 
-    private BigDecimal calculateFreight(Map<String, Object> tier, BigDecimal chargeable, int pieces) {
+    private BigDecimal calculateFreight(Map<String, Object> tier, BigDecimal chargeable,
+                                         int pieces, BigDecimal volumeCbm) {
         String type = (String) tier.getOrDefault("calculation_type", "PER_KG");
         BigDecimal minAmount = toBigDecimal(tier.get("min_amount"));
+        // 任务 S3 A4：按箱最低计费重 / 最低计费金额
+        BigDecimal minWeightPerBox = toBigDecimal(tier.get("min_weight_per_box"));
+        BigDecimal minAmountPerBox = toBigDecimal(tier.get("min_amount_per_box"));
+
+        // A4 第 1 步：单箱最低重量上浮 chargeable
+        if (minWeightPerBox != null && minWeightPerBox.signum() > 0 && pieces > 0) {
+            BigDecimal floorWeight = minWeightPerBox.multiply(new BigDecimal(pieces));
+            if (chargeable.compareTo(floorWeight) < 0) {
+                chargeable = floorWeight;
+            }
+        }
+
         BigDecimal freight;
         switch (type) {
             case "FIRST_CONTINUED" -> {
@@ -270,6 +283,15 @@ public class RateEngine {
                 BigDecimal unit = toBigDecimal(tier.get("unit_price"));
                 freight = unit.multiply(new BigDecimal(pieces));
             }
+            case "PER_CBM" -> {
+                // 任务 S3 A6：按立方米计费
+                BigDecimal unit = toBigDecimal(tier.get("unit_price"));
+                BigDecimal vol = volumeCbm == null ? BigDecimal.ZERO : volumeCbm;
+                if (vol.signum() <= 0) {
+                    throw ApiException.badRequest("PER_CBM tier requires volumeCbm > 0");
+                }
+                freight = unit.multiply(vol);
+            }
             default -> {
                 BigDecimal unit = toBigDecimal(tier.get("unit_price"));
                 freight = unit.multiply(chargeable);
@@ -279,7 +301,48 @@ public class RateEngine {
         if (minAmount != null && minAmount.signum() > 0 && freight.compareTo(minAmount) < 0) {
             freight = minAmount.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
         }
+        // A4 第 2 步：单箱最低金额上浮 freight
+        if (minAmountPerBox != null && minAmountPerBox.signum() > 0 && pieces > 0) {
+            BigDecimal floorAmount = minAmountPerBox.multiply(new BigDecimal(pieces))
+                .setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+            if (freight.compareTo(floorAmount) < 0) {
+                freight = floorAmount;
+            }
+        }
         return freight;
+    }
+
+    /**
+     * 任务 S3 A1：根据申报品名扫描 product_keyword_rules 命中的附加费。
+     * 独立调用方法，避免破坏 quote() 的现有契约。Service 层可在 Submit 时调用。
+     *
+     * @param freight 当前 freight 金额，用于 PCT 类型规则计算
+     * @return 附加费 BreakdownLine 列表（code = fee_code，amount 已按规则算出）
+     */
+    public List<RateQuoteResponse.BreakdownLine> applyKeywordSurcharges(String tenantId,
+                                                                          List<String> declarationNames,
+                                                                          BigDecimal freight,
+                                                                          java.time.LocalDate chargeDate) {
+        if (declarationNames == null || declarationNames.isEmpty()) return List.of();
+        List<Map<String, Object>> rules = repository.findKeywordSurcharges(
+            tenantId, declarationNames, chargeDate == null ? java.time.LocalDate.now() : chargeDate);
+        List<RateQuoteResponse.BreakdownLine> out = new ArrayList<>();
+        for (Map<String, Object> r : rules) {
+            String feeCode = (String) r.get("fee_code");
+            String unit = (String) r.get("charge_unit");
+            BigDecimal amount;
+            if ("PCT".equals(unit)) {
+                BigDecimal rate = toBigDecimal(r.get("rate"));
+                if (rate == null) continue;
+                amount = freight.multiply(rate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+            } else {
+                BigDecimal fixed = toBigDecimal(r.get("amount"));
+                if (fixed == null) continue;
+                amount = fixed.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+            }
+            out.add(new RateQuoteResponse.BreakdownLine(feeCode, "品名附加费: " + feeCode, amount));
+        }
+        return out;
     }
 
     private BigDecimal applyRemoteRule(Map<String, Object> rule, BigDecimal base) {
