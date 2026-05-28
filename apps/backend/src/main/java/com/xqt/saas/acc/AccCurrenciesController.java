@@ -58,10 +58,20 @@ public class AccCurrenciesController {
                 "SELECT count(*) FROM finance_currency WHERE ?::text IS NULL OR (code ILIKE ? OR name ILIKE ?)",
                 Long.class, search, search, search);
             List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT id, code, name, audit_status, audited_at, audit_name
-                FROM finance_currency
-                WHERE ?::text IS NULL OR (code ILIKE ? OR name ILIKE ?)
-                ORDER BY code
+                SELECT fc.id, fc.code, fc.name, fc.symbol, fc.decimal_places,
+                       fc.audit_status, fc.audited_at, fc.audit_name,
+                       -- 当日对 CNY 的最新汇率（找不到时 NULL，project 兜底为 1）
+                       (
+                         SELECT er.rate FROM exchange_rates er
+                         WHERE er.tenant_id = fc.tenant_id
+                           AND er.from_currency = fc.code
+                           AND er.to_currency = 'CNY'
+                         ORDER BY er.rate_date DESC
+                         LIMIT 1
+                       ) AS fx_rate
+                FROM finance_currency fc
+                WHERE ?::text IS NULL OR (fc.code ILIKE ? OR fc.name ILIKE ?)
+                ORDER BY fc.code
                 LIMIT ? OFFSET ?
                 """, search, search, search, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(),
@@ -82,14 +92,19 @@ public class AccCurrenciesController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        String symbol = (String) body.get("symbol");
+        Object decimalPlaces = body.getOrDefault("decimal_places", body.get("decimal"));
         Long id = jdbc.queryForObject("""
             INSERT INTO finance_currency (
-              tenant_id, created_at, created_by, updated_at, updated_by, code, name
+              tenant_id, created_at, created_by, updated_at, updated_by, code, name,
+              symbol, decimal_places
             ) VALUES (
-              current_setting('app.current_tenant_id')::uuid, now(), 'API', now(), 'API', ?, ?
+              current_setting('app.current_tenant_id')::uuid, now(), 'API', now(), 'API', ?, ?,
+              ?, coalesce(?, 2)
             )
             RETURNING id
-            """, Long.class, code, name);
+            """, Long.class, code, name, symbol,
+            decimalPlaces instanceof Number n ? n.intValue() : null);
         return Map.of("id", id, "code", code, "name", name);
     }
 
@@ -103,14 +118,19 @@ public class AccCurrenciesController {
                 + "；请先反审");
         }
         Map<String, Object> allowed = gate.allowed();
+        Object decimalPlaces = allowed.getOrDefault("decimal_places", allowed.get("decimal"));
         jdbc.update("""
             UPDATE finance_currency SET
               code = coalesce(?, code),
               name = coalesce(?, name),
+              symbol = coalesce(?, symbol),
+              decimal_places = coalesce(?, decimal_places),
               updated_at = now(),
               updated_by = 'API'
             WHERE id = ?
-            """, (String) allowed.get("code"), (String) allowed.get("name"), id);
+            """, (String) allowed.get("code"), (String) allowed.get("name"),
+            (String) allowed.get("symbol"),
+            decimalPlaces instanceof Number n ? n.intValue() : null, id);
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
 
@@ -131,10 +151,12 @@ public class AccCurrenciesController {
         out.put("id", row.get("id"));
         out.put("code", row.get("code"));
         out.put("name", row.get("name"));
-        // 前端额外列：symbol/rate/decimal — 新模型未建，先兜底
-        out.put("symbol", "");
-        out.put("rate", 1);
-        out.put("decimal", 2);
+        // 前端额外列：symbol/rate/decimal
+        out.put("symbol", row.get("symbol") == null ? "" : row.get("symbol"));
+        // CNY 对自己汇率恒为 1；其它币种无汇率数据时也兜底 1
+        Object fx = row.get("fx_rate");
+        out.put("rate", fx != null ? fx : ("CNY".equals(row.get("code")) ? 1 : 1));
+        out.put("decimal", row.get("decimal_places") == null ? 2 : row.get("decimal_places"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));
