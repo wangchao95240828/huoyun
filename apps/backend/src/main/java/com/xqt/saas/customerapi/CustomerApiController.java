@@ -70,7 +70,14 @@ public class CustomerApiController {
 
     @PostMapping("/rates/quote")
     public ApiResponse<ItemResponse<Quote>> quote(@RequestBody RateQuoteRequest body) {
-        return ApiResponse.ok(new ItemResponse<>(rateEngine.quote(principal().tenantId(), body)));
+        Quote quote = rateEngine.quote(principal().tenantId(), body);
+        // blockers 是硬性拒绝（电池禁运 / 限重超 / 渠道账号超量等），报价接口必须明确失败，
+        // 不能把不可下单的报价静默返回给客户。
+        if (quote.blockers() != null && !quote.blockers().isEmpty()) {
+            throw com.xqt.saas.common.ApiException.badRequest(
+                "无法报价：" + String.join("；", quote.blockers()));
+        }
+        return ApiResponse.ok(new ItemResponse<>(quote));
     }
 
     @PostMapping("/orders/status")
