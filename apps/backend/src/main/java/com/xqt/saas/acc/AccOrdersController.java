@@ -76,6 +76,7 @@ public class AccOrdersController {
                   o.audited_at,
                   o.audit_name,
                   c.name              AS customer_name,
+                  org.name            AS branch_name,
                   (
                     SELECT s.destination_country FROM shipments s
                     WHERE s.tenant_id = o.tenant_id AND s.customer_ref = o.customer_ref
@@ -99,9 +100,22 @@ public class AccOrdersController {
                     JOIN shipments s4 ON s4.id = ct.shipment_id
                     WHERE s4.tenant_id = o.tenant_id AND s4.customer_ref = o.customer_ref
                   ) AS charge_weight,
+                  (
+                    SELECT coalesce(sum(ch.amount), 0) FROM charges ch
+                    JOIN shipments s5 ON s5.id = ch.shipment_id
+                    WHERE s5.tenant_id = o.tenant_id AND s5.customer_ref = o.customer_ref
+                      AND ch.side = 'AR' AND ch.settlement_status <> 'VOID'
+                  ) AS sell_charge,
+                  (
+                    SELECT coalesce(sum(ch.amount), 0) FROM charges ch
+                    JOIN shipments s6 ON s6.id = ch.shipment_id
+                    WHERE s6.tenant_id = o.tenant_id AND s6.customer_ref = o.customer_ref
+                      AND ch.side = 'AP' AND ch.settlement_status <> 'VOID'
+                  ) AS cost_charge,
                   o.metadata
                 FROM orders o
                 LEFT JOIN customers c ON c.id = o.customer_id
+                LEFT JOIN organizations org ON org.id = o.branch_id
                 WHERE (?::text IS NULL OR (o.order_no ILIKE ? OR o.customer_ref ILIKE ?))
                   AND (?::date IS NULL OR o.created_at >= ?::date)
                   AND (?::date IS NULL OR o.created_at < (?::date + 1))
@@ -175,19 +189,37 @@ public class AccOrdersController {
         return Map.of("id", id, "deleted", true);
     }
 
+    @SuppressWarnings("unchecked")
     private Map<String, Object> project(Map<String, Object> row) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", row.get("id"));
         out.put("orderNo", row.get("customer_ref") != null ? row.get("customer_ref") : row.get("order_no"));
         out.put("trackNo", row.get("track_no"));
         out.put("customerName", row.get("customer_name"));
-        out.put("product", "");           // 旧字段：销售产品；新模型在 metadata.acc_compat.product
+        // product 来自 metadata.acc_compat.product（API 下单时存在那里）
+        String product = "";
+        Object meta = row.get("metadata");
+        if (meta != null) {
+            String metaText = meta instanceof String s ? s : meta.toString();
+            try {
+                Map<String, Object> m = json.fromJson(metaText,
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+                Object acc = m == null ? null : m.get("acc_compat");
+                if (acc instanceof Map<?, ?> accMap) {
+                    Object p = ((Map<String, Object>) accMap).get("product");
+                    if (p != null) product = p.toString();
+                }
+            } catch (RuntimeException ignored) {
+                // metadata 解析失败时降级为空字符串
+            }
+        }
+        out.put("product", product);
         out.put("country", row.get("country"));
         out.put("piece", row.get("piece_count"));
         out.put("chargeWeight", row.get("charge_weight"));
-        out.put("sellCharge", 0);         // TODO: join charges 后聚合
-        out.put("costCharge", 0);         // TODO: join cost rows 后聚合
-        out.put("branch", "");            // TODO: orders.branch_id → organizations.name
+        out.put("sellCharge", row.get("sell_charge"));
+        out.put("costCharge", row.get("cost_charge"));
+        out.put("branch", row.get("branch_name") == null ? "" : row.get("branch_name"));
         out.put("addTime", json.value(row.get("created_at")));
         out.put("status", row.get("status"));
         out.put("auditStatus", row.get("audit_status"));
