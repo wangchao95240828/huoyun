@@ -150,12 +150,24 @@ public class CustomerApiRepository {
     public void insertCarton(String tenantId, String shipmentId, String cartonNo,
                              BigDecimal actualWeightKg, String trackingNo,
                              String carrierMasterTrackingNo) {
+        insertCarton(tenantId, shipmentId, cartonNo, actualWeightKg, trackingNo,
+            carrierMasterTrackingNo, null);
+    }
+
+    /**
+     * 带 provider evidence 的 insertCarton：取号成功后落 carrier 的 request/response，
+     * 便于事后对账 / 排障（对应 ACC Express_Status 文本记录的 evidence 化升级）。
+     */
+    public void insertCarton(String tenantId, String shipmentId, String cartonNo,
+                             BigDecimal actualWeightKg, String trackingNo,
+                             String carrierMasterTrackingNo, String evidenceJson) {
         jdbc.update("""
             INSERT INTO cartons (
               tenant_id, shipment_id, carton_no, actual_weight_kg,
-              tracking_no, carrier_master_tracking_no
-            ) VALUES (?::uuid, ?::uuid, ?, ?, ?, ?)
-            """, tenantId, shipmentId, cartonNo, actualWeightKg, trackingNo, carrierMasterTrackingNo);
+              tracking_no, carrier_master_tracking_no, carrier_evidence
+            ) VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, coalesce(?::jsonb, '{}'::jsonb))
+            """, tenantId, shipmentId, cartonNo, actualWeightKg, trackingNo,
+            carrierMasterTrackingNo, evidenceJson);
     }
 
     public void insertDeclaration(String tenantId, String shipmentId, String itemName,

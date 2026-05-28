@@ -121,6 +121,72 @@ public class AccShipmentsController {
         return rows.isEmpty() ? Map.of() : json.row(rows.get(0));
     }
 
+    /**
+     * Provider evidence 聚合：cartons.carrier_evidence + label_files.evidence + charges.evidence。
+     * 前端运单详情对话框展示用，便于客服/运维排障看到取号 / 面单 / 费用 provider 的实际报文。
+     */
+    @GetMapping("/{id}/evidence")
+    public Map<String, Object> evidence(@PathVariable String id) {
+        try {
+            List<Map<String, Object>> carrier = jdbc.queryForList("""
+                SELECT carton_no, tracking_no, carrier_master_tracking_no,
+                       carrier_evidence::text AS carrier_evidence_text
+                FROM cartons
+                WHERE shipment_id = ?::uuid
+                  AND carrier_evidence IS NOT NULL
+                  AND carrier_evidence::text <> '{}'
+                ORDER BY carton_no
+                """, id);
+            List<Map<String, Object>> labels = jdbc.queryForList("""
+                SELECT id::text AS id, tracking_no, label_type, source, created_at,
+                       evidence::text AS evidence_text
+                FROM label_files
+                WHERE shipment_id = ?::uuid
+                  AND evidence IS NOT NULL
+                  AND evidence::text <> '{}'
+                ORDER BY created_at DESC
+                """, id);
+            List<Map<String, Object>> chargesEv = jdbc.queryForList("""
+                SELECT id::text AS id, side::text AS side, status::text AS status,
+                       amount, currency, evidence::text AS evidence_text
+                FROM charges
+                WHERE shipment_id = ?::uuid
+                  AND evidence IS NOT NULL
+                  AND evidence::text <> '{}'
+                ORDER BY created_at
+                """, id);
+            return Map.of(
+                "shipmentId", id,
+                "carrier", parseEvidence(carrier, "carrier_evidence_text"),
+                "labels", parseEvidence(labels, "evidence_text"),
+                "charges", parseEvidence(chargesEv, "evidence_text")
+            );
+        } catch (DataAccessException ex) {
+            return Map.of("shipmentId", id,
+                "carrier", List.of(), "labels", List.of(), "charges", List.of());
+        }
+    }
+
+    private List<Map<String, Object>> parseEvidence(List<Map<String, Object>> rows, String key) {
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (Map<String, Object> r : rows) {
+            Map<String, Object> projected = new java.util.LinkedHashMap<>();
+            for (var e : r.entrySet()) {
+                if (e.getKey().equals(key)) continue;
+                projected.put(e.getKey(), json.value(e.getValue()));
+            }
+            String evidenceText = (String) r.get(key);
+            try {
+                projected.put("evidence", json.fromJson(evidenceText,
+                    new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
+            } catch (RuntimeException ignored) {
+                projected.put("evidence", Map.of("raw", evidenceText));
+            }
+            out.add(projected);
+        }
+        return out;
+    }
+
     /** 前端原页面的 "查看装箱清单"，对应 ACC `shipments/{id}/items`。返回该 shipment 下所有 cartons + declarations。 */
     @GetMapping("/{id}/items")
     public Map<String, Object> items(@PathVariable String id) {

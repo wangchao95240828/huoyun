@@ -246,10 +246,15 @@ public class CustomerApiService {
             throw ApiException.badRequest("渠道取号失败: " + ex.getMessage());
         }
 
+        // provider 的 request/response 完整落到 cartons.carrier_evidence，
+        // 便于运维/客服在前端运单详情看到取号的真实证据（任务5 文档要求）
+        String carrierEvidenceJson = issuance.raw() == null || issuance.raw().isEmpty()
+            ? null : json.toJson(issuance.raw());
         repository.insertCarton(
             principal.tenantId(), shipmentId, "001",
             weight == null ? BigDecimal.ZERO : weight,
-            issuance.carrierTrackingNo(), issuance.carrierMasterTrackingNo()
+            issuance.carrierTrackingNo(), issuance.carrierMasterTrackingNo(),
+            carrierEvidenceJson
         );
 
         // 取号成功后累加渠道账号当日票池，供 RateEngine 限额检查使用（ACC: Channel_Limit）

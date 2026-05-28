@@ -2012,3 +2012,62 @@ input, select, textarea { font: inherit; }
   color: var(--c-text);
 }
 .acc-current-tab strong { font-size: 15px; }
+
+/* ═══════════════ 运单详情 Provider Evidence ═══════════════ */
+.detail-section-title {
+  margin: 14px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.detail-section-title:first-child { margin-top: 0; }
+
+.evidence-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 6px;
+}
+.evidence-block {
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: #fafbfc;
+}
+.evidence-label {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--c-text-secondary);
+  margin-bottom: 6px;
+}
+.evidence-empty {
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+.evidence-block details {
+  margin: 4px 0;
+}
+.evidence-block details summary {
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--c-text);
+}
+.evidence-block details summary:hover { color: var(--c-accent); }
+.evidence-pre {
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid var(--c-border);
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1.4;
+  font-family: ui-monospace, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+  color: #334155;
+}

@@ -1867,6 +1867,13 @@ function fmtTime(value?: string): string {
   return value.slice(0, 16).replace("T", " ");
 }
 
+/** 模板里渲染 provider evidence 用：JSON 美化 + 缺失兜底。 */
+function fmtJson(value: any): string {
+  if (value === null || value === undefined) return "—";
+  try { return JSON.stringify(value, null, 2); }
+  catch { return String(value); }
+}
+
 function fmtCell(value: any, format?: string): string {
   if (value === null || value === undefined) return "-";
   if (format === "money") return "¥" + fmt(Number(value));
@@ -2627,8 +2634,14 @@ async function viewDetail(row: any) {
   const tab = accTabs.find(t => t.key === accTab.value);
   if (!tab) return;
   if (accTab.value === 'shipments') {
-    const res = await apiFetch(`${API}/api/acc/shipments/${row.id}/items`);
-    detailData.value = await res.json();
+    // 并行取 items + evidence，让运单详情既能看装箱清单又能看 provider 报文
+    const [itemsRes, evRes] = await Promise.all([
+      apiFetch(`${API}/api/acc/shipments/${row.id}/items`),
+      apiFetch(`${API}/api/acc/shipments/${row.id}/evidence`),
+    ]);
+    const items = await itemsRes.json();
+    const ev = await evRes.json();
+    detailData.value = { ...items, evidence: ev };
     detailType.value = 'shipment-items';
   } else if (accTab.value === 'bills') {
     const res = await apiFetch(`${API}/api/acc/bills/${row.id}/items`);
@@ -3464,17 +3477,71 @@ async function doReloadBill(id: number) {
           <button class="modal-close" @click="showDetail = false"><X :size="18" /></button>
         </div>
         <div class="modal-body">
-          <!-- Shipment items -->
-          <table class="data-table" v-if="detailType === 'shipment-items' && Array.isArray(detailData)">
-            <thead><tr><th>快件单号</th><th>客户</th><th>产品</th><th>国家</th><th>件数</th><th>重量</th><th>计费重</th></tr></thead>
-            <tbody>
-              <tr v-for="item in detailData" :key="item.id">
-                <td>{{ item.expressNo }}</td><td>{{ item.customerName }}</td><td>{{ item.productName }}</td>
-                <td>{{ item.country }}</td><td>{{ item.piece }}</td><td>{{ item.weight }}</td><td>{{ item.chargeWeight }}</td>
-              </tr>
-              <tr v-if="detailData.length === 0"><td colspan="7" class="empty-cell">无明细</td></tr>
-            </tbody>
-          </table>
+          <!-- Shipment items（cartons + declarations + evidence） -->
+          <div v-if="detailType === 'shipment-items' && detailData && !Array.isArray(detailData)">
+            <h4 class="detail-section-title">装箱清单</h4>
+            <table class="data-table">
+              <thead><tr><th>箱号</th><th>子单号</th><th>主单号</th><th>实重(kg)</th><th>计费重(kg)</th><th>CBM</th></tr></thead>
+              <tbody>
+                <tr v-for="c in (detailData.cartons ?? [])" :key="c.id">
+                  <td>{{ c.carton_no }}</td>
+                  <td>{{ c.tracking_no || '-' }}</td>
+                  <td>{{ c.carrier_master_tracking_no || '-' }}</td>
+                  <td>{{ c.actual_weight_kg ?? '-' }}</td>
+                  <td>{{ c.chargeable_weight_kg ?? '-' }}</td>
+                  <td>{{ c.cbm ?? '-' }}</td>
+                </tr>
+                <tr v-if="(detailData.cartons ?? []).length === 0">
+                  <td colspan="6" class="empty-cell">无装箱</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h4 class="detail-section-title">申报明细</h4>
+            <table class="data-table">
+              <thead><tr><th>品名</th><th>材质</th><th>HS</th><th>数量</th><th>申报价值</th></tr></thead>
+              <tbody>
+                <tr v-for="d in (detailData.declarations ?? [])" :key="d.id">
+                  <td>{{ d.item_name }}</td>
+                  <td>{{ d.material || '-' }}</td>
+                  <td>{{ d.hs_code || '-' }}</td>
+                  <td>{{ d.quantity }}</td>
+                  <td class="money-cell">{{ d.value_amount }}</td>
+                </tr>
+                <tr v-if="(detailData.declarations ?? []).length === 0">
+                  <td colspan="5" class="empty-cell">无申报明细</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <h4 class="detail-section-title">Provider Evidence（取号 / 面单 / 费用 真实报文）</h4>
+            <div v-if="detailData.evidence" class="evidence-blocks">
+              <div class="evidence-block">
+                <div class="evidence-label">渠道取号 carrier ({{ (detailData.evidence.carrier ?? []).length }})</div>
+                <div v-if="(detailData.evidence.carrier ?? []).length === 0" class="evidence-empty">— 暂无</div>
+                <details v-for="(c, i) in (detailData.evidence.carrier ?? [])" :key="'car-'+i">
+                  <summary>箱 {{ c.carton_no }} · {{ c.tracking_no || '-' }}</summary>
+                  <pre class="evidence-pre">{{ fmtJson(c.evidence) }}</pre>
+                </details>
+              </div>
+              <div class="evidence-block">
+                <div class="evidence-label">面单 label ({{ (detailData.evidence.labels ?? []).length }})</div>
+                <div v-if="(detailData.evidence.labels ?? []).length === 0" class="evidence-empty">— 暂无</div>
+                <details v-for="(l, i) in (detailData.evidence.labels ?? [])" :key="'lab-'+i">
+                  <summary>{{ l.label_type }} · {{ l.tracking_no || '-' }} · {{ l.created_at }}</summary>
+                  <pre class="evidence-pre">{{ fmtJson(l.evidence) }}</pre>
+                </details>
+              </div>
+              <div class="evidence-block">
+                <div class="evidence-label">费用 charges ({{ (detailData.evidence.charges ?? []).length }})</div>
+                <div v-if="(detailData.evidence.charges ?? []).length === 0" class="evidence-empty">— 暂无</div>
+                <details v-for="(ch, i) in (detailData.evidence.charges ?? [])" :key="'ch-'+i">
+                  <summary>{{ ch.side }} · {{ ch.status }} · {{ ch.currency }} {{ ch.amount }}</summary>
+                  <pre class="evidence-pre">{{ fmtJson(ch.evidence) }}</pre>
+                </details>
+              </div>
+            </div>
+          </div>
           <!-- Bill items -->
           <table class="data-table" v-if="detailType === 'bill-items' && Array.isArray(detailData)">
             <thead><tr><th>快件单号</th><th>客户</th><th>金额</th><th>已收</th><th>日期</th><th>类型</th></tr></thead>

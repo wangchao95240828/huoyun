@@ -61,20 +61,30 @@ public class LabelRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
-    /** 落 label_files 元数据。 */
+    /** 落 label_files 元数据（无 evidence，向后兼容）。 */
     @Transactional(rollbackFor = Exception.class)
     public String insertLabelFile(String tenantId, String shipmentId, String trackingNo,
                                   String labelType, String fileHash, String fileExt,
                                   String storagePath, int fileSize, String source) {
+        return insertLabelFile(tenantId, shipmentId, trackingNo, labelType, fileHash,
+            fileExt, storagePath, fileSize, source, null);
+    }
+
+    /** 带 provider evidence 的 insertLabelFile：保存 label provider 的 request/response。 */
+    @Transactional(rollbackFor = Exception.class)
+    public String insertLabelFile(String tenantId, String shipmentId, String trackingNo,
+                                  String labelType, String fileHash, String fileExt,
+                                  String storagePath, int fileSize, String source,
+                                  String evidenceJson) {
         return jdbc.queryForObject("""
             INSERT INTO label_files (
               tenant_id, shipment_id, tracking_no, label_type,
-              file_hash, file_ext, storage_path, file_size, source
-            ) VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?)
+              file_hash, file_ext, storage_path, file_size, source, evidence
+            ) VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, coalesce(?::jsonb, '{}'::jsonb))
             RETURNING id::text
             """, String.class,
             tenantId, shipmentId, trackingNo, labelType,
-            fileHash, fileExt, storagePath, fileSize, source);
+            fileHash, fileExt, storagePath, fileSize, source, evidenceJson);
     }
 
     /**

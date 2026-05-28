@@ -37,13 +37,16 @@ public class LabelService {
     private final LabelGatewayRegistry labelGateways;
     private final LabelStorage storage;
     private final JdbcTemplate jdbc;
+    private final com.xqt.saas.common.JsonSupport json;
 
     public LabelService(LabelRepository repository, LabelGatewayRegistry labelGateways,
-                        LabelStorage storage, JdbcTemplate jdbc) {
+                        LabelStorage storage, JdbcTemplate jdbc,
+                        com.xqt.saas.common.JsonSupport json) {
         this.repository = repository;
         this.labelGateways = labelGateways;
         this.storage = storage;
         this.jdbc = jdbc;
+        this.json = json;
     }
 
     /** 对应 ACC act=Label。 */
@@ -117,10 +120,13 @@ public class LabelService {
                 String url = null;
                 if (saveToFile) {
                     stored = storage.save(principal.tenantId(), artifact.content(), artifact.fileExt());
+                    // provider 的 request/response 完整存 label_files.evidence
+                    String labelEvidenceJson = artifact.raw() == null || artifact.raw().isEmpty()
+                        ? null : json.toJson(artifact.raw());
                     repository.insertLabelFile(
                         principal.tenantId(), shipmentId, artifact.mainTrackingNo(),
                         artifact.labelType(), stored.fileHash(), stored.fileExt(),
-                        stored.storagePath(), stored.fileSize(), "API"
+                        stored.storagePath(), stored.fileSize(), "API", labelEvidenceJson
                     );
                     url = storage.publicUrl(stored);
                 } else {
