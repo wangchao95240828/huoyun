@@ -10,7 +10,9 @@ import com.xqt.saas.auth.AuthPrincipal;
 import com.xqt.saas.common.ApiException;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateFromOrder;
+import com.xqt.saas.documentcharges.DocumentChargeRequests.GeneratePartnerInvoice;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.SettleCustomerInvoice;
+import com.xqt.saas.documentcharges.DocumentChargeRequests.SettlePartnerInvoice;
 import com.xqt.saas.documentcharges.DocumentChargeResponses.GenerateResult;
 import com.xqt.saas.documentcharges.DocumentChargeResponses.InvoiceResult;
 import com.xqt.saas.documentcharges.DocumentChargeResponses.SettleResult;
@@ -44,7 +46,7 @@ public class DocumentChargeService {
     }
 
     /** 提交单据：把 ESTIMATED → CONFIRMED。审核动作由前端再调 audit-biz。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = com.xqt.saas.common.ApiException.class)
     public GenerateResult generateFromOrder(AuthPrincipal principal, GenerateFromOrder body) {
         if (body == null || body.orderId() == null) {
             throw ApiException.badRequest("orderId is required");
@@ -65,7 +67,7 @@ public class DocumentChargeService {
     }
 
     /** 客户账单生成：按日期段聚合，写一张账单 + 多行 lines。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = com.xqt.saas.common.ApiException.class)
     public InvoiceResult generateCustomerInvoice(AuthPrincipal principal,
                                                   GenerateCustomerInvoice body) {
         if (body == null || body.customerId() == null
@@ -106,7 +108,7 @@ public class DocumentChargeService {
     }
 
     /** 收款核销：amount > 0 为收款 / < 0 为反核销。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = com.xqt.saas.common.ApiException.class)
     public SettleResult settleCustomerInvoice(AuthPrincipal principal, SettleCustomerInvoice body) {
         if (body == null || body.invoiceId() == null || body.amount() == null) {
             throw ApiException.badRequest("invoiceId / amount required");
@@ -135,7 +137,7 @@ public class DocumentChargeService {
     }
 
     /** Void：单独一笔费用作废。撤销余额预扣（若有）。 */
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = com.xqt.saas.common.ApiException.class)
     public VoidResult voidCharge(AuthPrincipal principal, String chargeId) {
         if (chargeId == null) throw ApiException.badRequest("chargeId required");
         setTenant(principal.tenantId());
@@ -149,6 +151,78 @@ public class DocumentChargeService {
                                                     LocalDate dateFrom, LocalDate dateTo) {
         setTenant(principal.tenantId());
         return repository.aggregateProfit(principal.tenantId(), groupBy, dateFrom, dateTo);
+    }
+
+    // ───────────────────── 供应商（AP）侧闭环 ─────────────────────
+
+    /** 供应商账单生成：按日期段聚合该供应商已审 AP 费用为一张 partner_invoice。 */
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = com.xqt.saas.common.ApiException.class)
+    public InvoiceResult generatePartnerInvoice(AuthPrincipal principal, GeneratePartnerInvoice body) {
+        if (body == null || body.partnerId() == null
+            || body.dateFrom() == null || body.dateTo() == null) {
+            throw ApiException.badRequest("partnerId / dateFrom / dateTo required");
+        }
+        setTenant(principal.tenantId());
+        String currency = body.currency() == null ? "CNY" : body.currency();
+        List<Map<String, Object>> rows;
+        if (body.chargeIds() != null && !body.chargeIds().isEmpty()) {
+            rows = repository.findChargesByIds(principal.tenantId(), body.chargeIds());
+        } else {
+            rows = repository.findBillableApCharges(principal.tenantId(), body.partnerId(),
+                body.dateFrom(), body.dateTo(), currency);
+        }
+        if (rows.isEmpty()) {
+            throw ApiException.badRequest("no billable AP charges in selected range");
+        }
+        BigDecimal total = rows.stream()
+            .map(r -> (BigDecimal) r.get("unpaid_amount"))
+            .filter(java.util.Objects::nonNull)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        String invoiceNo = repository.nextInvoiceNo(principal.tenantId(), "PINV");
+        String invoiceId = repository.insertPartnerInvoice(
+            principal.tenantId(), body.partnerId(), invoiceNo, currency, total);
+
+        List<String> chargeIds = new java.util.ArrayList<>();
+        int lineNo = 1;
+        for (Map<String, Object> r : rows) {
+            String chargeId = (String) r.get("id");
+            BigDecimal lineAmount = (BigDecimal) r.get("unpaid_amount");
+            repository.insertPartnerInvoiceLine(principal.tenantId(), invoiceId, chargeId,
+                (String) r.get("shipment_id"), (String) r.get("charge_item_id"),
+                currency, lineAmount, lineNo++);
+            chargeIds.add(chargeId);
+        }
+        return new InvoiceResult(invoiceId, invoiceNo, currency, total, chargeIds.size(), chargeIds);
+    }
+
+    /** 供应商账单付款核销：amount > 0 付款 / < 0 反核销。回写 AP charges。 */
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = com.xqt.saas.common.ApiException.class)
+    public SettleResult settlePartnerInvoice(AuthPrincipal principal, SettlePartnerInvoice body) {
+        if (body == null || body.invoiceId() == null || body.amount() == null) {
+            throw ApiException.badRequest("invoiceId / amount required");
+        }
+        setTenant(principal.tenantId());
+        Map<String, Object> invoice = repository.findPartnerInvoice(principal.tenantId(), body.invoiceId());
+        if (invoice == null) {
+            throw ApiException.notFound("partner invoice not found: " + body.invoiceId());
+        }
+        String partnerId = (String) invoice.get("partner_id");
+        String currency = body.currency() == null ? (String) invoice.get("currency") : body.currency();
+        String paymentId = repository.insertPartnerPayment(
+            principal.tenantId(), partnerId, body.amount(), currency,
+            body.bankAccountId(), body.referenceNo());
+        // 金额动作记汇率快照（本币付款 rate=1，跨币种由调用方提供）
+        repository.insertFxSnapshot(principal.tenantId(), currency, "CNY", BigDecimal.ONE, "PARTNER_SETTLE");
+        Map<String, Object> updated = repository.applyPaymentToPartnerInvoice(
+            principal.tenantId(), body.invoiceId(), body.amount());
+        return new SettleResult(
+            body.invoiceId(),
+            (String) updated.get("invoice_no"),
+            (BigDecimal) updated.get("paid_amount"),
+            (BigDecimal) updated.get("unpaid_amount"),
+            (String) updated.get("writeoff_status"),
+            paymentId
+        );
     }
 
     private Map<String, Object> sumChargesByOrder(String tenantId, String orderId) {

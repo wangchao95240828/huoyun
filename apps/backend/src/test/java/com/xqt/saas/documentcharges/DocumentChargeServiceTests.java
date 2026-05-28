@@ -20,7 +20,9 @@ import com.xqt.saas.auth.AuthPrincipal;
 import com.xqt.saas.common.ApiException;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateFromOrder;
+import com.xqt.saas.documentcharges.DocumentChargeRequests.GeneratePartnerInvoice;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.SettleCustomerInvoice;
+import com.xqt.saas.documentcharges.DocumentChargeRequests.SettlePartnerInvoice;
 import com.xqt.saas.documentcharges.DocumentChargeResponses.GenerateResult;
 import com.xqt.saas.documentcharges.DocumentChargeResponses.InvoiceResult;
 import com.xqt.saas.documentcharges.DocumentChargeResponses.SettleResult;
@@ -267,5 +269,77 @@ class DocumentChargeServiceTests {
 
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).get("profit")).isEqualTo(new BigDecimal("300"));
+    }
+
+    // ─── 13. 供应商账单：日期段聚合 AP 费用写一张 partner_invoice ───
+    @Test
+    void generatePartnerInvoiceAggregatesApCharges() {
+        when(repo.findBillableApCharges(eq(TENANT), eq("partner-1"), any(), any(), eq("CNY")))
+            .thenReturn(List.of(
+                Map.of("id", "ap-1", "unpaid_amount", new BigDecimal("80"),
+                       "shipment_id", "sh-1", "charge_item_id", "ci-1"),
+                Map.of("id", "ap-2", "unpaid_amount", new BigDecimal("14.80"),
+                       "shipment_id", "sh-1", "charge_item_id", "ci-2")
+            ));
+        when(repo.nextInvoiceNo(TENANT, "PINV")).thenReturn("PINV20260528001");
+        when(repo.insertPartnerInvoice(eq(TENANT), eq("partner-1"), eq("PINV20260528001"),
+            eq("CNY"), any(BigDecimal.class))).thenReturn("pinv-1");
+
+        InvoiceResult r = service.generatePartnerInvoice(principal(),
+            new GeneratePartnerInvoice("partner-1", LocalDate.now().minusDays(30),
+                LocalDate.now(), "CNY", null));
+
+        assertThat(r.invoiceId()).isEqualTo("pinv-1");
+        assertThat(r.lineCount()).isEqualTo(2);
+        assertThat(r.totalAmount()).isEqualByComparingTo("94.80");
+        verify(repo, times(2)).insertPartnerInvoiceLine(any(), any(), any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    // ─── 14. 供应商账单：无可计入 AP 费用报错 ───
+    @Test
+    void generatePartnerInvoiceRejectsEmpty() {
+        when(repo.findBillableApCharges(any(), any(), any(), any(), any())).thenReturn(List.of());
+        assertThatThrownBy(() -> service.generatePartnerInvoice(principal(),
+            new GeneratePartnerInvoice("partner-1", LocalDate.now().minusDays(7),
+                LocalDate.now(), "CNY", null)))
+            .isInstanceOf(ApiException.class)
+            .hasMessageContaining("no billable AP charges");
+    }
+
+    // ─── 15. 供应商付款全额核销 → PAID + 回写 AP charges + fx 快照 ───
+    @Test
+    void settlePartnerInvoicePaysFull() {
+        when(repo.findPartnerInvoice(TENANT, "pinv-1")).thenReturn(Map.of(
+            "id", "pinv-1", "invoice_no", "PINV-1", "currency", "CNY",
+            "partner_id", "partner-1",
+            "total_amount", new BigDecimal("94.80"),
+            "paid_amount", BigDecimal.ZERO,
+            "writeoff_status", "UNPAID"));
+        when(repo.insertPartnerPayment(eq(TENANT), eq("partner-1"), eq(new BigDecimal("94.80")),
+            eq("CNY"), any(), any())).thenReturn("pp-1");
+        when(repo.applyPaymentToPartnerInvoice(TENANT, "pinv-1", new BigDecimal("94.80")))
+            .thenReturn(Map.of(
+                "invoice_no", "PINV-1",
+                "paid_amount", new BigDecimal("94.80"),
+                "unpaid_amount", BigDecimal.ZERO,
+                "writeoff_status", "PAID"));
+
+        SettleResult r = service.settlePartnerInvoice(principal(),
+            new SettlePartnerInvoice("pinv-1", new BigDecimal("94.80"), null, null, "PAY-AP", null));
+
+        assertThat(r.writeoffStatus()).isEqualTo("PAID");
+        assertThat(r.paymentId()).isEqualTo("pp-1");
+        // 金额动作必须记一笔汇率快照
+        verify(repo, times(1)).insertFxSnapshot(eq(TENANT), eq("CNY"), eq("CNY"), any(), any());
+    }
+
+    // ─── 16. 供应商付款：发票不存在报错 ───
+    @Test
+    void settlePartnerInvoiceRejectsMissing() {
+        when(repo.findPartnerInvoice(TENANT, "missing")).thenReturn(null);
+        assertThatThrownBy(() -> service.settlePartnerInvoice(principal(),
+            new SettlePartnerInvoice("missing", new BigDecimal("10"), null, null, null, null)))
+            .isInstanceOf(ApiException.class)
+            .hasMessageContaining("partner invoice not found");
     }
 }

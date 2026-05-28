@@ -8,7 +8,9 @@ import com.xqt.saas.auth.AuthPrincipal;
 import com.xqt.saas.common.ApiException;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateFromOrder;
+import com.xqt.saas.documentcharges.DocumentChargeRequests.GeneratePartnerInvoice;
 import com.xqt.saas.documentcharges.DocumentChargeRequests.SettleCustomerInvoice;
+import com.xqt.saas.documentcharges.DocumentChargeRequests.SettlePartnerInvoice;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -53,6 +55,20 @@ public class DocumentChargeController {
                 body.paymentMethod(), body.bankAccountId(), body.referenceNo(), body.remark());
         }
         return service.settleCustomerInvoice(principal(), body);
+    }
+
+    @PostMapping("/partner-invoices/generate")
+    public Object generatePartnerInvoice(@RequestBody GeneratePartnerInvoice body) {
+        return service.generatePartnerInvoice(principal(), body);
+    }
+
+    @PostMapping("/partner-invoices/{id}/settle")
+    public Object settlePartnerInvoice(@PathVariable String id, @RequestBody SettlePartnerInvoice body) {
+        if (body.invoiceId() == null) {
+            body = new SettlePartnerInvoice(id, body.amount(), body.currency(),
+                body.bankAccountId(), body.referenceNo(), body.remark());
+        }
+        return service.settlePartnerInvoice(principal(), body);
     }
 
     @GetMapping("/profits/summary")

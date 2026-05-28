@@ -242,4 +242,136 @@ public class DocumentChargeRepository {
         jdbc.update("UPDATE charges SET status = 'VOID' WHERE id = ?::uuid", chargeId);
         return refund;
     }
+
+    // ───────────────────── 供应商（AP）侧闭环 ─────────────────────
+
+    /**
+     * 查可计入供应商账单的 AP 费用：审核通过 + 未付清 + 该供应商关联（carrier 链）+ 日期段。
+     * partner 通过 partners.carrier_id ↔ channel_cost_policies.carrier_id ↔ shipments.channel_id 关联。
+     */
+    public List<Map<String, Object>> findBillableApCharges(String tenantId, String partnerId,
+                                                           LocalDate dateFrom, LocalDate dateTo,
+                                                           String currency) {
+        return jdbc.queryForList("""
+            SELECT DISTINCT ch.id::text AS id, ch.amount, ch.paid_amount, ch.unpaid_amount,
+                   ch.currency, ch.shipment_id::text AS shipment_id,
+                   ch.charge_item_id::text AS charge_item_id, ch.created_at
+            FROM charges ch
+            JOIN shipments sh ON sh.id = ch.shipment_id
+            JOIN channel_cost_policies ccp ON ccp.channel_id = sh.channel_id
+            JOIN partners p ON p.carrier_id = ccp.carrier_id
+            WHERE ch.tenant_id = ?::uuid
+              AND ch.side = 'AP'
+              AND ch.audit_status = 'AUDITED'
+              AND ch.settlement_status NOT IN ('VOID', 'SETTLED')
+              AND p.id = ?::uuid
+              AND (?::char(3) IS NULL OR ch.currency = ?)
+              AND ch.created_at >= ?
+              AND ch.created_at < ? + interval '1 day'
+            ORDER BY ch.created_at
+            """, tenantId, partnerId, currency, currency, dateFrom, dateTo);
+    }
+
+    public Map<String, Object> findPartnerInvoice(String tenantId, String invoiceId) {
+        try {
+            return jdbc.queryForMap("""
+                SELECT id::text AS id, invoice_no, currency, partner_id::text AS partner_id,
+                       total_amount, paid_amount, unpaid_amount, writeoff_status
+                FROM partner_invoices
+                WHERE tenant_id = ?::uuid AND id = ?::uuid
+                """, tenantId, invoiceId);
+        } catch (EmptyResultDataAccessException ex) {
+            return null;
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public String insertPartnerInvoice(String tenantId, String partnerId, String invoiceNo,
+                                       String currency, BigDecimal total) {
+        return jdbc.queryForObject("""
+            INSERT INTO partner_invoices (
+              tenant_id, partner_id, invoice_no, currency,
+              total_amount, paid_amount, unpaid_amount, status, writeoff_status, invoice_date
+            ) VALUES (?::uuid, ?::uuid, ?, ?, ?, 0, ?, 'CONFIRMED', 'UNPAID', now())
+            RETURNING id::text
+            """, String.class, tenantId, partnerId, invoiceNo, currency, total, total);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void insertPartnerInvoiceLine(String tenantId, String invoiceId, String chargeId,
+                                         String shipmentId, String chargeItemId,
+                                         String currency, BigDecimal amount, int lineNo) {
+        jdbc.update("""
+            INSERT INTO partner_invoice_lines (
+              tenant_id, invoice_id, charge_id, shipment_id, charge_item_id,
+              line_no, currency, amount
+            ) VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?)
+            """, tenantId, invoiceId, chargeId, shipmentId, chargeItemId, lineNo, currency, amount);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public String insertPartnerPayment(String tenantId, String partnerId, BigDecimal amount,
+                                       String currency, String bankAccountId, String referenceNo) {
+        String paymentNo = "PP" + java.time.LocalDateTime.now().format(
+            java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS"));
+        return jdbc.queryForObject("""
+            INSERT INTO partner_payments (
+              tenant_id, partner_id, payment_no, financial_account_id, currency, amount,
+              status, paid_at, reference_no
+            ) VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?, ?, 'CONFIRMED', now(), ?)
+            RETURNING id::text
+            """, String.class, tenantId, partnerId, paymentNo,
+            bankAccountId, currency, amount, referenceNo);
+    }
+
+    /** 付款核销供应商账单：更新 invoice paid/unpaid/writeoff_status + 按行回写 AP charges。 */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> applyPaymentToPartnerInvoice(String tenantId, String invoiceId,
+                                                            BigDecimal amount) {
+        Map<String, Object> inv = findPartnerInvoice(tenantId, invoiceId);
+        if (inv == null) return null;
+        BigDecimal currentPaid = (BigDecimal) inv.get("paid_amount");
+        BigDecimal total = (BigDecimal) inv.get("total_amount");
+        BigDecimal newPaid = currentPaid.add(amount);
+        BigDecimal newUnpaid = total.subtract(newPaid);
+        String status = newPaid.compareTo(total) >= 0 ? "PAID"
+            : newPaid.signum() > 0 ? "PARTIAL" : "UNPAID";
+        jdbc.update("""
+            UPDATE partner_invoices
+            SET paid_amount = ?, unpaid_amount = ?, writeoff_status = ?, updated_at = now()
+            WHERE id = ?::uuid AND tenant_id = ?::uuid
+            """, newPaid, newUnpaid.max(BigDecimal.ZERO), status, invoiceId, tenantId);
+        // 按行比例回写 AP charges.paid_amount（触发器会同步 settlement_status）
+        List<Map<String, Object>> lines = jdbc.queryForList("""
+            SELECT charge_id::text AS charge_id, amount
+            FROM partner_invoice_lines
+            WHERE invoice_id = ?::uuid AND tenant_id = ?::uuid AND charge_id IS NOT NULL
+            """, invoiceId, tenantId);
+        for (Map<String, Object> line : lines) {
+            BigDecimal lineAmount = (BigDecimal) line.get("amount");
+            if (total.signum() == 0) continue;
+            BigDecimal share = lineAmount.multiply(amount).divide(total, 2,
+                java.math.RoundingMode.HALF_UP);
+            jdbc.update("""
+                UPDATE charges SET paid_amount = paid_amount + ?
+                WHERE id = ?::uuid AND tenant_id = ?::uuid
+                """, share, line.get("charge_id"), tenantId);
+        }
+        inv.put("paid_amount", newPaid);
+        inv.put("unpaid_amount", newUnpaid.max(BigDecimal.ZERO));
+        inv.put("writeoff_status", status);
+        return inv;
+    }
+
+    /** 记一笔汇率快照（金额动作发生时调用，便于事后对账重现）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public String insertFxSnapshot(String tenantId, String fromCurrency, String toCurrency,
+                                   BigDecimal rate, String source) {
+        return jdbc.queryForObject("""
+            INSERT INTO fx_rate_snapshots (tenant_id, from_currency, to_currency, rate, source)
+            VALUES (?::uuid, ?, ?, ?, ?)
+            RETURNING id::text
+            """, String.class, tenantId, fromCurrency, toCurrency,
+            rate == null ? BigDecimal.ONE : rate, source == null ? "LOCAL" : source);
+    }
 }
