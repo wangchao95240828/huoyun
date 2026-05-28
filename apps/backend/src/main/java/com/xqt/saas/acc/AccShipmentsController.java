@@ -76,8 +76,29 @@ public class AccShipmentsController {
                   s.audited_at,
                   s.audit_name,
                   ch.name          AS channel_name,
+                  -- 物流商：从最新生效的 channel_cost_policies 拿 carrier 名
+                  (
+                    SELECT car.name FROM channel_cost_policies ccp
+                    LEFT JOIN carriers car ON car.id = ccp.carrier_id
+                    WHERE ccp.tenant_id = s.tenant_id
+                      AND ccp.channel_id = s.channel_id
+                      AND ccp.effective_from <= current_date
+                      AND (ccp.effective_to IS NULL OR ccp.effective_to >= current_date)
+                    ORDER BY ccp.effective_from DESC
+                    LIMIT 1
+                  ) AS supplier_name,
                   (SELECT count(*) FROM cartons c WHERE c.shipment_id = s.id) AS piece_count,
-                  (SELECT coalesce(sum(c.actual_weight_kg), 0) FROM cartons c WHERE c.shipment_id = s.id) AS total_weight
+                  (SELECT coalesce(sum(c.actual_weight_kg), 0) FROM cartons c WHERE c.shipment_id = s.id) AS total_weight,
+                  (
+                    SELECT coalesce(sum(ch2.amount), 0) FROM charges ch2
+                    WHERE ch2.shipment_id = s.id AND ch2.side = 'AR'
+                      AND ch2.settlement_status <> 'VOID'
+                  ) AS total_charge,
+                  (
+                    SELECT coalesce(sum(ch3.amount), 0) FROM charges ch3
+                    WHERE ch3.shipment_id = s.id AND ch3.side = 'AP'
+                      AND ch3.settlement_status <> 'VOID'
+                  ) AS total_cost
                 FROM shipments s
                 LEFT JOIN channels ch ON ch.id = s.channel_id
                 WHERE (?::text IS NULL OR (s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?))
@@ -169,13 +190,12 @@ public class AccShipmentsController {
         out.put("id", row.get("id"));
         out.put("no", row.get("shipment_no"));
         out.put("channelName", row.get("channel_name"));
-        out.put("supplierName", "");       // TODO: 接 partners 表
+        out.put("supplierName", row.get("supplier_name") == null ? "" : row.get("supplier_name"));
         out.put("country", row.get("destination_country"));
         out.put("totalPiece", row.get("piece_count"));
         out.put("totalWeight", row.get("total_weight"));
-        out.put("totalCharge", 0);
-        out.put("totalCost", 0);
-        out.put("auditName", "");
+        out.put("totalCharge", row.get("total_charge"));
+        out.put("totalCost", row.get("total_cost"));
         out.put("addTime", json.value(row.get("created_at")));
         out.put("status", row.get("status"));
         out.put("auditStatus", row.get("audit_status"));
