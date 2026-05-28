@@ -11,9 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class CustomerApiRepository {
     private final JdbcTemplate jdbc;
+    private final com.xqt.saas.finance.FxSnapshotCapture fxCapture;
 
-    public CustomerApiRepository(JdbcTemplate jdbc) {
+    public CustomerApiRepository(JdbcTemplate jdbc,
+                                  com.xqt.saas.finance.FxSnapshotCapture fxCapture) {
         this.jdbc = jdbc;
+        this.fxCapture = fxCapture;
     }
 
     @Transactional(readOnly = true)
@@ -475,6 +478,8 @@ public class CustomerApiRepository {
             """, tenantId, accountId, ownerType, ownerId, bizType,
             sourceType, sourceRef, currency, direction, amount,
             balanceBefore, balanceAfter, operator, remark);
+        // 任务 S6：fx 快照捕获（11 类 biz_type 全部覆盖）
+        fxCapture.captureForLedger(tenantId, currency, bizType, sourceType, sourceRef);
     }
 
     /** 查某资金账户的流水（余额追溯）。 */

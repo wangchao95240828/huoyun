@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.JsonSupport;
+import com.xqt.saas.finance.FxSnapshotCapture;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,10 +17,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class DocumentChargeRepository {
     private final JdbcTemplate jdbc;
     private final JsonSupport json;
+    private final FxSnapshotCapture fxCapture;
 
-    public DocumentChargeRepository(JdbcTemplate jdbc, JsonSupport json) {
+    public DocumentChargeRepository(JdbcTemplate jdbc, JsonSupport json,
+                                     FxSnapshotCapture fxCapture) {
         this.jdbc = jdbc;
         this.json = json;
+        this.fxCapture = fxCapture;
     }
 
     /** 把订单下所有 ESTIMATED 状态的 charges 推进到 CONFIRMED。 */
@@ -504,6 +508,8 @@ public class DocumentChargeRepository {
             """, tenantId, accountId, ownerType, ownerId, bizType,
             sourceType, sourceRef, currency, direction, amount,
             balanceBefore, balanceAfter, operator, remark);
+        // 任务 S6：fx 快照捕获（11 类 biz_type 全部覆盖）
+        fxCapture.captureForLedger(tenantId, currency, bizType, sourceType, sourceRef);
     }
 
     /** 记一笔汇率快照（金额动作发生时调用，便于事后对账重现）。 */
