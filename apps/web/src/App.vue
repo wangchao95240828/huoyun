@@ -2315,7 +2315,7 @@ async function doDelete() {
 // ═══════════════ Business Operations ═══════════════
 
 const auditableTabs = new Set([
-  'orders', 'collects', 'shipments', 'stowages', 'charges', 'costs',
+  'orders', 'collects', 'shipments', 'packages', 'stowages', 'charges', 'costs',
   'bills', 'payments', 'receiveds', 'commissions', 'transfers',
   'expenses', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
   'transits', 'customer-fines', 'supplier-fines',
@@ -2323,26 +2323,35 @@ const auditableTabs = new Set([
   'customer-rebates', 'supplier-rebates',
   'customer-refunds', 'supplier-refunds',
   'assets', 'funds', 'socials',
+  // 2026-05-28 阶段 1：对齐后端 AuditService.AUDITABLE_ENTITIES（HR + 配置类）
+  'employees', 'attendances', 'social-persons', 'fund-persons',
+  'channel-accounts', 'logistics-interfaces', 'templates',
 ]);
 
 const bizAuditTabs = new Set([
-  'orders', 'shipments', 'stowages', 'charges', 'costs', 'bills',
+  'orders', 'shipments', 'packages', 'stowages', 'charges', 'costs', 'bills',
   'receiveds', 'payments', 'commissions', 'transits',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
   'customer-fines', 'supplier-fines', 'customer-adjusts', 'supplier-adjusts',
   'customer-rebates', 'supplier-rebates',
   'customer-refunds', 'supplier-refunds',
   'assets', 'funds', 'socials',
+  // 2026-05-28 阶段 1：HR + 配置类
+  'employees', 'attendances', 'social-persons', 'fund-persons',
+  'channel-accounts', 'logistics-interfaces', 'templates',
 ]);
 
 // 批量审核：所有业务可审核 tab 都启用（ACC 原行为也是凡审核处都能批量）
 const batchAuditTabs = new Set([
-  'orders', 'shipments', 'stowages', 'charges', 'costs', 'bills',
+  'orders', 'shipments', 'packages', 'stowages', 'charges', 'costs', 'bills',
   'receiveds', 'payments', 'commissions', 'transits',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
   'customer-fines', 'supplier-fines', 'customer-adjusts', 'supplier-adjusts',
   'customer-rebates', 'supplier-rebates', 'customer-refunds', 'supplier-refunds',
   'assets', 'funds', 'socials',
+  // 2026-05-28 阶段 1：HR + 配置类
+  'employees', 'attendances', 'social-persons', 'fund-persons',
+  'channel-accounts', 'logistics-interfaces', 'templates',
 ]);
 const importTabs = new Set(['orders', 'charges', 'costs']);
 const exportTabs = new Set([
