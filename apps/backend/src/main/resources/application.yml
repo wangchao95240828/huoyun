@@ -47,6 +47,10 @@ app:
   auth:
     jwt-secret: ${JWT_SECRET}
     token-ttl-seconds: ${AUTH_TOKEN_TTL_SECONDS:28800}
+  rates:
+    # 生产应设为 true：报价失败（无价表/规则不全）时直接阻断 Submit，
+    # 不允许退化为简化估算 estimatePrepayAmount。dev/demo 可设 false 以便联调。
+    strict-quote: ${RATES_STRICT_QUOTE:false}
 
 springdoc:
   api-docs:

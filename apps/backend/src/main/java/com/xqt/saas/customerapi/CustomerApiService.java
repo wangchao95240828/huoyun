@@ -49,6 +49,10 @@ public class CustomerApiService {
     private final CarrierGatewayRegistry carrierGateways;
     private final RateEngine rateEngine;
 
+    /** 生产应为 true：报价失败直接阻断 Submit，不退化为简化估算。 */
+    @org.springframework.beans.factory.annotation.Value("${app.rates.strict-quote:false}")
+    private boolean strictQuote;
+
     public CustomerApiService(CustomerApiRepository repository, JsonSupport json,
                               JdbcTemplate jdbc, CarrierGatewayRegistry carrierGateways,
                               RateEngine rateEngine) {
@@ -187,10 +191,15 @@ public class CustomerApiService {
             }
             prepayAmount = quote == null ? estimatePrepayAmount(weight, declaredValue) : quote.totalAmount();
         } catch (ApiException ex) {
-            // 价表配置不全时退化为简化估算，保证 MVP 客户能继续下单
+            // blockers 是硬性拒绝，永远不能退化
             if (ex.getMessage() != null && ex.getMessage().startsWith("报价被拒")) {
-                throw ex; // blockers 是硬性拒绝，不能退化
+                throw ex;
             }
+            // strict 模式（生产）：报价失败直接阻断，不允许简化估算绕过正式价表
+            if (strictQuote) {
+                throw ApiException.badRequest("报价失败，无法下单（strict 模式）：" + ex.getMessage());
+            }
+            // 非 strict（dev/demo）：退化为简化估算，保证联调能继续
             prepayAmount = estimatePrepayAmount(weight, declaredValue);
         }
 
