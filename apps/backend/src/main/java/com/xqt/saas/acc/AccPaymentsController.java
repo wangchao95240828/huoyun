@@ -81,9 +81,11 @@ public class AccPaymentsController {
                   p.audit_status,
                   p.audited_at,
                   p.audit_name,
-                  pr.name           AS partner_name
+                  pr.name           AS partner_name,
+                  coalesce(fa.bank_name, fa.account_name) AS bank_name
                 FROM partner_payments p
                 LEFT JOIN partners pr ON pr.id = p.partner_id
+                LEFT JOIN financial_accounts fa ON fa.id = p.financial_account_id
                 WHERE (?::text IS NULL OR p.payment_no ILIKE ?)
                   AND (?::date IS NULL OR p.created_at >= ?::date)
                   AND (?::date IS NULL OR p.created_at < (?::date + 1))
@@ -162,10 +164,10 @@ public class AccPaymentsController {
         out.put("id", row.get("id"));
         out.put("no", row.get("payment_no"));
         out.put("supplierName", row.get("partner_name"));
-        out.put("bankName", row.get("payment_type"));    // 旧 ACC 用 BankName，这里复用 payment_type 代偿
+        // bankName 优先取关联的资金账户名；没绑定账户时回退到 payment_type
+        out.put("bankName", row.get("bank_name") != null ? row.get("bank_name") : row.get("payment_type"));
         out.put("amount", row.get("amount"));
         out.put("theDate", json.value(row.get("paid_at") != null ? row.get("paid_at") : row.get("created_at")));
-        out.put("auditName", "");                         // 新模型未建模
         out.put("remark", row.get("reference_no"));
         out.put("currency", row.get("currency"));
         out.put("status", row.get("status"));
