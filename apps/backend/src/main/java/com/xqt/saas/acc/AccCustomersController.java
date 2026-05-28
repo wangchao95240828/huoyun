@@ -58,12 +58,44 @@ public class AccCustomersController {
                 "SELECT count(*) FROM customers WHERE ?::text IS NULL OR (code ILIKE ? OR name ILIKE ?)",
                 Long.class, search, search, search)) instanceof Number n ? n.longValue() : 0;
             List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT id::text AS id, code, name, default_currency, account_mode,
-                       credit_limit, created_at,
-                       audit_status, audited_at, audit_name
-                FROM customers
-                WHERE ?::text IS NULL OR (code ILIKE ? OR name ILIKE ?)
-                ORDER BY code
+                SELECT c.id::text AS id, c.code, c.name, c.default_currency, c.account_mode,
+                       c.credit_limit, c.created_at,
+                       c.audit_status, c.audited_at, c.audit_name,
+                       org.name AS branch_name,
+                       grp.name AS group_name,
+                       u.display_name AS salesman_name,
+                       -- 主联系人（is_primary 优先；否则取第一条）
+                       (
+                         SELECT cc.name FROM customer_contacts cc
+                         WHERE cc.customer_id = c.id
+                         ORDER BY cc.is_primary DESC, cc.created_at
+                         LIMIT 1
+                       ) AS contact_name,
+                       (
+                         SELECT cc.phone FROM customer_contacts cc
+                         WHERE cc.customer_id = c.id AND cc.phone IS NOT NULL
+                         ORDER BY cc.is_primary DESC, cc.created_at
+                         LIMIT 1
+                       ) AS contact_phone,
+                       -- 结算方式：customer_settlement_profiles.pay_type 当下有效项
+                       (
+                         SELECT sp.pay_type FROM customer_settlement_profiles sp
+                         WHERE sp.customer_id = c.id
+                           AND sp.effective_from <= current_date
+                           AND (sp.effective_to IS NULL OR sp.effective_to >= current_date)
+                         ORDER BY sp.effective_from DESC LIMIT 1
+                       ) AS settlement_paytype,
+                       -- 余额：财务账户 owner_type='CUSTOMER' owner_id = customer.id 累加
+                       (
+                         SELECT coalesce(sum(fa.balance), 0) FROM financial_accounts fa
+                         WHERE fa.owner_type = 'CUSTOMER' AND fa.owner_id = c.id
+                       ) AS balance_amount
+                FROM customers c
+                LEFT JOIN organizations org ON org.id = c.branch_id
+                LEFT JOIN customer_groups grp ON grp.id = c.customer_group_id
+                LEFT JOIN users u ON u.id = c.salesman_user_id
+                WHERE ?::text IS NULL OR (c.code ILIKE ? OR c.name ILIKE ?)
+                ORDER BY c.code
                 LIMIT ? OFFSET ?
                 """, search, search, search, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(), total);
@@ -128,14 +160,16 @@ public class AccCustomersController {
         out.put("code", row.get("code"));
         out.put("name", row.get("name"));
         // 前端列：contact, mobile, balance, credits, settlement, branch, group, salesman
-        out.put("contact", "");
-        out.put("mobile", "");
-        out.put("balance", 0);
+        out.put("contact", row.get("contact_name") == null ? "" : row.get("contact_name"));
+        out.put("mobile", row.get("contact_phone") == null ? "" : row.get("contact_phone"));
+        out.put("balance", row.get("balance_amount"));
         out.put("credits", row.get("credit_limit"));
-        out.put("settlement", row.get("account_mode"));
-        out.put("branch", "");
-        out.put("group", "");
-        out.put("salesman", "");
+        // 结算方式优先用 customer_settlement_profiles.pay_type，回退到 customers.account_mode
+        out.put("settlement", row.get("settlement_paytype") == null
+            ? row.get("account_mode") : row.get("settlement_paytype"));
+        out.put("branch", row.get("branch_name") == null ? "" : row.get("branch_name"));
+        out.put("group", row.get("group_name") == null ? "" : row.get("group_name"));
+        out.put("salesman", row.get("salesman_name") == null ? "" : row.get("salesman_name"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));
