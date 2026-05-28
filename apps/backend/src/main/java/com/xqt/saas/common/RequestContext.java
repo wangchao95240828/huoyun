@@ -19,5 +19,16 @@ public class RequestContext {
 
     public void setTenant(AuthPrincipal principal) {
         jdbc.queryForObject("select set_config('app.current_tenant_id', ?, true)", String.class, principal.tenantId());
+        // 任务 S7：user 级 RLS 上下文（user_id + role + branch_id）
+        // 取首个 role 作为主 role；空时设空字符串 → policy 视为 "no user context" → 向后兼容不限制
+        String primaryRole = principal.roles() == null || principal.roles().isEmpty()
+            ? "" : principal.roles().get(0);
+        jdbc.queryForObject("select set_config('app.user_id', ?, true)",
+            String.class, principal.userId() == null ? "" : principal.userId());
+        jdbc.queryForObject("select set_config('app.user_role', ?, true)",
+            String.class, primaryRole == null ? "" : primaryRole);
+        // branch_id 待 AuthPrincipal 加字段后补；当前空字符串
+        jdbc.queryForObject("select set_config('app.user_branch_id', ?, true)",
+            String.class, "");
     }
 }
