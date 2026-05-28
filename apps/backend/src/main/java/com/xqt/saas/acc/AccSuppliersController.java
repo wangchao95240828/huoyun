@@ -59,12 +59,32 @@ public class AccSuppliersController {
                   AND (?::text IS NULL OR code ILIKE ? OR name ILIKE ?)
                 """, Long.class, search, search, search);
             List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT id::text AS id, code, name, settlement_currency, status,
-                       audit_status, audited_at, audit_name
-                FROM partners
-                WHERE partner_type = 'SUPPLIER'
-                  AND (?::text IS NULL OR code ILIKE ? OR name ILIKE ?)
-                ORDER BY code
+                SELECT p.id::text AS id, p.code, p.name, p.settlement_currency, p.status,
+                       p.audit_status, p.audited_at, p.audit_name,
+                       p.contact_name, p.contact_mobile, p.contact_phone,
+                       -- 关联渠道名（拼接 string_agg），从 channel_cost_policies 找承运
+                       (
+                         SELECT string_agg(distinct ch.name, ', ')
+                         FROM channel_cost_policies ccp
+                         JOIN channels ch ON ch.id = ccp.channel_id
+                         JOIN carriers car ON car.id = ccp.carrier_id
+                         WHERE car.id = p.carrier_id
+                           AND (ccp.effective_to IS NULL OR ccp.effective_to >= current_date)
+                       ) AS product_names,
+                       -- AP 余额：未付的应付费用 - 已付款（partner_payments），方向上越正越欠他
+                       (
+                         SELECT coalesce(sum(ch.unpaid_amount), 0)
+                         FROM charges ch
+                         JOIN channels c2 ON c2.id IN (
+                           SELECT channel_id FROM channel_cost_policies WHERE carrier_id = p.carrier_id
+                         )
+                         WHERE ch.side = 'AP' AND ch.audit_status = 'AUDITED'
+                           AND ch.settlement_status <> 'VOID'
+                       ) AS unpaid_balance
+                FROM partners p
+                WHERE p.partner_type = 'SUPPLIER'
+                  AND (?::text IS NULL OR p.code ILIKE ? OR p.name ILIKE ?)
+                ORDER BY p.code
                 LIMIT ? OFFSET ?
                 """, search, search, search, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(),
@@ -85,11 +105,16 @@ public class AccSuppliersController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        String contact = (String) (body.get("contact_name") != null ? body.get("contact_name") : body.get("contact"));
+        String mobile = (String) (body.get("contact_mobile") != null ? body.get("contact_mobile") : body.get("mobile"));
+        String phone = (String) (body.get("contact_phone") != null ? body.get("contact_phone") : body.get("phone"));
         String id = jdbc.queryForObject("""
-            INSERT INTO partners (tenant_id, code, name, partner_type)
-            VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, 'SUPPLIER')
+            INSERT INTO partners (tenant_id, code, name, partner_type,
+                                  contact_name, contact_mobile, contact_phone)
+            VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, 'SUPPLIER',
+                    ?, ?, ?)
             RETURNING id::text
-            """, String.class, code, name);
+            """, String.class, code, name, contact, mobile, phone);
         return Map.of("id", id, "code", code, "name", name);
     }
 
@@ -106,10 +131,19 @@ public class AccSuppliersController {
         Map<String, Object> allowed = gate.allowed();
         jdbc.update("""
             UPDATE partners SET
-              code = coalesce(?, code),
-              name = coalesce(?, name)
+              code           = coalesce(?, code),
+              name           = coalesce(?, name),
+              contact_name   = coalesce(?, contact_name),
+              contact_mobile = coalesce(?, contact_mobile),
+              contact_phone  = coalesce(?, contact_phone)
             WHERE id = ?::uuid AND partner_type='SUPPLIER'
-            """, (String) allowed.get("code"), (String) allowed.get("name"), id);
+            """,
+            (String) allowed.get("code"),
+            (String) allowed.get("name"),
+            (String) (allowed.get("contact_name") != null ? allowed.get("contact_name") : allowed.get("contact")),
+            (String) (allowed.get("contact_mobile") != null ? allowed.get("contact_mobile") : allowed.get("mobile")),
+            (String) (allowed.get("contact_phone") != null ? allowed.get("contact_phone") : allowed.get("phone")),
+            id);
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
 
@@ -131,11 +165,11 @@ public class AccSuppliersController {
         out.put("id", row.get("id"));
         out.put("code", row.get("code"));
         out.put("name", row.get("name"));
-        out.put("contact", "");
-        out.put("mobile", "");
-        out.put("phone", "");
-        out.put("product", "");
-        out.put("balance", 0);
+        out.put("contact", row.get("contact_name") == null ? "" : row.get("contact_name"));
+        out.put("mobile", row.get("contact_mobile") == null ? "" : row.get("contact_mobile"));
+        out.put("phone", row.get("contact_phone") == null ? "" : row.get("contact_phone"));
+        out.put("product", row.get("product_names") == null ? "" : row.get("product_names"));
+        out.put("balance", row.get("unpaid_balance"));
         out.put("settlement", row.get("settlement_currency"));
         out.put("status", row.get("status"));
         out.put("auditStatus", row.get("audit_status"));
