@@ -216,4 +216,22 @@ class SubmitRateIntegrationTest {
         assertThat(pre.canSubmit()).isFalse();
         assertThat(pre.blockers()).contains("battery not allowed");
     }
+
+    // ─── 8. 预扣写资金流水（DEBIT/PREPAY，before/after 正确） ───
+    @Test
+    void submitWritesPrepayBalanceLedger() {
+        CustomerApiRepository repo = baseRepo(META);
+        RateEngine engine = mock(RateEngine.class);
+        when(engine.quote(eq(TENANT), any())).thenReturn(fullQuote());
+
+        service(repo, engine).submitOrder(principal(), "ORD-S1");
+
+        // 余额 100000，预扣 118.50 → after 99881.50；direction=DEBIT, biz=PREPAY
+        verify(repo, times(1)).recordBalanceLedger(
+            eq(TENANT), eq("acct-1"), eq("CUSTOMER"), eq("cust-1"),
+            eq("PREPAY"), eq("order"), eq("DOC-ORD-S1"), eq("CNY"), eq("DEBIT"),
+            eq(new BigDecimal("118.50")),
+            eq(new BigDecimal("100000")), eq(new BigDecimal("99881.50")),
+            any(), any());
+    }
 }

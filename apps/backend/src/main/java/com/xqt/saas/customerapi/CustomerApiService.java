@@ -204,6 +204,13 @@ public class CustomerApiService {
                 if (!repository.decrementBalance(balanceAccountId, prepayAmount)) {
                     throw ApiException.badRequest("余额扣减失败，请重试");
                 }
+                // 资金流水：预扣（余额减少 DEBIT），记 before/after 便于追溯（ACC Customer_Balance_History）
+                BigDecimal balBefore = currentBalance == null ? BigDecimal.ZERO : currentBalance;
+                repository.recordBalanceLedger(
+                    principal.tenantId(), balanceAccountId, "CUSTOMER", principal.customerId(),
+                    "PREPAY", "order", orderNo, prepayCurrency, "DEBIT",
+                    prepayAmount, balBefore, balBefore.subtract(prepayAmount),
+                    principal.customerCode(), "下单预扣");
                 if (quote != null) {
                     // 有正式报价：按 breakdown 拆 AR/AP 多费用行
                     prepaidChargeId = writeBreakdownCharges(
@@ -372,7 +379,16 @@ public class CustomerApiService {
                     : json.fromJson(evidenceJson, new TypeReference<Map<String, Object>>() {});
                 String acctId = (String) evidence.get("balance_account_id");
                 if (acctId != null) {
+                    BigDecimal before = repository.findAccountBalance(acctId);
+                    if (before == null) before = BigDecimal.ZERO;
                     repository.restoreBalance(acctId, amt);
+                    // 资金流水：预扣释放（余额增加 CREDIT）
+                    repository.recordBalanceLedger(
+                        principal.tenantId(), acctId, "CUSTOMER", principal.customerId(),
+                        "PREPAY_RELEASE", "order", orderNo,
+                        (String) row.get("currency"), "CREDIT",
+                        amt, before, before.add(amt),
+                        principal.customerCode(), "取消订单释放预扣");
                     refundedAmount = refundedAmount.add(amt);
                     refundedCount++;
                 }

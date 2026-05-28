@@ -430,6 +430,53 @@ public class CustomerApiRepository {
             side, currency, amount, evidenceJson);
     }
 
+    /** 读资金账户当前余额（写流水时取 before/after 用）。 */
+    public BigDecimal findAccountBalance(String accountId) {
+        try {
+            return jdbc.queryForObject(
+                "SELECT balance FROM financial_accounts WHERE id = ?::uuid", BigDecimal.class, accountId);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * 写一条资金账户流水（balance_ledger）。对应 ACC Customer_Balance_History。
+     * amount 传正数，方向由 direction（CREDIT 增 / DEBIT 减）表达。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void recordBalanceLedger(String tenantId, String accountId, String ownerType,
+                                    String ownerId, String bizType, String sourceType,
+                                    String sourceRef, String currency, String direction,
+                                    BigDecimal amount, BigDecimal balanceBefore,
+                                    BigDecimal balanceAfter, String operator, String remark) {
+        jdbc.update("""
+            INSERT INTO balance_ledger (
+              tenant_id, account_id, owner_type, owner_id, biz_type,
+              source_type, source_ref, currency, direction, amount,
+              balance_before, balance_after, operator, remark
+            ) VALUES (
+              ?::uuid, ?::uuid, ?, ?::uuid, ?::balance_ledger_biz_type,
+              ?, ?, ?, ?::balance_ledger_direction, ?,
+              ?, ?, ?, ?
+            )
+            """, tenantId, accountId, ownerType, ownerId, bizType,
+            sourceType, sourceRef, currency, direction, amount,
+            balanceBefore, balanceAfter, operator, remark);
+    }
+
+    /** 查某资金账户的流水（余额追溯）。 */
+    public List<Map<String, Object>> findBalanceLedger(String tenantId, String accountId, int limit) {
+        return jdbc.queryForList("""
+            SELECT id::text AS id, biz_type, source_type, source_ref, currency,
+                   direction, amount, balance_before, balance_after, operator, remark, created_at
+            FROM balance_ledger
+            WHERE tenant_id = ?::uuid AND account_id = ?::uuid
+            ORDER BY created_at DESC
+            LIMIT ?
+            """, tenantId, accountId, Math.min(limit, 200));
+    }
+
     /**
      * Submit 取号成功后累加渠道账号当日票池（channel_account_daily_usage）。
      * upsert：当天首单插入，后续累加 count/piece/weight。RateEngine 限额检查读这张表。
