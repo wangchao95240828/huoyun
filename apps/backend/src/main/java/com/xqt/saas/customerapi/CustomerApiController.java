@@ -30,10 +30,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class CustomerApiController {
     private final CustomerApiService service;
     private final RateEngine rateEngine;
+    private final com.xqt.saas.tracking.TrackingAggregator trackingAggregator;
 
-    public CustomerApiController(CustomerApiService service, RateEngine rateEngine) {
+    public CustomerApiController(CustomerApiService service, RateEngine rateEngine,
+                                  com.xqt.saas.tracking.TrackingAggregator trackingAggregator) {
         this.service = service;
         this.rateEngine = rateEngine;
+        this.trackingAggregator = trackingAggregator;
     }
 
     @GetMapping("/balance")
@@ -98,6 +101,19 @@ public class CustomerApiController {
     @PostMapping("/tracking/query")
     public ApiResponse<ItemResponse<TrackingList>> trackingQuery(@RequestBody CustomerApiRequests.OrderRefList body) {
         return ApiResponse.ok(new ItemResponse<>(service.queryTracking(principal(), body)));
+    }
+
+    /**
+     * 客户视角时间线（任务 S1）：按子单号查多源轨迹，剥 operator/internal remark。
+     * 对应 ACC 客户端按单号查 Express_Process 综合状态流。
+     */
+    @GetMapping("/tracking/{trackingNo}/timeline")
+    public ApiResponse<java.util.Map<String, Object>> trackingTimeline(@PathVariable String trackingNo) {
+        var events = trackingAggregator.aggregateByTrackingNo(principal().tenantId(), trackingNo);
+        return ApiResponse.ok(java.util.Map.of(
+            "trackingNo", trackingNo,
+            "events", trackingAggregator.toPublic(events)
+        ));
     }
 
     @GetMapping("/ping")

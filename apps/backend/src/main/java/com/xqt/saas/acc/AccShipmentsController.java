@@ -35,13 +35,16 @@ public class AccShipmentsController {
     private final JsonSupport json;
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
+    private final com.xqt.saas.tracking.TrackingAggregator trackingAggregator;
 
     public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
-                                  CascadeChecker cascadeChecker, FieldGate fieldGate) {
+                                  CascadeChecker cascadeChecker, FieldGate fieldGate,
+                                  com.xqt.saas.tracking.TrackingAggregator trackingAggregator) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+        this.trackingAggregator = trackingAggregator;
     }
 
     @GetMapping
@@ -185,6 +188,19 @@ public class AccShipmentsController {
             out.add(projected);
         }
         return out;
+    }
+
+    /**
+     * 内部视角时间线（任务 S1）：UNION 5 源事件 + operator/internal remark 全字段。
+     * 对应 ACC 旧系统 Express_Process / Stowage_Process / 上门揽收等综合查看。
+     */
+    @GetMapping("/{id}/timeline")
+    public Map<String, Object> timeline(@PathVariable String id) {
+        String tenantId = jdbc.queryForObject(
+            "SELECT current_setting('app.current_tenant_id', true)", String.class);
+        List<com.xqt.saas.tracking.TrackingEvent> events =
+            trackingAggregator.aggregateByShipment(tenantId, id);
+        return Map.of("shipmentId", id, "events", events);
     }
 
     /** 前端原页面的 "查看装箱清单"，对应 ACC `shipments/{id}/items`。返回该 shipment 下所有 cartons + declarations。 */
