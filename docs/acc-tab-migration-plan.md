@@ -1,151 +1,160 @@
 # ACC 80 tab 前后端对齐迁移计划
 
-生成日期：2026-05-21
+生成日期：2026-05-21（最后更新 2026-05-28）
 来源：`apps/web/src/App.vue` 的 `accTabs` 数组（78 个 tab）+ 现有数据库表盘点。
 
-## 0. 当前进度
+## 0. 当前进度（2026-05-28 update）
 
-✅ 已实现端到端（共 **50** 个 tab）：
-- 字典/主数据（早期）：`customers` / `channels` / `currencies`
-- P1 业务核心：`orders` / `shipments`（含 `{id}/items`）/ `bills`（含 `{id}/items`）/ `payments` / `receiveds` / `charges` / `costs` / `profits`（含 `/summary` 聚合）/ `packages`
-- P2 主数据：`suppliers` / `remotes` / `fuels` / `fee-types` / `acc-branches`（路由 `/api/acc/branches`）/ `departments`
-- P2 主数据字典（022 批次）：`countries` / `postcodes` / `hscodes` / `bank-names` / `districts` / `customer-groups` / `warehouses` / `returns`
-- P2 异常流 + 财务扩展（023 批次）：`collects` / `detains` / `asks` / `reparations` / `void-orders` / `fees` / `customer-fines` / `supplier-fines`
-- P2 财务流水 + 字典（024 批次）：`customer-adjusts` / `supplier-adjusts` / `customer-refunds` / `supplier-refunds` / `customer-rebates` / `supplier-rebates` / `expense-categories` / `fee-item-types`
-- P2 资金管理（025 批次）：`expenses` / `banks`（复用 financial_accounts）/ `transfers` / `dividends` / `borrowings` / `cycles` / `assets` / `received-sms`
-✅ 路径基础对齐：`/health` → `/api/health`、`/api/sys/*` → `/api/admin/*`（仅 4 个）
-✅ `/api/finance/dashboard`、`/api/finance/branches`、`/api/finance/dashboard/health` 已建
-✅ **所有 49 个写型 tab 接入全 5 框架** + 1 个只读视图（void-orders）
-✅ **复用类型基类模式**：acc_fines（c/s 2 种）+ acc_finance_txns（c/s × 3 type = 6 种）共 8 个 controller 共享 2 张表
+✅ **已实现端到端：78 / 78 tab**（全部）。
+✅ DB migrations：**30 个**（001…030）。最新两个：
+  - `db/migrations/029_acc_rate_full_logic.sql` — RateEngine 全量分支（客户价/组价/AP 成本价 /
+    渠道账号限额 / 电池仿牌限制 / 偏远规则 / 佣金规则 / 多段计费类型）
+  - `db/migrations/030_acc_documentcharges.sql` — Express_Charge 闭环：charges 补
+    paid_amount/unpaid_amount/settlement_status + fx_rate_snapshots + 自动同步触发器
+✅ **5 框架全接**：audit / state-machine / cascade / field-gate / money-snapshot
+✅ **复用类型基类模式**：acc_fines（c/s 2 种）+ acc_finance_txns（c/s × 3 type = 6 种）共 8 个
+   controller 共享 2 张表
 ✅ **跨表级联**：banks 删除前检查 expenses/transfers/dividends 关联，阻塞删除并显示具体计数
-⏳ 剩余 **28 个 ACC tab** 待迁
+✅ **客户外部 API**：14 个端点 1:1 复刻 ACC `api/APIClass.php`
+✅ **documentcharges 模块**：5 个端点（generate-from-order / void / invoices/generate /
+   invoices/{id}/settle / profits/summary）；customer invoice + 收款 + 反核销闭环
+
+## 0.1 仍待生产化的能力（按 `docs/acc-gap-report-for-claude-2026-05-28.md`）
+
+- 真实 UPS/FedEx/EDI 渠道接入（当前是 Demo gateway）
+- 真实面单 provider（当前 Noop label gateway）
+- Submit 拆分 AR/AP 多费用行（当前是合并一笔）
+- 供应商账单 partner-invoices/generate + settle（数据模型就绪，service 待补）
+- 12 个后台 tab 部分字段仍是占位（AccOrdersController.sellCharge/costCharge/branch、
+  AccCustomersController.contact/balance/salesman 等 —— 详见 §6）
+- Scale.php / sumy.php 独立 API 未迁
 
 ## 1. 后端模板
 
-新增任一 ACC tab 复用 `com.xqt.saas.acc.AccCustomersController` 这个模板，5 个端点：
+任何新 ACC tab 复用 `com.xqt.saas.acc.AccCustomerGroupsController` 这个模板，含 5 个端点：
 - `GET /api/acc/<tab>` 列表分页（参数 page/pageSize/keyword/dateFrom/dateTo）
 - `GET /api/acc/<tab>/{id}/raw` 原始详情
 - `POST /api/acc/<tab>` 新建
 - `PUT /api/acc/<tab>/{id}` 更新
 - `DELETE /api/acc/<tab>/{id}` 删除
 
-响应统一通过 `AccPaging.result(data, total)` 输出 `{data, total}`，匹配前端 `fetchAccData` 兼容分支。
+响应统一通过 `AccPaging.result(data, total)` 输出 `{data, total}`，匹配前端 `fetchAccData`。
 
-## 2. tab 分类与状态
+审核动作（如果该实体在 `AuditService.AUDITABLE_ENTITIES` 注册）自动通过 `AccAuditController`：
+- `POST /api/acc/<tab>/{id}/audit-biz`
+- `POST /api/acc/<tab>/{id}/undo-biz`
+- `POST /api/acc/<tab>/batch-audit`
+- `GET  /api/acc/<tab>/{id}/audit-history`
 
-### 2.1 已建表，可直接对接（复用现有 schema）
+## 2. tab → 后端表 映射现状
 
-| ACC tab | 后端表 | 备注 |
-|---|---|---|
-| customers ✅ | customers | 已实现（参考） |
-| channels ✅ | channels | 已实现（参考） |
-| currencies ✅ | finance_currency | 已实现（参考） |
-| customer-groups | （建表） | 旧 `Customer_Group` 简单字典 |
-| suppliers ✅ | partners (partner_type='SUPPLIER') | 已实现 |
-| channel-accounts | （建表 channel_accounts） | 渠道账号 |
-| products | services / rate_cards | 旧 `Product` 概念分拆 |
-| countries | （建表 countries） | 国家字典 |
-| zones | rate_card_lines.zone_code | 已有列，需聚合视图 |
-| postcodes | （建表 postcodes） | 邮编 |
-| remotes ✅ | remote_zones | 已实现 |
-| fuels ✅ | fuel_surcharge_rates | 已实现 |
-| hscodes | （建表 hs_codes） | HS 编码字典 |
-| bank-names | （建表 bank_names） | 银行字典 |
-| acc-branches ✅ | organizations | 已实现（路由 /api/acc/branches） |
-| departments ✅ | organizations (org_type='department') | 已实现 |
-| fee-types ✅ | charge_items | 已实现 |
-| expense-categories | （建表） | 费用类别 |
-| stowages | stowages | ✅ 已建（P3-1） |
-| stowage-categories | stowage_categories | ✅ 已建（P3-1） |
-| ports | stowage_ports | ✅ 已建（P3-1） |
+### 2.1 业务核心（P1 完成）
 
-### 2.2 业务核心，需建表 + 写完整业务逻辑
-
-| ACC tab | 旧 PHP 类 | 估时（人天） | 优先级 |
+| tab | 表 | controller | 审核 |
 |---|---|---|---|
-| orders ✅ | Express.php (2453 行) | 5 | P1 完成 |
-| shipments ✅ | 同 orders | 含在 orders | P1 完成 |
-| packages ✅ | Online.php (4818 行) | 3 | P1 完成 |
-| bills ✅ | CBill.php (86KB) | 5 | P1 完成 |
-| payments ✅ | Bank.php | 2 | P1 完成 |
-| receiveds ✅ | Collect.php | 2 | P1 完成 |
-| charges ✅ | Charge.php (78KB) | 5 | P1 完成 |
-| costs ✅ | Cost.php (88KB) | 5 | P1 完成 |
-| profits ✅ | （视图聚合） | 2 | P1 完成（含 `/summary` 聚合） |
-| commissions | Commission.php | 3 | P2 |
-| collects | Collect.php | 2 | P2 |
-| returns | Back.php | 2 | P2 |
-| detains | Detain.php | 2 | P2 |
-| asks | Ask.php | 2 | P2 |
-| reparations | （新建） | 3 | P2 |
-| transits | （新建 transits） | 2 | P2 |
-| warehouses | warehouses | 复用 | P2 |
-| dispatches | Dispatch.php | 3 | P2 |
-| forecasts | （新建） | 2 | P3 |
-| tracks | tracking_events | 复用 | P2 |
-| stowage-steps | （新建） | 2 | P3 |
-| void-orders | （视图） | 1 | P3 |
-| quick-orders | （视图） | 1 | P3 |
-| fees | Fee.php | 2 | P2 |
-| customer-fines / supplier-fines | CFine.php | 2 | P3 |
-| customer-adjusts / supplier-adjusts | CAdjust.php | 2 | P3 |
-| customer-refunds / supplier-refunds | CRefund.php | 2 | P3 |
-| customer-rebates / supplier-rebates | （新建） | 2 | P3 |
-| expenses | Expenses.php (77KB) | 3 | P2 |
-| banks | Bank.php (39KB) | 2 | P2 |
-| transfers | （新建） | 1 | P3 |
-| dividends | Dividend.php | 2 | P3 |
-| borrowings | Borrowing.php (97KB) | 4 | P3 |
-| assets | Assets.php (94KB) | 4 | P3 |
-| cycles | Cycle.php | 2 | P3 |
-| received-sms | （新建） | 1 | P3 |
-| fee-item-types | （新建） | 1 | P3 |
-| product-items | （新建） | 1 | P3 |
-| potentials | （新建） | 2 | P3 |
-| sold-tos | addresses | 复用 | P2 |
-| notices | ClientNotice.php | 2 | P3 |
-| employees | Employee.php (62KB) | 4 | P3 |
-| wages | （新建） | 3 | P3 |
-| attendances | Attence.php | 3 | P3 |
-| socials / social-persons | （新建） | 3 | P3 |
-| funds / fund-persons | （新建） | 3 | P3 |
-| commission-rules | Commission.php | 2 | P3 |
-| districts | District.php | 1 | P3 |
-| logistics-interfaces | （新建） | 2 | P3 |
-| tasks | （新建） | 2 | P3 |
-| templates | （新建） | 1 | P3 |
+| orders | orders | AccOrdersController | ✅ |
+| shipments | shipments | AccShipmentsController | ✅ |
+| packages | shipments（视图）| AccPackagesController | ✅（2026-05-28 加） |
+| stowages | stowages | AccStowagesController | ✅ |
+| transits | acc_transits | AccTransitsController | ✅ |
+| forecasts | acc_forecasts | AccForecastsController | ✅ |
+| dispatches | acc_dispatches | AccDispatchesController | ✅ |
+| charges | charges | AccChargesController | ✅ |
+| costs | charges (side=AP) | AccCostsController | ✅ |
+| bills | customer_invoices | AccBillsController | ✅ |
+| payments | partner_payments | AccPaymentsController | ✅ |
+| receiveds | payments | AccReceivedsController | ✅ |
+| profits | （聚合视图）| AccProfitsController | — |
 
-**估算总和**：P1 ≈ 27 人天、P2 ≈ 30 人天、P3 ≈ 40 人天 = **～100 人天**。
+### 2.2 异常流 + 财务扩展（023 / 024 批次完成）
 
-## 3. 推荐执行顺序
+collects / detains / asks / reparations / fees /
+customer-fines / supplier-fines / customer-adjusts / supplier-adjusts /
+customer-refunds / supplier-refunds / customer-rebates / supplier-rebates /
+expense-categories / fee-item-types
 
-按业务依赖 + 价值密度：
+### 2.3 资金管理（025 批次完成）
 
-1. **P0 已完成**：customers / channels / currencies（模板就位）
-2. **P1 业务核心**（27 天）：orders → shipments → packages → charges → costs → bills → payments → receiveds → profits
-3. **P2 业务扩展**（30 天）：collects/returns/detains/asks 等异常流 + suppliers/sold-tos 等主数据 + dispatches/transits 等仓库
-4. **P3 周边**（40 天）：人事 / 银行 / 资产 / 借贷 / 罚款 / 调账 / 退款 / 返利 等
+expenses / banks / transfers / dividends / borrowings / cycles / assets / received-sms
 
-## 4. 每个 tab 的复制模板（约 1.5 小时/个）
+### 2.4 HR + 提成（026 批次完成）
 
-按 `AccCustomersController` 复制：
+employees / attendances / wages / commissions / commission-rules /
+socials / social-persons / funds / fund-persons
 
-1. 确认或新建 DB 表（如果是新表，写一个 `db/migrations/0XX_acc_<tab>.sql`）
-2. 复制 `AccCustomersController.java` → `Acc<Tab>Controller.java`
-3. 改 `@RequestMapping("/api/acc/<tab>")`
-4. 改 SQL（表名、列名、where 条件、search 字段）
-5. 改 `project()` 把 DB 列名映射到前端 `accColumns[<tab>]` 期望的列
-6. （可选）批量审核 / 业务操作端点：`audit-biz`、`undo-biz`、`batch-audit`
-7. 跑 `./mvnw -DskipTests compile` + 手动验一遍 list / raw / POST / PUT / DELETE
+### 2.5 物流扩展（027 批次完成）
 
-## 5. 前端配套调整
+stowage-categories / stowage-steps / ports / quick-orders / void-orders / tracks
 
-每加一个新 tab：
-- 不需要改前端代码（accTabs 数组已写死全部 78 个）
-- 如果列名对不上，前端会显示空 — 此时改 `accColumns[<tab>]` 或后端 `project()`
-- 表单字段（accFormFields）某些 tab 没定义 → 不能用 CRUD UI；用作只读列表即可
+### 2.6 客户产品 + 系统杂项（028 批次完成）
 
-## 6. 关键不对齐与决策记录
+channel-accounts / products（只读视图）/ product-items /
+potentials / sold-tos / notices /
+logistics-interfaces / tasks / templates /
+zones（只读派生视图）
+
+### 2.7 字典 / 主数据
+
+customers / suppliers / channels / currencies / customer-groups /
+countries / postcodes / hscodes / bank-names / districts /
+warehouses / acc-branches / departments /
+returns / remotes / fuels / fee-types
+
+## 3. 当前 30 个 migrations 摘要
+
+| # | 文件 | 内容 |
+|---|---|---|
+| 001 | init | 基础租户 + RLS + 主业务表骨架 |
+| 002-017 | 早期 | 财务核心、面单、客户 API 客户外部签名、汇率等 |
+| 018 | finance_core | charges/customer_invoices/payments 等 |
+| 019 | acc_labels | 面单 / label_files |
+| 020 | acc_stowage | stowages/stowage_categories/stowage_ports |
+| 021 | acc_audit_framework | audit_events / 5 框架 |
+| 022 | acc_masterdata | countries/postcodes/hscodes/bank_names/districts/customer_groups/warehouses/returns |
+| 023 | acc_exceptions_and_finance | collects/detains/asks/reparations/fees/fines |
+| 024 | acc_finance_txns_and_dicts | finance_txns/expense_categories/fee_item_types |
+| 025 | acc_finance_mgmt | expenses/banks/transfers/dividends/borrowings/cycles/assets/received_sms |
+| 026 | acc_hr | employees/attendances/wages/commissions/socials/funds 等 9 表 |
+| 027 | acc_logistics | stowage_steps/transits/dispatches/forecasts/track_items |
+| 028 | acc_customer_product | channel_accounts/product_items/sold_tos/potentials/notices/logistics_interfaces/scheduled_tasks/message_templates |
+| 029 | **acc_rate_full_logic** | customer_rate_cards/customer_group_rate_cards/channel_account_limits/channel_account_daily_usage/service_restrictions/rate_commission_rules/remote_rate_rules + rate_card_lines 多段计费 6 列 |
+| 030 | **acc_documentcharges** | charges 补 paid_amount/unpaid_amount/settlement_status/source_ref/rate_snapshot_id/order_id/customer_id + fx_rate_snapshots + partner_invoice_lines.charge_id + 自动同步触发器 |
+
+## 4. 现在的 controller 数量
+
+- ACC retrofit controller：**50+ 个**（apps/backend/src/main/java/com/xqt/saas/acc/Acc*Controller.java）
+- 通用审核：`AccAuditController` 一个 controller 统一处理所有 tab 的 audit-biz / undo-biz / batch-audit / audit-history
+- documentcharges：`DocumentChargeController` 5 个端点
+
+## 5. 端点访问层 = AccTenantTxFilter 覆盖
+
+`AccTenantTxFilter` 把以下路径包进事务并设 `app.current_tenant_id`：
+- `/api/acc/**`
+- `/api/document/**`（2026-05-28 加）
+- `/api/finance/dashboard`、`/api/finance/branches`
+
+这些路径上的 SQL 可以省略 `WHERE tenant_id = ?`，RLS 自动过滤。
+
+## 6. 仍需补齐的占位字段
+
+按 `docs/acc-gap-report-for-claude-2026-05-28.md` §4：
+
+| 文件 | 占位字段 |
+|---|---|
+| `AccOrdersController.java` | product="" / sellCharge=0 / costCharge=0 / branch="" |
+| `AccShipmentsController.java` | supplierName="" |
+| `AccCustomersController.java` | contact/mobile/balance/settlement/branch/group/salesman |
+| `AccSuppliersController.java` | contact/mobile/phone/product/balance |
+| `AccWarehousesController.java` | consignee/company/postcode |
+| `AccBranchesController.java` | contact/phone/address/remark |
+| `AccReturnsController.java` | amount=0 |
+| `AccReceivedsController.java` | bankName="" |
+| `AccPaymentsController.java` | auditName="" |
+| `AccBillsController.java` | salesman="" |
+
+阶段 2 修复。
+
+## 7. 关键不对齐与决策记录
 
 - 旧 ACC 的 `Customer` 表有 contact/mobile/balance/settlement/branch/group/salesman 等"业务运营"字段；新 `customers` 表只有 code/name/credit_limit/account_mode/default_currency。
   - **决策**：业务运营字段进 `customer_contacts` / `customer_settlement_profiles`（已建）或 `addresses`。`AccCustomersController.project()` 拼接成前端期望的扁平结构。
@@ -153,3 +162,4 @@
   - **决策**：`/api/acc/currencies` 的 list 端点 join 当日汇率读 rate。symbol 加列。
 - 旧 ACC 用整数 ID，新平台多为 UUID。前端 `accColumns[*]` 都用 `key: "id"` 不关心类型，OK。
 - 前端 `apiFetch` 不带 tenant header；后端 `BearerAuthFilter` 从 token 解出 tenant_id 写 `app.current_tenant_id`，所以 controller SQL 直接读 `current_setting('app.current_tenant_id')::uuid` 即可。
+- 旧 ACC 的"装箱单 packages"是 shipments 的视图，审核 packages 等同于审核 shipments（2026-05-28 加映射）。
