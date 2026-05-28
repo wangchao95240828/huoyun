@@ -51,6 +51,10 @@ app:
     # 生产应设为 true：报价失败（无价表/规则不全）时直接阻断 Submit，
     # 不允许退化为简化估算 estimatePrepayAmount。dev/demo 可设 false 以便联调。
     strict-quote: ${RATES_STRICT_QUOTE:false}
+  carrier:
+    # 生产应设为 true：渠道必须经 acc_channel_accounts 显式配置 provider，
+    # 禁止 Demo/Noop 兜底取号。dev/demo 可设 false。
+    strict-gateway: ${CARRIER_STRICT_GATEWAY:false}
 
 springdoc:
   api-docs:

@@ -23,6 +23,10 @@ public class CarrierGatewayRegistry {
     private final CarrierGateway fallback;
     private final JdbcTemplate jdbc;
 
+    /** 生产应为 true：渠道必须经 acc_channel_accounts 显式配置 provider，禁止 Noop/Demo 兜底。 */
+    @org.springframework.beans.factory.annotation.Value("${app.carrier.strict-gateway:false}")
+    private boolean strictGateway;
+
     public CarrierGatewayRegistry(List<CarrierGateway> gateways,
                                   NoopCarrierGateway noopCarrierGateway,
                                   JdbcTemplate jdbc) {
@@ -39,20 +43,33 @@ public class CarrierGatewayRegistry {
         System.out.println("[CarrierGatewayRegistry] registered gateways: " + byKey.keySet());
     }
 
-    /** 按渠道编码（channels.code）查 gateway，没找到走 fallback。 */
+    /**
+     * 按渠道路由 gateway。优先级：
+     *   1. acc_channel_accounts(channel, active).provider_code（数据驱动，复刻 ACC Channel_Account.Code）
+     *   2. strict 模式：未显式配置直接抛错（生产禁 Noop/Demo 兜底）
+     *   3. 非 strict：last_mile_method + "_DEMO" 推断（dev 联调）
+     *   4. 非 strict：Noop 兜底
+     */
     public CarrierGateway forChannel(String tenantId, String channelCode) {
-        // 1. 显式 metadata 指定
-        String explicit = lookupMetadataGateway(tenantId, channelCode);
-        if (explicit != null && byKey.containsKey(explicit)) {
-            return byKey.get(explicit);
+        // 1. 数据驱动：acc_channel_accounts.provider_code
+        String provider = lookupChannelAccountProvider(tenantId, channelCode);
+        if (provider != null && byKey.containsKey(provider)) {
+            return byKey.get(provider);
         }
-        // 2. last_mile_method 匹配
+
+        // 2. strict（生产）：必须显式配置真实 provider，不允许 Demo/Noop 兜底
+        if (strictGateway) {
+            throw com.xqt.saas.common.ApiException.badRequest(
+                "渠道[" + channelCode + "]未配置可用取号接口（strict 模式禁用 Demo/Noop 兜底）");
+        }
+
+        // 3. last_mile_method 推断（仅 dev/demo）
         String lastMile = lookupLastMile(tenantId, channelCode);
         if (lastMile != null) {
             String key = lastMile.toUpperCase() + "_DEMO";
             if (byKey.containsKey(key)) return byKey.get(key);
         }
-        // 3. fallback
+        // 4. Noop 兜底（仅 dev/demo）
         return fallback;
     }
 
@@ -60,12 +77,19 @@ public class CarrierGatewayRegistry {
         return List.copyOf(byKey.keySet());
     }
 
-    private String lookupMetadataGateway(String tenantId, String channelCode) {
+    /** 查渠道当前生效账号配置的 provider_code（acc_channel_accounts join channels）。 */
+    private String lookupChannelAccountProvider(String tenantId, String channelCode) {
         try {
-            // channels 表暂未定义 metadata 列；这里用一个空 SELECT 兜底，
-            // 后续如要 metadata.gateway 路由，alter table 加列即可。
-            return null;
-        } catch (RuntimeException ex) {
+            return jdbc.queryForObject("""
+                SELECT a.provider_code
+                FROM acc_channel_accounts a
+                JOIN channels ch ON ch.id = a.channel_id
+                WHERE a.tenant_id = ?::uuid AND ch.code = ?
+                  AND a.is_active = true AND a.provider_code IS NOT NULL
+                ORDER BY a.created_at DESC
+                LIMIT 1
+                """, String.class, tenantId, channelCode);
+        } catch (org.springframework.dao.DataAccessException ex) {
             return null;
         }
     }
