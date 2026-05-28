@@ -74,12 +74,15 @@ public class AccReceivedsController {
                   p.currency,
                   p.amount,
                   p.received_at,
+                  p.remark,
                   p.audit_status,
                   p.audited_at,
                   p.audit_name,
-                  c.name           AS customer_name
+                  c.name           AS customer_name,
+                  coalesce(fa.bank_name, fa.account_name) AS bank_name
                 FROM payments p
                 LEFT JOIN customers c ON c.id = p.customer_id
+                LEFT JOIN financial_accounts fa ON fa.id = p.financial_account_id
                 WHERE (?::text IS NULL OR p.reference_no ILIKE ?)
                   AND (?::date IS NULL OR p.received_at >= ?::date)
                   AND (?::date IS NULL OR p.received_at < (?::date + 1))
@@ -107,16 +110,21 @@ public class AccReceivedsController {
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
         String currency = (String) body.getOrDefault("currency", "CNY");
         String referenceNo = (String) body.getOrDefault("reference_no", body.get("no"));
+        Object bankId = body.getOrDefault("financial_account_id", body.get("bankId"));
+        String remark = (String) body.get("remark");
         String id = jdbc.queryForObject("""
             INSERT INTO payments (
-              tenant_id, customer_id, currency, amount, received_at, reference_no
+              tenant_id, customer_id, currency, amount, received_at, reference_no,
+              financial_account_id, remark
             ) VALUES (
-              current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, ?, now(), ?
+              current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, ?, now(), ?,
+              ?::uuid, ?
             )
             RETURNING id::text
             """, String.class,
             customerId == null ? null : customerId.toString(),
-            currency, amount, referenceNo);
+            currency, amount, referenceNo,
+            bankId == null ? null : bankId.toString(), remark);
         // AR 收款的汇率快照
         moneySnapshotService.snapshot(TABLE, id, amount, currency);
         return Map.of("id", id);
@@ -172,11 +180,10 @@ public class AccReceivedsController {
         out.put("id", row.get("id"));
         out.put("no", row.get("reference_no"));
         out.put("customerName", row.get("customer_name"));
-        out.put("bankName", "");                       // 新模型未建模
+        out.put("bankName", row.get("bank_name") == null ? "" : row.get("bank_name"));
         out.put("amount", row.get("amount"));
         out.put("theDate", json.value(row.get("received_at")));
-        out.put("auditName", "");
-        out.put("remark", "");
+        out.put("remark", row.get("remark") == null ? "" : row.get("remark"));
         out.put("currency", row.get("currency"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
