@@ -167,24 +167,9 @@ public class CustomerApiService {
         Quote quote = null;
         BigDecimal prepayAmount;
         try {
-            RateQuoteRequest req = new RateQuoteRequest(
-                principal.customerId(),
-                stringOrNull(accCompat.get("customerGroupId")),
-                channelCode,
-                stringOrNull(accCompat.get("serviceCode")),
-                stringOrNull(accCompat.get("channelAccount")),
-                country,
-                stringOrNull(accCompat.get("postcode")),
-                weight,
-                piece,
-                asBigDecimal(accCompat.get("volume")),
-                declaredValue,
-                prepayCurrency,
-                java.time.LocalDate.now(),
-                asInteger(accCompat.get("batteryType")),
-                asInteger(accCompat.get("specialType")),
-                asInteger(accCompat.get("type"))
-            );
+            RateQuoteRequest req = buildQuoteRequest(
+                principal.customerId(), accCompat, channelCode, country,
+                weight, piece, declaredValue, prepayCurrency);
             quote = rateEngine.quote(principal.tenantId(), req);
             if (quote != null && !quote.blockers().isEmpty()) {
                 throw ApiException.badRequest("报价被拒：" + String.join("; ", quote.blockers()));
@@ -426,13 +411,39 @@ public class CustomerApiService {
         String channelCode = stringOrNull(accCompat.get("product"));
         String currency = stringOrNull(accCompat.get("currency"));
         if (currency == null) currency = "CNY";
+        String country = stringOrNull(accCompat.get("country"));
         BigDecimal weight = asBigDecimal(accCompat.get("weight"));
+        Integer piece = asInteger(accCompat.get("piece"));
         BigDecimal declaredValue = totalDeclaredValue(accCompat.get("declare"));
-        BigDecimal estimatedAmount = estimatePrepayAmount(weight, declaredValue);
+
+        List<String> blockers = new ArrayList<>();
 
         // 检查渠道存在
         boolean channelOk = channelCode != null
             && repository.findChannelIdByCode(principal.tenantId(), channelCode) != null;
+        if (!channelOk) blockers.add("渠道未启用: " + channelCode);
+
+        // ─── 与 Submit 完全同口径：调 RateEngine.quote()，blocker/strict 一致 ───
+        Quote quote = null;
+        BigDecimal estimatedAmount;
+        if (channelOk) {
+            try {
+                quote = rateEngine.quote(principal.tenantId(),
+                    buildQuoteRequest(principal.customerId(), accCompat, channelCode,
+                        country, weight, piece, declaredValue, currency));
+                if (quote != null && !quote.blockers().isEmpty()) {
+                    blockers.addAll(quote.blockers());
+                }
+            } catch (ApiException ex) {
+                // strict 模式报价失败 = 不可下单，反映为 blocker；非 strict 退化估算
+                if (strictQuote) {
+                    blockers.add("报价失败：" + ex.getMessage());
+                }
+            }
+        }
+        estimatedAmount = quote != null
+            ? quote.totalAmount()
+            : estimatePrepayAmount(weight, declaredValue);
 
         // 检查余额
         Map<String, Object> balanceAccount = repository.findCustomerBalanceAccount(
@@ -442,15 +453,12 @@ public class CustomerApiService {
             : (BigDecimal) balanceAccount.get("balance");
         boolean balanceOk = balanceAccount == null
             || (currentBalance != null && currentBalance.compareTo(estimatedAmount) >= 0);
+        if (!balanceOk) blockers.add("余额不足");
 
         // 用 channel registry 探测 gateway 名（不真调）
         String gatewayKey = channelOk
             ? carrierGateways.forChannel(principal.tenantId(), channelCode).gatewayKey()
             : null;
-
-        List<String> blockers = new ArrayList<>();
-        if (!channelOk) blockers.add("渠道未启用: " + channelCode);
-        if (!balanceOk) blockers.add("余额不足");
 
         return new PreSubmitResult(
             orderNo, channelCode, gatewayKey,
@@ -528,6 +536,33 @@ public class CustomerApiService {
         ev.put("rate_card_id", quote.matched().costRateCardId());
         repository.insertChargeLine(tenantId, shipmentId, chargeItemId,
             "AP", amount, currency, json.toJson(ev));
+    }
+
+    /**
+     * 从 metadata.acc_compat 构造 RateEngine 入参。PreSubmit 与 Submit 共用，保证报价口径一致。
+     */
+    private RateQuoteRequest buildQuoteRequest(String customerId, Map<String, Object> accCompat,
+                                               String channelCode, String country,
+                                               BigDecimal weight, Integer piece,
+                                               BigDecimal declaredValue, String currency) {
+        return new RateQuoteRequest(
+            customerId,
+            stringOrNull(accCompat.get("customerGroupId")),
+            channelCode,
+            stringOrNull(accCompat.get("serviceCode")),
+            stringOrNull(accCompat.get("channelAccount")),
+            country,
+            stringOrNull(accCompat.get("postcode")),
+            weight,
+            piece,
+            asBigDecimal(accCompat.get("volume")),
+            declaredValue,
+            currency == null ? "CNY" : currency,
+            java.time.LocalDate.now(),
+            asInteger(accCompat.get("batteryType")),
+            asInteger(accCompat.get("specialType")),
+            asInteger(accCompat.get("type"))
+        );
     }
 
     /**

@@ -179,4 +179,41 @@ class SubmitRateIntegrationTest {
         verify(repo, times(1)).bumpChannelAccountUsage(
             eq(TENANT), eq("ch-1"), eq("ACC-001"), anyInt(), any());
     }
+
+    // ─── 6. PreSubmit 与 Submit 报价金额一致（同一 RateEngine.quote 口径） ───
+    @Test
+    void preSubmitAndSubmitUseSameQuoteAmount() {
+        CustomerApiRepository repo = baseRepo(META);
+        RateEngine engine = mock(RateEngine.class);
+        when(engine.quote(eq(TENANT), any())).thenReturn(fullQuote());
+
+        CustomerApiService svc = service(repo, engine);
+        var pre = svc.preSubmitOrder(principal(), "ORD-S1");
+        var sub = svc.submitOrder(principal(), "ORD-S1");
+
+        // PreSubmit 的预估金额 = Submit 实际预扣（quote.totalAmount = 118.50），口径一致
+        assertThat(pre.estimatedAmount()).isEqualByComparingTo("118.50");
+        assertThat(sub.status()).isEqualTo("SUBMITTED");
+        assertThat(pre.canSubmit()).isTrue();
+        assertThat(pre.blockers()).isEmpty();
+    }
+
+    // ─── 7. PreSubmit 命中 blocker 时 canSubmit=false ───
+    @Test
+    void preSubmitReflectsQuoteBlockers() {
+        CustomerApiRepository repo = baseRepo(META);
+        RateEngine engine = mock(RateEngine.class);
+        Quote q = fullQuote();
+        Quote blocked = new Quote(q.channelCode(), q.channelName(), q.currency(), q.remoteLevel(),
+            q.actualWeightKg(), q.volumetricWeightKg(), q.chargeableWeightKg(),
+            q.freight(), q.fuelAmount(), q.surchargeAmount(), q.commission(), q.totalAmount(),
+            q.costFreight(), q.costFuel(), q.costSurcharge(), q.costTotal(), q.fuelRate(),
+            q.matched(), q.breakdown(), List.of("battery not allowed"));
+        when(engine.quote(eq(TENANT), any())).thenReturn(blocked);
+
+        var pre = service(repo, engine).preSubmitOrder(principal(), "ORD-S1");
+
+        assertThat(pre.canSubmit()).isFalse();
+        assertThat(pre.blockers()).contains("battery not allowed");
+    }
 }
