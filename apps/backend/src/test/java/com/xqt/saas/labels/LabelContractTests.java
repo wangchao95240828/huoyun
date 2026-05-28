@@ -44,7 +44,7 @@ class LabelContractTests {
             .thenReturn(List.of("NOOP-SUB-0000000001"));
 
         LabelStorage storage = new LocalFileLabelStorage(System.getProperty("java.io.tmpdir"), "/labels");
-        LabelService service = new LabelService(repo, new NoopLabelGateway(), storage, jdbc);
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc);
 
         LabelBatch result = service.generate(
             principal(),
@@ -91,7 +91,7 @@ class LabelContractTests {
             org.mockito.ArgumentMatchers.anyInt(), any())).thenReturn("label-file-1");
 
         LabelStorage storage = new LocalFileLabelStorage(System.getProperty("java.io.tmpdir"), "/labels");
-        LabelService service = new LabelService(repo, new NoopLabelGateway(), storage, jdbc);
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc);
 
         LabelBatch result = service.generate(
             principal(),
@@ -124,7 +124,7 @@ class LabelContractTests {
         when(repo.listCartonTrackingNos(any(), any())).thenReturn(List.of());
 
         LabelStorage storage = new LocalFileLabelStorage(System.getProperty("java.io.tmpdir"), "/labels");
-        LabelService service = new LabelService(repo, new NoopLabelGateway(), storage, jdbc);
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc);
 
         LabelBatch result = service.generate(
             principal(),
@@ -182,7 +182,7 @@ class LabelContractTests {
         LabelStorage storage = mock(LabelStorage.class);
         when(storage.load(any())).thenReturn(sourcePdf);
 
-        LabelService service = new LabelService(repo, new NoopLabelGateway(), storage, jdbc);
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc);
         RelabelResult result = service.relabel(principal(), new RelabelPdf("OLD-123", 100, 150));
 
         assertThat(result.success()).isTrue();
@@ -235,7 +235,7 @@ class LabelContractTests {
         LabelStorage storage = mock(LabelStorage.class);
         when(storage.load(any())).thenReturn(multiPagePdf);
 
-        LabelService service = new LabelService(repo, new NoopLabelGateway(), storage, jdbc);
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc);
         RelabelResult result = service.relabel(principal(), new RelabelPdf("SUB-2", 100, 150));
 
         assertThat(result.success()).isTrue();
@@ -287,7 +287,7 @@ class LabelContractTests {
         );
 
         LabelStorage storage = mock(LabelStorage.class);
-        LabelService service = new LabelService(repo, new NoopLabelGateway(), storage, jdbc);
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc);
         RelabelResult result = service.relabel(principal(), new RelabelPdf("BLOCKED", null, null));
 
         assertThat(result.success()).isFalse();
@@ -304,7 +304,7 @@ class LabelContractTests {
         when(repo.findShipmentByTrackingNo(any(), any())).thenReturn(null);
 
         LabelStorage storage = mock(LabelStorage.class);
-        LabelService service = new LabelService(repo, new NoopLabelGateway(), storage, jdbc);
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc);
         RelabelResult result = service.relabel(principal(), new RelabelPdf("UNKNOWN", null, null));
 
         assertThat(result.success()).isFalse();
@@ -313,5 +313,12 @@ class LabelContractTests {
 
     private CustomerApiPrincipal principal() {
         return new CustomerApiPrincipal("cred-1", "tenant-1", "cust-1", "DOC-DEMO", "60000DEMO", "secret");
+    }
+
+    /** 测试用 registry：仅含 NoopLabelGateway，db 查 provider_code 返回 null → 走 Noop 兜底。
+     *  保持改造前的行为，所有契约测试断言不变。 */
+    private static LabelGatewayRegistry noopLabelRegistry(JdbcTemplate jdbc) {
+        NoopLabelGateway noop = new NoopLabelGateway();
+        return new LabelGatewayRegistry(java.util.List.of(noop), noop, jdbc);
     }
 }

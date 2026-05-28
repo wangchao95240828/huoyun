@@ -34,14 +34,14 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class LabelService {
     private final LabelRepository repository;
-    private final LabelGateway gateway;
+    private final LabelGatewayRegistry labelGateways;
     private final LabelStorage storage;
     private final JdbcTemplate jdbc;
 
-    public LabelService(LabelRepository repository, LabelGateway gateway,
+    public LabelService(LabelRepository repository, LabelGatewayRegistry labelGateways,
                         LabelStorage storage, JdbcTemplate jdbc) {
         this.repository = repository;
-        this.gateway = gateway;
+        this.labelGateways = labelGateways;
         this.storage = storage;
         this.jdbc = jdbc;
     }
@@ -104,7 +104,8 @@ public class LabelService {
                     }
                 }
 
-                // 调渠道取面单（对应 Plugin->doPrint）
+                // 调渠道取面单（对应 Plugin->doPrint）；按 acc_channel_accounts 路由到对应 provider
+                LabelGateway gateway = labelGateways.forChannel(principal.tenantId(), channelCode);
                 LabelArtifact artifact = gateway.print(new PrintContext(
                     principal.tenantId(), principal.customerCode(),
                     shipmentId, shipmentNo, customerRef,
