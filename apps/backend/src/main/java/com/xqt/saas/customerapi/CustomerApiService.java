@@ -260,6 +260,14 @@ public class CustomerApiService {
             issuance.carrierTrackingNo(), issuance.carrierMasterTrackingNo()
         );
 
+        // 取号成功后累加渠道账号当日票池，供 RateEngine 限额检查使用（ACC: Channel_Limit）
+        String channelAccountCode = stringOrNull(accCompat.get("channelAccount"));
+        if (channelAccountCode != null) {
+            repository.bumpChannelAccountUsage(
+                principal.tenantId(), channelId, channelAccountCode,
+                piece == null ? 1 : piece, weight);
+        }
+
         if (accCompat.get("declare") instanceof List<?> list) {
             for (Object item : list) {
                 if (!(item instanceof Map<?, ?> m)) continue;

@@ -430,6 +430,27 @@ public class CustomerApiRepository {
             side, currency, amount, evidenceJson);
     }
 
+    /**
+     * Submit 取号成功后累加渠道账号当日票池（channel_account_daily_usage）。
+     * upsert：当天首单插入，后续累加 count/piece/weight。RateEngine 限额检查读这张表。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void bumpChannelAccountUsage(String tenantId, String channelId, String accountCode,
+                                        int piece, BigDecimal weight) {
+        if (accountCode == null || accountCode.isBlank() || channelId == null) return;
+        jdbc.update("""
+            INSERT INTO channel_account_daily_usage (
+              tenant_id, channel_id, account_code, usage_date, count, piece, weight
+            ) VALUES (?::uuid, ?::uuid, ?, current_date, 1, ?, ?)
+            ON CONFLICT (tenant_id, channel_id, account_code, usage_date)
+            DO UPDATE SET
+              count  = channel_account_daily_usage.count + 1,
+              piece  = channel_account_daily_usage.piece + excluded.piece,
+              weight = channel_account_daily_usage.weight + excluded.weight
+            """, tenantId, channelId, accountCode, piece,
+            weight == null ? BigDecimal.ZERO : weight);
+    }
+
     /** 找一条默认 FREIGHT 类型的 charge_item，用于落预扣行。 */
     public String findDefaultFreightChargeItemId(String tenantId) {
         try {
