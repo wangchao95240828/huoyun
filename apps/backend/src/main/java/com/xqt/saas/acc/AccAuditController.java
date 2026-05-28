@@ -35,6 +35,8 @@ public class AccAuditController {
         Map.entry("currencies", "finance_currency"),
         Map.entry("orders", "orders"),
         Map.entry("shipments", "shipments"),
+        // packages（装箱单）是 shipments 的另一个视图；审核装箱单本质就是审核对应 shipment
+        Map.entry("packages", "shipments"),
         Map.entry("bills", "customer_invoices"),
         Map.entry("payments", "partner_payments"),
         Map.entry("receiveds", "payments"),
