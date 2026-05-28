@@ -29,13 +29,16 @@ public class AccStowagesController {
     private final JsonSupport json;
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
+    private final com.xqt.saas.stowage.StowageStateMachine stateMachine;
 
     public AccStowagesController(JdbcTemplate jdbc, JsonSupport json,
-                                  CascadeChecker cascadeChecker, FieldGate fieldGate) {
+                                  CascadeChecker cascadeChecker, FieldGate fieldGate,
+                                  com.xqt.saas.stowage.StowageStateMachine stateMachine) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+        this.stateMachine = stateMachine;
     }
 
     @GetMapping
@@ -112,6 +115,16 @@ public class AccStowagesController {
               remark = coalesce(?::text, remark)
             WHERE id = ?::uuid
             """, (String) allowed.get("status"), (String) allowed.get("remark"), id);
+        // 任务 S5：CONFIRMED 时联动 tracking_events + shipments.status
+        if ("CONFIRMED".equals(allowed.get("status"))) {
+            try {
+                String tenantId = jdbc.queryForObject(
+                    "SELECT tenant_id::text FROM stowages WHERE id = ?::uuid", String.class, id);
+                stateMachine.onStowageConfirmed(tenantId, id);
+            } catch (DataAccessException ignored) {
+                // state machine 失败不应阻断 stowage 更新
+            }
+        }
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
 

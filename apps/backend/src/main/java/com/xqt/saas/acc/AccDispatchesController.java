@@ -29,13 +29,16 @@ public class AccDispatchesController {
     private final JsonSupport json;
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
+    private final com.xqt.saas.stowage.StowageStateMachine stateMachine;
 
     public AccDispatchesController(JdbcTemplate jdbc, JsonSupport json,
-                                    CascadeChecker cascadeChecker, FieldGate fieldGate) {
+                                    CascadeChecker cascadeChecker, FieldGate fieldGate,
+                                    com.xqt.saas.stowage.StowageStateMachine stateMachine) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+        this.stateMachine = stateMachine;
     }
 
     @GetMapping
@@ -117,6 +120,21 @@ public class AccDispatchesController {
             """, (String) allowed.get("contactName"), (String) allowed.get("contactMobile"),
             (String) allowed.get("pickAddress"), (String) allowed.get("status"),
             (String) allowed.get("remark"), id);
+        // 任务 S5：派送状态推进时联动 tracking_events + shipments
+        String newStatus = (String) allowed.get("status");
+        if ("DONE".equals(newStatus) || "PICKED".equals(newStatus)) {
+            try {
+                String tenantId = jdbc.queryForObject(
+                    "SELECT tenant_id::text FROM acc_dispatches WHERE id = ?::uuid", String.class, id);
+                if ("PICKED".equals(newStatus)) {
+                    stateMachine.onDispatchOutForDelivery(tenantId, id);
+                } else {
+                    stateMachine.onDispatchDelivered(tenantId, id);
+                }
+            } catch (DataAccessException ignored) {
+                // state machine 失败不应阻断 dispatch 更新
+            }
+        }
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
 
