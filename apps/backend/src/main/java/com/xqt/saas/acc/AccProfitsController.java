@@ -71,11 +71,18 @@ public class AccProfitsController {
                   coalesce((
                     SELECT sum(ch.amount) FROM charges ch
                     WHERE ch.shipment_id = s.id AND ch.side = 'AR'
+                      AND ch.settlement_status <> 'VOID'
                   ), 0) AS revenue,
                   coalesce((
                     SELECT sum(ch.amount) FROM charges ch
                     WHERE ch.shipment_id = s.id AND ch.side = 'AP'
-                  ), 0) AS cost
+                      AND ch.settlement_status <> 'VOID'
+                  ), 0) AS cost,
+                  -- 运单级赔偿（apply_amount 是公司实际支付，已审才入账）
+                  coalesce((
+                    SELECT sum(r.apply_amount) FROM acc_reparations r
+                    WHERE r.shipment_id = s.id AND r.audit_status = 'AUDITED'
+                  ), 0) AS reparation
                 FROM shipments s
                 LEFT JOIN customers cu ON cu.id = s.customer_id
                 LEFT JOIN channels cn  ON cn.id = s.channel_id
@@ -95,7 +102,14 @@ public class AccProfitsController {
 
     /**
      * /summary?dateFrom=&dateTo=&groupBy={customer|channel|country|day}
-     * 前端 "利润汇总" 弹窗使用，返回 { groups: [{ key, label, revenue, cost, profit, count }] }
+     *
+     * 真实期间利润：profit = revenue(AR) - cost(AP) + adjustments - reparation
+     *   adjustments = finance_txns(调账/退款/返利) + fines(罚款)
+     *     方向：side='CUSTOMER' → +amount（公司收）；side='SUPPLIER' → -amount（公司付）
+     *
+     * 维度可分摊性：
+     *   customer / day：可按 customer_id / the_date 聚合 finance_txns + fines
+     *   channel / country：finance_txns/fines 无渠道/国家信息，不分摊（返 0 + 注释说明）
      */
     @GetMapping("/summary")
     public Map<String, Object> summary(
@@ -110,38 +124,126 @@ public class AccProfitsController {
             default -> "cu.name";
         };
         try {
-            List<Map<String, Object>> rows = jdbc.queryForList("""
+            // 1) 按维度聚合 charges + reparations。两层聚合：先 per-shipment 计算
+            //    AR/AP/reparation，再按维度求和。避免子查询引用 ungrouped column 的问题。
+            String innerSql = """
                 SELECT
                   """ + groupCol + """
                                   AS group_label,
-                  count(DISTINCT s.id) AS shipment_count,
-                  coalesce(sum(CASE WHEN ch.side='AR' THEN ch.amount END), 0) AS revenue,
-                  coalesce(sum(CASE WHEN ch.side='AP' THEN ch.amount END), 0) AS cost
+                  s.id AS shipment_id,
+                  coalesce(sum(CASE WHEN ch.side='AR' AND ch.settlement_status <> 'VOID'
+                                    THEN ch.amount END), 0) AS revenue,
+                  coalesce(sum(CASE WHEN ch.side='AP' AND ch.settlement_status <> 'VOID'
+                                    THEN ch.amount END), 0) AS cost,
+                  coalesce((
+                    SELECT sum(r.apply_amount)
+                    FROM acc_reparations r
+                    WHERE r.shipment_id = s.id AND r.audit_status = 'AUDITED'
+                  ), 0) AS reparation
                 FROM shipments s
                 LEFT JOIN charges ch ON ch.shipment_id = s.id
                 LEFT JOIN customers cu ON cu.id = s.customer_id
                 LEFT JOIN channels cn  ON cn.id = s.channel_id
                 WHERE (?::date IS NULL OR s.created_at >= ?::date)
                   AND (?::date IS NULL OR s.created_at < (?::date + 1))
-                GROUP BY """ + groupCol + """
-
-                ORDER BY revenue DESC NULLS LAST
+                GROUP BY""" + " " + groupCol + ", s.id";
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT
+                  group_label,
+                  count(*) AS shipment_count,
+                  sum(revenue) AS revenue,
+                  sum(cost) AS cost,
+                  sum(reparation) AS reparation
+                FROM (""" + innerSql + """
+                ) sub
+                GROUP BY group_label
+                ORDER BY sum(revenue) DESC NULLS LAST
                 LIMIT 200
                 """, dateFrom, dateFrom, dateTo, dateTo);
+
+            // 2) finance_txns + fines 调整项：仅 customer / day 维度可准确分摊
+            Map<String, BigDecimal> adjustmentsByLabel = new LinkedHashMap<>();
+            if ("customer".equals(groupBy)) {
+                aggregateAdjustments(adjustmentsByLabel,
+                    "SELECT cu.name AS label,"
+                  + " coalesce(sum(CASE WHEN t.side='CUSTOMER' THEN t.amount ELSE -t.amount END), 0) AS adj"
+                  + " FROM acc_finance_txns t LEFT JOIN customers cu ON cu.id = t.customer_id"
+                  + " WHERE t.audit_status = 'AUDITED'"
+                  + "   AND (?::date IS NULL OR t.the_date >= ?::date)"
+                  + "   AND (?::date IS NULL OR t.the_date <= ?::date)"
+                  + " GROUP BY cu.name", dateFrom, dateTo);
+                aggregateAdjustments(adjustmentsByLabel,
+                    "SELECT cu.name AS label,"
+                  + " coalesce(sum(CASE WHEN f.side='CUSTOMER' THEN f.amount ELSE -f.amount END), 0) AS adj"
+                  + " FROM acc_fines f LEFT JOIN customers cu ON cu.id = f.customer_id"
+                  + " WHERE f.audit_status = 'AUDITED'"
+                  + "   AND (?::date IS NULL OR f.the_date >= ?::date)"
+                  + "   AND (?::date IS NULL OR f.the_date <= ?::date)"
+                  + " GROUP BY cu.name", dateFrom, dateTo);
+            } else if ("day".equals(groupBy)) {
+                aggregateAdjustments(adjustmentsByLabel,
+                    "SELECT to_char(t.the_date, 'YYYY-MM-DD') AS label,"
+                  + " coalesce(sum(CASE WHEN t.side='CUSTOMER' THEN t.amount ELSE -t.amount END), 0) AS adj"
+                  + " FROM acc_finance_txns t"
+                  + " WHERE t.audit_status = 'AUDITED'"
+                  + "   AND (?::date IS NULL OR t.the_date >= ?::date)"
+                  + "   AND (?::date IS NULL OR t.the_date <= ?::date)"
+                  + " GROUP BY to_char(t.the_date, 'YYYY-MM-DD')", dateFrom, dateTo);
+                aggregateAdjustments(adjustmentsByLabel,
+                    "SELECT to_char(f.the_date, 'YYYY-MM-DD') AS label,"
+                  + " coalesce(sum(CASE WHEN f.side='CUSTOMER' THEN f.amount ELSE -f.amount END), 0) AS adj"
+                  + " FROM acc_fines f"
+                  + " WHERE f.audit_status = 'AUDITED'"
+                  + "   AND (?::date IS NULL OR f.the_date >= ?::date)"
+                  + "   AND (?::date IS NULL OR f.the_date <= ?::date)"
+                  + " GROUP BY to_char(f.the_date, 'YYYY-MM-DD')", dateFrom, dateTo);
+            }
+            // channel/country 维度：adjustments 无可分摊键，保留 0
+
             List<Map<String, Object>> groups = rows.stream().map(r -> {
                 Map<String, Object> out = new LinkedHashMap<>();
                 BigDecimal rev = (BigDecimal) r.get("revenue");
                 BigDecimal cost = (BigDecimal) r.get("cost");
-                out.put("label", r.get("group_label"));
+                BigDecimal reparation = (BigDecimal) r.get("reparation");
+                if (reparation == null) reparation = BigDecimal.ZERO;
+                String label = (String) r.get("group_label");
+                BigDecimal adj = adjustmentsByLabel.getOrDefault(label, BigDecimal.ZERO);
+                out.put("label", label);
                 out.put("count", r.get("shipment_count"));
                 out.put("revenue", rev);
                 out.put("cost", cost);
-                out.put("profit", rev.subtract(cost));
+                out.put("adjustments", adj);
+                out.put("reparation", reparation);
+                out.put("profit", rev.subtract(cost).add(adj).subtract(reparation));
                 return out;
             }).toList();
-            return Map.of("groupBy", groupBy, "groups", groups);
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("groupBy", groupBy);
+            // 维度限制说明：channel / country 维度 adjustments 永远 0（数据无键可分摊）
+            result.put("adjustmentsSupported",
+                "customer".equals(groupBy) || "day".equals(groupBy));
+            result.put("groups", groups);
+            return result;
         } catch (DataAccessException ex) {
-            return Map.of("groupBy", groupBy, "groups", List.of());
+            return Map.of("groupBy", groupBy, "groups", List.of(), "adjustmentsSupported", false);
+        }
+    }
+
+    /** 把一条聚合 SQL 的结果累加到 adjustmentsByLabel（多条 SQL 合并成 customer/day 维度总调整）。 */
+    private void aggregateAdjustments(Map<String, BigDecimal> bucket, String sql,
+                                       String dateFrom, String dateTo) {
+        try {
+            for (Map<String, Object> row : jdbc.queryForList(sql,
+                dateFrom, dateFrom, dateTo, dateTo)) {
+                String label = (String) row.get("label");
+                if (label == null) continue;
+                BigDecimal adj = (BigDecimal) row.get("adj");
+                if (adj == null) continue;
+                bucket.merge(label, adj, BigDecimal::add);
+            }
+        } catch (DataAccessException ignored) {
+            // 表缺失或 SQL 失败不影响主 summary 返回
         }
     }
 
@@ -149,6 +251,8 @@ public class AccProfitsController {
         Map<String, Object> out = new LinkedHashMap<>();
         BigDecimal revenue = (BigDecimal) row.get("revenue");
         BigDecimal cost = (BigDecimal) row.get("cost");
+        BigDecimal reparation = (BigDecimal) row.get("reparation");
+        if (reparation == null) reparation = BigDecimal.ZERO;
         out.put("id", row.get("id"));
         out.put("no", row.get("customer_ref") != null
             ? row.get("customer_ref") : row.get("shipment_no"));
@@ -159,7 +263,10 @@ public class AccProfitsController {
         out.put("channelWeight", row.get("channel_weight"));
         out.put("revenue", revenue);
         out.put("cost", cost);
-        out.put("profit", revenue.subtract(cost));
+        out.put("reparation", reparation);
+        // 运单级利润：AR - AP - 赔偿；finance_txns/fines 按客户/供应商级聚合，
+        // 不再按运单分摊（口径不一致）。期间利润见 /summary 端点。
+        out.put("profit", revenue.subtract(cost).subtract(reparation));
         out.put("theDate", json.value(row.get("created_at")));
         return out;
     }

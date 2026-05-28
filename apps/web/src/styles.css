@@ -2071,3 +2071,14 @@ input, select, textarea { font: inherit; }
   overflow: auto;
   color: #334155;
 }
+
+/* 利润汇总维度限制提示 */
+.profit-summary-hint {
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  background: #fef3c7;
+  border-left: 3px solid #d97706;
+  border-radius: 3px;
+  font-size: 13px;
+  color: #78350f;
+}

@@ -634,6 +634,7 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
     { key: "channelWeight", label: "渠道重(kg)" },
     { key: "revenue", label: "运费", fmt: "money" },
     { key: "cost", label: "成本", fmt: "money" },
+    { key: "reparation", label: "赔偿", fmt: "money" },
     { key: "profit", label: "利润", fmt: "money" },
     { key: "theDate", label: "日期", fmt: "date" },
   ],
@@ -3581,19 +3582,36 @@ async function doReloadBill(id: number) {
             </tbody>
           </table>
           <!-- Profit summary -->
-          <table class="data-table" v-if="detailType === 'profit-summary' && Array.isArray(detailData)">
-            <thead><tr><th>分组</th><th>票数</th><th>件数</th><th>总重量(kg)</th><th>营收</th><th>成本</th><th>利润</th></tr></thead>
-            <tbody>
-              <tr v-for="item in detailData" :key="item.groupName">
-                <td>{{ item.groupName }}</td><td>{{ item.count }}</td><td>{{ item.pieces }}</td>
-                <td>{{ Number(item.totalWeight).toFixed(2) }}</td>
-                <td class="money-cell">¥{{ fmt(item.revenue) }}</td>
-                <td class="money-cell">¥{{ fmt(item.cost) }}</td>
-                <td class="money-cell" :class="item.profit >= 0 ? 'positive' : 'negative'">¥{{ fmt(item.profit) }}</td>
-              </tr>
-              <tr v-if="detailData.length === 0"><td colspan="7" class="empty-cell">无数据</td></tr>
-            </tbody>
-          </table>
+          <div v-if="detailType === 'profit-summary' && detailData && detailData.groups">
+            <div v-if="!detailData.adjustmentsSupported" class="profit-summary-hint">
+              ⚠️ 当前维度（{{ detailData.groupBy }}）的调整项（finance_txns / fines）无可分摊键，
+              利润仅包含 AR/AP/赔偿。如需含调整项，请切到 客户 或 日 维度。
+            </div>
+            <table class="data-table">
+              <thead><tr>
+                <th>分组</th><th>票数</th>
+                <th>营收</th><th>成本</th><th>调整项</th><th>赔偿</th><th>利润</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="item in detailData.groups" :key="item.label">
+                  <td>{{ item.label }}</td>
+                  <td>{{ item.count }}</td>
+                  <td class="money-cell">¥{{ fmt(item.revenue) }}</td>
+                  <td class="money-cell">¥{{ fmt(item.cost) }}</td>
+                  <td class="money-cell" :class="Number(item.adjustments) >= 0 ? 'positive' : 'negative'">
+                    {{ Number(item.adjustments) >= 0 ? '+' : '' }}¥{{ fmt(item.adjustments) }}
+                  </td>
+                  <td class="money-cell negative">-¥{{ fmt(item.reparation) }}</td>
+                  <td class="money-cell" :class="Number(item.profit) >= 0 ? 'positive' : 'negative'">
+                    ¥{{ fmt(item.profit) }}
+                  </td>
+                </tr>
+                <tr v-if="detailData.groups.length === 0">
+                  <td colspan="7" class="empty-cell">无数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <!-- Raw record -->
           <div v-if="detailType === 'raw' && detailData" class="form-grid">
             <div class="form-field" v-for="(val, key) in detailData" :key="key">
