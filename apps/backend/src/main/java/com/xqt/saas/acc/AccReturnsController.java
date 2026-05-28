@@ -65,6 +65,9 @@ public class AccReturnsController {
                   r.status,
                   r.reason,
                   r.created_at,
+                  r.refund_amount,
+                  r.compensate_amount,
+                  r.currency,
                   s.shipment_no,
                   s.customer_ref,
                   c.name           AS customer_name,
@@ -94,14 +97,21 @@ public class AccReturnsController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String id = jdbc.queryForObject("""
-            INSERT INTO return_orders (tenant_id, return_no, original_shipment_id, status, reason)
-            VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?::uuid, ?, ?)
+            INSERT INTO return_orders (
+              tenant_id, return_no, original_shipment_id, status, reason,
+              refund_amount, compensate_amount, currency
+            )
+            VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?::uuid, ?, ?,
+                    coalesce(?, 0), coalesce(?, 0), coalesce(?, 'CNY'))
             RETURNING id::text
             """, String.class,
             body.get("return_no"),
             body.get("original_shipment_id") == null ? null : body.get("original_shipment_id").toString(),
             body.getOrDefault("status", "PENDING"),
-            body.get("reason"));
+            body.get("reason"),
+            asMoney(body.get("refund_amount")),
+            asMoney(body.get("compensate_amount")),
+            body.get("currency"));
         return Map.of("id", id);
     }
 
@@ -117,14 +127,20 @@ public class AccReturnsController {
         Map<String, Object> allowed = gate.allowed();
         jdbc.update("""
             UPDATE return_orders SET
-              return_no = coalesce(?, return_no),
-              status    = coalesce(?, status),
-              reason    = coalesce(?, reason)
+              return_no         = coalesce(?, return_no),
+              status            = coalesce(?, status),
+              reason            = coalesce(?, reason),
+              refund_amount     = coalesce(?, refund_amount),
+              compensate_amount = coalesce(?, compensate_amount),
+              currency          = coalesce(?, currency)
             WHERE id = ?::uuid
             """,
             (String) allowed.get("return_no"),
             (String) allowed.get("status"),
             (String) allowed.get("reason"),
+            allowed.get("refund_amount") == null ? null : asMoney(allowed.get("refund_amount")),
+            allowed.get("compensate_amount") == null ? null : asMoney(allowed.get("compensate_amount")),
+            (String) allowed.get("currency"),
             id);
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
@@ -149,12 +165,25 @@ public class AccReturnsController {
         out.put("returnNo", row.get("return_no"));
         out.put("customerName", row.get("customer_name"));
         out.put("reason", row.get("reason"));
-        out.put("amount", 0);                  // 旧 ACC 退件费用，新模型未建
+        // amount = 退款 - 补收（正数代表退给客户，负数代表向客户补收）
+        java.math.BigDecimal refund = asMoney(row.get("refund_amount"));
+        java.math.BigDecimal compensate = asMoney(row.get("compensate_amount"));
+        out.put("refundAmount", refund);
+        out.put("compensateAmount", compensate);
+        out.put("amount", refund.subtract(compensate));
+        out.put("currency", row.get("currency"));
         out.put("status", row.get("status"));
         out.put("addTime", json.value(row.get("created_at")));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));
         return out;
+    }
+
+    private static java.math.BigDecimal asMoney(Object v) {
+        if (v == null) return java.math.BigDecimal.ZERO;
+        if (v instanceof java.math.BigDecimal bd) return bd;
+        if (v instanceof Number n) return new java.math.BigDecimal(n.toString());
+        return new java.math.BigDecimal(v.toString());
     }
 }
