@@ -399,6 +399,37 @@ public class CustomerApiRepository {
             currency, amount, evidenceJson);
     }
 
+    /**
+     * 按 charge_item code 找 id（FREIGHT / FUEL / REMOTE 等）。
+     * 找不到时回退到默认 FREIGHT，保证拆行时永远有 charge_item_id 可用。
+     */
+    public String findChargeItemIdByCode(String tenantId, String code) {
+        try {
+            return jdbc.queryForObject("""
+                SELECT id::text FROM charge_items
+                WHERE tenant_id = ?::uuid AND code = ?
+                LIMIT 1
+                """, String.class, tenantId, code);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            return findDefaultFreightChargeItemId(tenantId);
+        }
+    }
+
+    /** 落一笔指定 side/status 的费用行（用于 Submit 拆 AR/AP 多费用行）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public String insertChargeLine(String tenantId, String shipmentId, String chargeItemId,
+                                   String side, BigDecimal amount, String currency, String evidenceJson) {
+        return jdbc.queryForObject("""
+            INSERT INTO charges (
+              tenant_id, shipment_id, charge_item_id, side, status, currency, amount, evidence
+            ) VALUES (
+              ?::uuid, ?::uuid, ?::uuid, ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb
+            )
+            RETURNING id::text
+            """, String.class, tenantId, shipmentId, chargeItemId,
+            side, currency, amount, evidenceJson);
+    }
+
     /** 找一条默认 FREIGHT 类型的 charge_item，用于落预扣行。 */
     public String findDefaultFreightChargeItemId(String tenantId) {
         try {

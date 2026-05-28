@@ -219,39 +219,22 @@ public class CustomerApiService {
                 if (!repository.decrementBalance(balanceAccountId, prepayAmount)) {
                     throw ApiException.badRequest("余额扣减失败，请重试");
                 }
-                String chargeItemId = repository.findDefaultFreightChargeItemId(principal.tenantId());
-                Map<String, Object> evidence = new LinkedHashMap<>();
-                evidence.put("prepaid", true);
-                evidence.put("balance_account_id", balanceAccountId);
-                evidence.put("prepay_at", java.time.Instant.now().toString());
                 if (quote != null) {
-                    evidence.put("rate_card_id", quote.matched().rateCardId());
-                    evidence.put("rate_card_line_id", quote.matched().rateCardLineId());
-                    evidence.put("customer_rate_matched", quote.matched().customerRateMatched());
-                    evidence.put("group_rate_matched", quote.matched().groupRateMatched());
-                    evidence.put("commission_rule_id", quote.matched().commissionRuleId());
-                    evidence.put("remote_level", quote.remoteLevel());
-                    evidence.put("freight", quote.freight());
-                    evidence.put("fuel", quote.fuelAmount());
-                    evidence.put("surcharge", quote.surchargeAmount());
-                    evidence.put("commission", quote.commission());
-                    evidence.put("chargeable_weight_kg", quote.chargeableWeightKg());
-                }
-                prepaidChargeId = repository.insertPrepaidCharge(
-                    principal.tenantId(), shipmentId, chargeItemId,
-                    prepayAmount, prepayCurrency, json.toJson(evidence));
-
-                // 引擎产出成本价时同时写一条 AP 行（status=ESTIMATED, side=AP）
-                if (quote != null && quote.costTotal() != null && quote.costTotal().signum() > 0) {
-                    Map<String, Object> apEvidence = new LinkedHashMap<>();
-                    apEvidence.put("cost_estimated", true);
-                    apEvidence.put("rate_card_id", quote.matched().costRateCardId());
-                    apEvidence.put("freight", quote.costFreight());
-                    apEvidence.put("fuel", quote.costFuel());
-                    apEvidence.put("surcharge", quote.costSurcharge());
-                    repository.insertCostCharge(
+                    // 有正式报价：按 breakdown 拆 AR/AP 多费用行
+                    prepaidChargeId = writeBreakdownCharges(
+                        principal.tenantId(), shipmentId, prepayCurrency,
+                        balanceAccountId, quote);
+                } else {
+                    // 无报价（dev/demo 估算）：落一笔合并 AR 行
+                    String chargeItemId = repository.findDefaultFreightChargeItemId(principal.tenantId());
+                    Map<String, Object> evidence = new LinkedHashMap<>();
+                    evidence.put("prepaid", true);
+                    evidence.put("balance_account_id", balanceAccountId);
+                    evidence.put("prepay_at", java.time.Instant.now().toString());
+                    evidence.put("estimate", true);
+                    prepaidChargeId = repository.insertPrepaidCharge(
                         principal.tenantId(), shipmentId, chargeItemId,
-                        quote.costTotal(), prepayCurrency, json.toJson(apEvidence));
+                        prepayAmount, prepayCurrency, json.toJson(evidence));
                 }
             }
             // 若客户没建预付账户，跳过预扣（兼容部分 B2B 月结客户）
@@ -472,9 +455,77 @@ public class CustomerApiService {
     }
 
     /**
+     * 按 quote.breakdown 把运费拆成多笔 AR/AP charges（对应 ACC Express_Charge.Type 多行）：
+     *   AR: FREIGHT / FUEL / REMOTE（每笔带 prepaid=true，cancel 时逐行退款，合计 = total）
+     *   AP: FREIGHT / FUEL / REMOTE（status=ESTIMATED side=AP，不带 prepaid）
+     * commission 不向客户预扣（不计入 total），仅记 evidence。
+     *
+     * @return 第一笔 AR 行的 id（用于 SubmitResult 关联）
+     */
+    private String writeBreakdownCharges(String tenantId, String shipmentId, String currency,
+                                         String balanceAccountId, Quote quote) {
+        String prepayAt = java.time.Instant.now().toString();
+
+        // ─── AR 三行 ───
+        String firstChargeId = null;
+        firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
+            "FREIGHT", quote.freight(), quote, firstChargeId);
+        firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
+            "FUEL", quote.fuelAmount(), quote, firstChargeId);
+        firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
+            "REMOTE", quote.surchargeAmount(), quote, firstChargeId);
+
+        // ─── AP 三行（仅当引擎产出成本价）───
+        if (quote.costTotal() != null && quote.costTotal().signum() > 0) {
+            insertApLine(tenantId, shipmentId, currency, "FREIGHT", quote.costFreight(), quote);
+            insertApLine(tenantId, shipmentId, currency, "FUEL", quote.costFuel(), quote);
+            insertApLine(tenantId, shipmentId, currency, "REMOTE", quote.costSurcharge(), quote);
+        }
+        return firstChargeId;
+    }
+
+    private String insertArLine(String tenantId, String shipmentId, String currency,
+                                String balanceAccountId, String prepayAt,
+                                String code, BigDecimal amount, Quote quote, String firstChargeId) {
+        if (amount == null || amount.signum() == 0) return firstChargeId;
+        String chargeItemId = repository.findChargeItemIdByCode(tenantId, code);
+        Map<String, Object> ev = new LinkedHashMap<>();
+        ev.put("prepaid", true);
+        ev.put("balance_account_id", balanceAccountId);
+        ev.put("prepay_at", prepayAt);
+        ev.put("component", code);
+        ev.put("rate_card_id", quote.matched().rateCardId());
+        ev.put("rate_card_line_id", quote.matched().rateCardLineId());
+        if ("FREIGHT".equals(code)) {
+            // 主行额外记完整命中证据 + 佣金（佣金不落独立 charge 行）
+            ev.put("customer_rate_matched", quote.matched().customerRateMatched());
+            ev.put("group_rate_matched", quote.matched().groupRateMatched());
+            ev.put("commission_rule_id", quote.matched().commissionRuleId());
+            ev.put("commission", quote.commission());
+            ev.put("remote_level", quote.remoteLevel());
+            ev.put("chargeable_weight_kg", quote.chargeableWeightKg());
+        }
+        String id = repository.insertChargeLine(tenantId, shipmentId, chargeItemId,
+            "AR", amount, currency, json.toJson(ev));
+        return firstChargeId == null ? id : firstChargeId;
+    }
+
+    private void insertApLine(String tenantId, String shipmentId, String currency,
+                              String code, BigDecimal amount, Quote quote) {
+        if (amount == null || amount.signum() == 0) return;
+        String chargeItemId = repository.findChargeItemIdByCode(tenantId, code);
+        Map<String, Object> ev = new LinkedHashMap<>();
+        ev.put("cost_estimated", true);
+        ev.put("component", code);
+        ev.put("rate_card_id", quote.matched().costRateCardId());
+        repository.insertChargeLine(tenantId, shipmentId, chargeItemId,
+            "AP", amount, currency, json.toJson(ev));
+    }
+
+    /**
      * 简化的预估运费算法（ACC 实际走 RateEngine 完整公式）：
      * 默认 base 30 CNY，按可计重量 × 25 CNY/kg 估算；申报金额按 0.1% 附加费。
-     * MVP 占位；接 RateEngine 后替换。
+     * 仅非 strict（dev/demo）模式作为兜底，不再是生产主路径。
      */
     private BigDecimal estimatePrepayAmount(BigDecimal weight, BigDecimal declaredValue) {
         BigDecimal base = new BigDecimal("30");
