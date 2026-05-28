@@ -162,6 +162,9 @@ public class CustomerApiService {
             principal.tenantId(), principal.customerId(), channelId,
             shipmentNo, customerRef, country, declaredValue, currency
         );
+        // 任务 S8：建立 shipment ↔ order 强关联（替代 customer_ref 软关联）
+        repository.insertShipmentOrderLink(
+            principal.tenantId(), shipmentId, orderId, "SUBMIT");
 
         // ─── 调 RateEngine 算 AR/AP 真实费用 ───
         // 对应 ACC Submit 行为：先调 Freight::getFee 算客户应收 + 成本应付，

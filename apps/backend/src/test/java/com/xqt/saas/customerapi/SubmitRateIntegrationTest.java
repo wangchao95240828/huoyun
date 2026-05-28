@@ -181,6 +181,20 @@ class SubmitRateIntegrationTest {
             eq(TENANT), eq("ch-1"), eq("ACC-001"), anyInt(), any());
     }
 
+    // ─── 任务 S8：Submit 必须写 shipment_order_links 强关联 ───
+    @Test
+    void submitWritesShipmentOrderLink() {
+        CustomerApiRepository repo = baseRepo(META);
+        RateEngine engine = mock(RateEngine.class);
+        when(engine.quote(eq(TENANT), any())).thenReturn(fullQuote());
+
+        service(repo, engine).submitOrder(principal(), "ORD-S1");
+
+        verify(repo, times(1)).insertShipmentOrderLink(
+            eq(TENANT), eq("ship-1"),
+            eq("00000000-0000-0000-0000-000000000001"), eq("SUBMIT"));
+    }
+
     // ─── 6. PreSubmit 与 Submit 报价金额一致（同一 RateEngine.quote 口径） ───
     @Test
     void preSubmitAndSubmitUseSameQuoteAmount() {

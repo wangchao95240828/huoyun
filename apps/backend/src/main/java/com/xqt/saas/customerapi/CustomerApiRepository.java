@@ -150,6 +150,19 @@ public class CustomerApiRepository {
             country, declaredValue, declaredCurrency);
     }
 
+    /**
+     * 任务 S8：建立 shipment ↔ order 强关联（替代 customer_ref 软关联）。
+     * 幂等：ON CONFLICT DO NOTHING（同 shipment-order 重复提交不报错）。
+     */
+    public void insertShipmentOrderLink(String tenantId, String shipmentId, String orderId,
+                                         String linkType) {
+        jdbc.update("""
+            INSERT INTO shipment_order_links (tenant_id, shipment_id, order_id, link_type)
+            VALUES (?::uuid, ?::uuid, ?::uuid, ?)
+            ON CONFLICT (tenant_id, shipment_id, order_id) DO NOTHING
+            """, tenantId, shipmentId, orderId, linkType == null ? "SUBMIT" : linkType);
+    }
+
     public void insertCarton(String tenantId, String shipmentId, String cartonNo,
                              BigDecimal actualWeightKg, String trackingNo,
                              String carrierMasterTrackingNo) {
