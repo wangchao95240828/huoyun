@@ -25,7 +25,9 @@ import org.springframework.web.bind.annotation.RestController;
  * / piece / chargeWeight / sellCharge / costCharge / branch / addTime
  *
  * 数据来源：orders + customers join，cartons 聚合件数，shipments 一对一拿 country。
- * sellCharge/costCharge/branch 暂无业务字段聚合，先空值占位（待 charges/costs 落表后再 join）。
+ * sellCharge = SUM(charges where side='AR' and settlement_status<>'VOID') by customer_ref join shipments；
+ * costCharge = SUM(charges where side='AP' and settlement_status<>'VOID')；
+ * branch = orders.branch_id → organizations.name。
  */
 @RestController
 @RequestMapping("/api/acc/orders")
