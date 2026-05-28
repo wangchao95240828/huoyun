@@ -46,6 +46,7 @@ public class AccTenantTxFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         // 只在我们提供的 ACC retrofit 路径生效，避免影响其它已经自管理事务的模块
         return !(path.startsWith("/api/acc/")
+            || path.startsWith("/api/document/")
             || path.startsWith("/api/finance/dashboard")
             || path.startsWith("/api/finance/branches"));
     }
