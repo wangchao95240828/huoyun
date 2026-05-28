@@ -234,6 +234,23 @@ public class DocumentChargeService {
     }
 
     /**
+     * 独立收款（不核销具体账单）的资金流水入口，对应 ACC「快速收款」语义。
+     * 调用方先把 payments 行落库（保留 payment_id 作 source_ref），再调本方法
+     * 同步银行账户余额 + 写 balance_ledger（biz_type=RECEIPT）。
+     *
+     * 文档要求消除"双轨"：所有收款都应该经过资金流水（balance_ledger），
+     * 不能让 acc tab 直接 INSERT payments 而绕过流水。
+     */
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = com.xqt.saas.common.ApiException.class)
+    public void recordStandaloneReceipt(AuthPrincipal principal, String customerId,
+                                        String bankAccountId, String paymentId,
+                                        String currency, BigDecimal amount, String remark) {
+        setTenant(principal.tenantId());
+        recordBankLedger(principal, bankAccountId, "CUSTOMER", customerId,
+            "RECEIPT", "payment", paymentId, currency, amount, remark);
+    }
+
+    /**
      * 资金账户流水通用写入：在指定银行账户上记一笔流水并同步余额。
      * RECEIPT（收款）→ 账户余额增加；PAYMENT（付款）→ 减少。
      * amount 可能为负（反核销），方向随符号翻转。bankAccountId 为空则跳过（核销主流程不依赖此）。

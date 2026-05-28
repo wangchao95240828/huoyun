@@ -414,4 +414,31 @@ class DocumentChargeServiceTests {
             eq(new BigDecimal("94.80")), eq(new BigDecimal("5000")), eq(new BigDecimal("4905.20")),
             any(), any());
     }
+
+    // ─── 20. recordStandaloneReceipt（快速收款）→ 写 RECEIPT 流水 + 账户增 ───
+    @Test
+    void recordStandaloneReceiptWritesLedger() {
+        when(repo.findAccountBalance("bank-x")).thenReturn(new BigDecimal("2000"));
+
+        service.recordStandaloneReceipt(principal(), "cust-1", "bank-x", "pay-1",
+            "CNY", new BigDecimal("300"), "快速收款");
+
+        verify(repo, times(1)).adjustAccountBalance("bank-x", new BigDecimal("300"));
+        verify(repo, times(1)).recordBalanceLedger(
+            eq(TENANT), eq("bank-x"), eq("CUSTOMER"), eq("cust-1"),
+            eq("RECEIPT"), eq("payment"), eq("pay-1"), eq("CNY"), eq("CREDIT"),
+            eq(new BigDecimal("300")), eq(new BigDecimal("2000")), eq(new BigDecimal("2300")),
+            any(), any());
+    }
+
+    // ─── 21. recordStandaloneReceipt 无 bankAccountId → 跳过流水 ───
+    @Test
+    void recordStandaloneReceiptSkipsWithoutBank() {
+        service.recordStandaloneReceipt(principal(), "cust-1", null, "pay-1",
+            "CNY", new BigDecimal("300"), "快速收款");
+
+        verify(repo, org.mockito.Mockito.never()).adjustAccountBalance(any(), any());
+        verify(repo, org.mockito.Mockito.never()).recordBalanceLedger(
+            any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
 }

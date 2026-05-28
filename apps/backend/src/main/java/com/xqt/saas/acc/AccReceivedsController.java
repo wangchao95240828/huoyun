@@ -36,15 +36,18 @@ public class AccReceivedsController {
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
     private final MoneySnapshotService moneySnapshotService;
+    private final com.xqt.saas.documentcharges.DocumentChargeService docService;
 
     public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
                                   CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                  MoneySnapshotService moneySnapshotService) {
+                                  MoneySnapshotService moneySnapshotService,
+                                  com.xqt.saas.documentcharges.DocumentChargeService docService) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.moneySnapshotService = moneySnapshotService;
+        this.docService = docService;
     }
 
     @GetMapping
@@ -169,10 +172,49 @@ public class AccReceivedsController {
         return Map.of("id", id, "deleted", true);
     }
 
-    /** 对应前端 "快速收款"。 */
+    /**
+     * 对应前端 "快速收款"。统一走 documentcharges：raw INSERT payments 后再调
+     * docService.recordStandaloneReceipt 写资金流水（balance_ledger RECEIPT），
+     * 让快速收款也进资金账本，不再绕过流水（消除"双轨"）。
+     *
+     * 前端 body: { customerId, amount, bankId }；返回 { ok, id, ledgerWritten }。
+     */
     @PostMapping("/quick")
     public Map<String, Object> quick(@RequestBody Map<String, Object> body) {
-        return create(body);
+        // 1) 先按原有 CRUD 落 payments 行（保持兼容性 + 拿到 paymentId）
+        Map<String, Object> created = create(body);
+        String paymentId = (String) created.get("id");
+        String bankId = body.get("financial_account_id") != null
+            ? body.get("financial_account_id").toString()
+            : body.get("bankId") == null ? null : body.get("bankId").toString();
+        String customerId = body.get("customer_id") != null
+            ? body.get("customer_id").toString()
+            : body.get("customerId") == null ? null : body.get("customerId").toString();
+        BigDecimal amount = body.get("amount") instanceof Number n
+            ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        String currency = (String) body.getOrDefault("currency", "CNY");
+        String remark = (String) body.getOrDefault("remark", "快速收款");
+
+        boolean ledgerWritten = false;
+        if (bankId != null && !bankId.isBlank() && customerId != null && amount.signum() > 0) {
+            try {
+                docService.recordStandaloneReceipt(currentPrincipal(),
+                    customerId, bankId, paymentId, currency, amount, remark);
+                ledgerWritten = true;
+            } catch (com.xqt.saas.common.ApiException ignored) {
+                // 流水写入失败不阻断主流程（payments 行已落），账户不存在等情况静默跳过
+            }
+        }
+        return Map.of("ok", true, "id", paymentId, "ledgerWritten", ledgerWritten);
+    }
+
+    private com.xqt.saas.auth.AuthPrincipal currentPrincipal() {
+        org.springframework.security.core.Authentication auth =
+            org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getPrincipal() instanceof com.xqt.saas.auth.AuthPrincipal p)) {
+            throw com.xqt.saas.common.ApiException.unauthorized("authentication required");
+        }
+        return p;
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

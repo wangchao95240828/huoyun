@@ -36,13 +36,16 @@ public class AccBillsController {
     private final JsonSupport json;
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
+    private final com.xqt.saas.documentcharges.DocumentChargeService docService;
 
     public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
-                              CascadeChecker cascadeChecker, FieldGate fieldGate) {
+                              CascadeChecker cascadeChecker, FieldGate fieldGate,
+                              com.xqt.saas.documentcharges.DocumentChargeService docService) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+        this.docService = docService;
     }
 
     @GetMapping
@@ -171,6 +174,99 @@ public class AccBillsController {
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM customer_invoices WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    /**
+     * 前端 "生成账单"。统一走 documentcharges service（消除双轨：以前前端调这个但后端没实现）。
+     * 入参兼容旧前端 { customerId, dateFrom, dateTo, currency? }，UUID 与 integer 都接受。
+     */
+    @PostMapping("/generate")
+    public Map<String, Object> generate(@RequestBody Map<String, Object> body) {
+        String customerId = resolveCustomerId(body.get("customerId"));
+        java.time.LocalDate from = parseDate(body.get("dateFrom"));
+        java.time.LocalDate to = parseDate(body.get("dateTo"));
+        String currency = (String) body.getOrDefault("currency", "CNY");
+        com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice req =
+            new com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice(
+                customerId, from, to, currency, "STANDARD", null);
+        try {
+            com.xqt.saas.documentcharges.DocumentChargeResponses.InvoiceResult r =
+                docService.generateCustomerInvoice(currentPrincipal(), req);
+            return Map.of("ok", true, "billId", r.invoiceId(), "invoiceNo", r.invoiceNo(),
+                "lineCount", r.lineCount(), "totalAmount", r.totalAmount());
+        } catch (com.xqt.saas.common.ApiException ex) {
+            return Map.of("ok", false, "error", ex.getMessage());
+        }
+    }
+
+    /**
+     * 前端 "账单重算"：作废原账单 + 用同客户/日期段重新生成。
+     * 旧前端只传 { id }，从原账单读出客户和日期段。
+     */
+    @PostMapping("/reload")
+    public Map<String, Object> reload(@RequestBody Map<String, Object> body) {
+        String oldId = body.get("id") == null ? null : body.get("id").toString();
+        if (oldId == null || oldId.isBlank()) {
+            return Map.of("ok", false, "error", "id is required");
+        }
+        Map<String, Object> old;
+        try {
+            old = jdbc.queryForMap("""
+                SELECT customer_id::text AS customer_id, currency,
+                       coalesce(invoice_date::date, created_at::date) AS date_from,
+                       coalesce(invoice_date::date, current_date) AS date_to
+                FROM customer_invoices WHERE id = ?::uuid
+                """, oldId);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            return Map.of("ok", false, "error", "账单不存在");
+        }
+        java.time.LocalDate from = (java.time.LocalDate)
+            ((java.sql.Date) old.get("date_from")).toLocalDate();
+        java.time.LocalDate to = (java.time.LocalDate)
+            ((java.sql.Date) old.get("date_to")).toLocalDate();
+        // 作废旧账单：解除 customer_invoice_lines + 置状态 VOID，这样新 generate 能重新聚合费用
+        jdbc.update("UPDATE customer_invoice_lines SET charge_id = NULL WHERE invoice_id = ?::uuid", oldId);
+        jdbc.update("UPDATE customer_invoices SET status = 'VOID', writeoff_status = 'VOID' WHERE id = ?::uuid", oldId);
+
+        com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice req =
+            new com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice(
+                (String) old.get("customer_id"), from, to, (String) old.get("currency"),
+                "STANDARD", null);
+        try {
+            com.xqt.saas.documentcharges.DocumentChargeResponses.InvoiceResult r =
+                docService.generateCustomerInvoice(currentPrincipal(), req);
+            return Map.of("ok", true, "billId", r.invoiceId(), "invoiceNo", r.invoiceNo(),
+                "lineCount", r.lineCount(), "totalAmount", r.totalAmount(),
+                "voidedBillId", oldId);
+        } catch (com.xqt.saas.common.ApiException ex) {
+            return Map.of("ok", false, "error", ex.getMessage());
+        }
+    }
+
+    private static String resolveCustomerId(Object v) {
+        // 兼容旧前端：customerId 可能是 UUID 字符串、也可能是被 Number() 转换后的数字（导致 NaN）
+        if (v == null) return null;
+        String s = v.toString();
+        if (s.isBlank() || "NaN".equals(s) || "0".equals(s)) return null;
+        return s;
+    }
+
+    private static java.time.LocalDate parseDate(Object v) {
+        if (v == null) return null;
+        try {
+            return java.time.LocalDate.parse(v.toString());
+        } catch (java.time.format.DateTimeParseException ex) {
+            return null;
+        }
+    }
+
+    private com.xqt.saas.auth.AuthPrincipal currentPrincipal() {
+        org.springframework.security.core.Authentication auth =
+            org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getPrincipal() instanceof com.xqt.saas.auth.AuthPrincipal p)) {
+            throw com.xqt.saas.common.ApiException.unauthorized("authentication required");
+        }
+        return p;
     }
 
     private Map<String, Object> project(Map<String, Object> row) {
