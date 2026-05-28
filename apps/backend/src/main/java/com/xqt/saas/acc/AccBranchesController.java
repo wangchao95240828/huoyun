@@ -60,6 +60,7 @@ public class AccBranchesController {
                 """, Long.class, search, search, search);
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id::text AS id, code, name, org_type, is_active,
+                       contact, phone, address, remark,
                        audit_status, audited_at, audit_name
                 FROM organizations
                 WHERE org_type IN ('branch', 'hq')
@@ -86,10 +87,14 @@ public class AccBranchesController {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
         String id = jdbc.queryForObject("""
-            INSERT INTO organizations (tenant_id, code, name, org_type)
-            VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, 'branch')
+            INSERT INTO organizations (
+              tenant_id, code, name, org_type, contact, phone, address, remark
+            ) VALUES (
+              current_setting('app.current_tenant_id')::uuid, ?, ?, 'branch', ?, ?, ?, ?
+            )
             RETURNING id::text
-            """, String.class, code, name);
+            """, String.class, code, name,
+            body.get("contact"), body.get("phone"), body.get("address"), body.get("remark"));
         return Map.of("id", id, "code", code, "name", name);
     }
 
@@ -106,10 +111,17 @@ public class AccBranchesController {
         Map<String, Object> allowed = gate.allowed();
         jdbc.update("""
             UPDATE organizations SET
-              code = coalesce(?, code),
-              name = coalesce(?, name)
+              code    = coalesce(?, code),
+              name    = coalesce(?, name),
+              contact = coalesce(?, contact),
+              phone   = coalesce(?, phone),
+              address = coalesce(?, address),
+              remark  = coalesce(?, remark)
             WHERE id = ?::uuid AND org_type IN ('branch', 'hq')
-            """, (String) allowed.get("code"), (String) allowed.get("name"), id);
+            """,
+            (String) allowed.get("code"), (String) allowed.get("name"),
+            (String) allowed.get("contact"), (String) allowed.get("phone"),
+            (String) allowed.get("address"), (String) allowed.get("remark"), id);
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
 
@@ -131,10 +143,11 @@ public class AccBranchesController {
         out.put("id", row.get("id"));
         out.put("name", row.get("name"));
         out.put("code", row.get("code"));
-        out.put("contact", "");
-        out.put("phone", "");
-        out.put("address", "");
-        out.put("remark", row.get("org_type"));
+        out.put("contact", row.get("contact") == null ? "" : row.get("contact"));
+        out.put("phone", row.get("phone") == null ? "" : row.get("phone"));
+        out.put("address", row.get("address") == null ? "" : row.get("address"));
+        // remark 字段优先用 organizations.remark，回退到 org_type（旧行为）
+        out.put("remark", row.get("remark") == null ? row.get("org_type") : row.get("remark"));
         out.put("isActive", row.get("is_active"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
