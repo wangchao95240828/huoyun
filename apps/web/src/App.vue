@@ -14,6 +14,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Users,
   Landmark,
   Globe,
@@ -258,12 +259,6 @@ const navItems = [
   { key: "system", label: "系统管理", icon: ShieldCheck },
 ];
 
-const navGroups = [
-  { label: "工作台", items: navItems.slice(0, 1) },
-  { label: "业务复刻", items: navItems.slice(1, 3) },
-  { label: "系统治理", items: navItems.slice(3) },
-];
-
 const navMap = computed(() => Object.fromEntries(navItems.map(item => [item.key, item])));
 const activeNavItem = computed(() => navMap.value[currentNav.value] ?? navItems[0]);
 const activePageTitle = computed(() => {
@@ -506,6 +501,27 @@ const accTabs = [
   { key: "tasks", label: "定时任务", icon: ListChecks, api: "tasks" },
   { key: "templates", label: "消息模板", icon: FileText, api: "templates" },
 ];
+
+// ACC 二级菜单：6 大功能组（ERP 式折叠菜单树）。索引区间对应 accTabs 顺序。
+const accMenuGroups = [
+  { key: "order", label: "订单管理", icon: FileText, tabs: accTabs.slice(0, 8) },
+  { key: "logistics", label: "物流管理", icon: Truck, tabs: accTabs.slice(8, 19) },
+  { key: "finance", label: "财务管理", icon: DollarSign, tabs: accTabs.slice(19, 47) },
+  { key: "partner", label: "客户/供应商", icon: Users, tabs: accTabs.slice(47, 57) },
+  { key: "hr", label: "人事组织", icon: Building2, tabs: accTabs.slice(57, 67) },
+  { key: "basic", label: "基础数据", icon: Globe, tabs: accTabs.slice(67) },
+];
+// 当前展开的 ACC 功能组（手风琴，一次展开一个）
+const expandedAccGroup = ref<string>("order");
+function toggleAccGroup(key: string) {
+  expandedAccGroup.value = expandedAccGroup.value === key ? "" : key;
+}
+// 切到某 ACC tab：设置当前 tab，并自动展开它所在的组
+function selectAccTab(key: string) {
+  accTab.value = key;
+  const group = accMenuGroups.find(g => g.tabs.some(t => t.key === key));
+  if (group) expandedAccGroup.value = group.key;
+}
 
 // Column definitions per ACC tab
 const accColumns: Record<string, Array<{ key: string; label: string; fmt?: string }>> = {
@@ -2701,49 +2717,73 @@ async function doReloadBill(id: number) {
     </section>
   </main>
 
-  <main v-else :class="['ruoyi-shell', { collapsed: sidebarCollapsed }]">
-    <aside class="ruoyi-sidebar">
-      <div class="brand">
-        <div class="brand-mark">
-          <Truck :size="18" />
-        </div>
-        <div class="brand-copy">
-          <strong>新航线</strong>
-          <span>统一业务平台</span>
-        </div>
+  <main v-else :class="['ruoyi-shell', 'erp-shell', { collapsed: sidebarCollapsed }]">
+    <!-- 一级图标栏 -->
+    <aside class="nav-rail">
+      <div class="rail-brand" title="新航线统一业务平台">
+        <Truck :size="20" />
       </div>
-      <nav class="side-menu">
-        <section class="menu-group" v-for="group in navGroups" :key="group.label">
-          <div class="menu-title">{{ group.label }}</div>
-          <button
-            v-for="item in group.items"
-            :key="item.key"
-            :class="{ active: currentNav === item.key }"
-            @click="navTo(item.key)"
-            :title="item.label"
-          >
-            <component :is="item.icon" :size="17" />
-            <span>{{ item.label }}</span>
-          </button>
-        </section>
+      <nav class="rail-menu">
+        <button
+          v-for="item in navItems"
+          :key="item.key"
+          :class="{ active: currentNav === item.key }"
+          @click="navTo(item.key)"
+          :title="item.label"
+        >
+          <component :is="item.icon" :size="20" />
+          <span class="rail-label">{{ item.label.replace(/\s*\(.*\)/, '') }}</span>
+        </button>
       </nav>
-      <div class="system-status" v-if="health">
-        <div class="status-title">连接状态</div>
-        <div class="status-item">
-          <span :class="['dot', health.upstreams.postgres.connected ? 'green' : 'red']" />
-          <span>PostgreSQL</span>
-          <strong>{{ health.upstreams.postgres.connected ? '正常' : '异常' }}</strong>
+      <div class="rail-status" v-if="health" :title="`PostgreSQL ${health.upstreams.postgres.connected ? '正常' : '异常'}`">
+        <span :class="['dot', health.upstreams.postgres.connected ? 'green' : 'red']" />
+      </div>
+    </aside>
+
+    <!-- 二级菜单栏 -->
+    <aside class="nav-submenu" v-if="!sidebarCollapsed">
+      <div class="submenu-head">{{ activeNavItem.label }}</div>
+
+      <!-- ACC：6 大功能组手风琴 -->
+      <nav class="menu-tree" v-if="currentNav === 'acc'">
+        <div class="menu-tree-group" v-for="g in accMenuGroups" :key="g.key">
+          <button class="group-head" :class="{ open: expandedAccGroup === g.key }" @click="toggleAccGroup(g.key)">
+            <component :is="g.icon" :size="15" />
+            <span>{{ g.label }}</span>
+            <ChevronDown v-if="expandedAccGroup === g.key" :size="14" class="group-chevron" />
+            <ChevronRight v-else :size="14" class="group-chevron" />
+          </button>
+          <div class="group-items" v-show="expandedAccGroup === g.key">
+            <button
+              v-for="tab in g.tabs"
+              :key="tab.key"
+              :class="{ active: accTab === tab.key }"
+              @click="selectAccTab(tab.key)"
+            >
+              <component :is="tab.icon" :size="14" />
+              <span>{{ tab.label }}</span>
+            </button>
+          </div>
         </div>
-        <div class="status-item">
-          <span :class="['dot', statusTone(health.upstreams.acc)]" />
-          <span>ACC</span>
-          <strong>{{ statusLabel(health.upstreams.acc) }}</strong>
-        </div>
-        <div class="status-item">
-          <span :class="['dot', statusTone(health.upstreams.xqt)]" />
-          <span>XQT</span>
-          <strong>{{ statusLabel(health.upstreams.xqt) }}</strong>
-        </div>
+      </nav>
+
+      <!-- 系统管理：平铺子菜单 -->
+      <nav class="menu-tree flat" v-else-if="currentNav === 'system'">
+        <button
+          v-for="tab in sysTabs"
+          :key="tab.key"
+          :class="{ active: sysTab === tab.key }"
+          @click="sysTab = tab.key"
+        >
+          <component :is="tab.icon" :size="15" />
+          <span>{{ tab.label }}</span>
+        </button>
+      </nav>
+
+      <!-- 其它单页模块 -->
+      <div class="submenu-empty" v-else>
+        <component :is="activeNavItem.icon" :size="32" />
+        <p>{{ activeNavItem.label }}</p>
       </div>
     </aside>
 
@@ -3024,56 +3064,10 @@ async function doReloadBill(id: number) {
           </div>
         </header>
 
-        <!-- ACC Sub-tabs -->
-        <div class="acc-tab-bar">
-          <div class="acc-tab-group">
-            <span class="tab-group-label">订单</span>
-            <button v-for="tab in accTabs.slice(0, 8)" :key="tab.key"
-              :class="{ active: accTab === tab.key }" @click="accTab = tab.key">
-              <component :is="tab.icon" :size="13" />
-              {{ tab.label }}
-            </button>
-          </div>
-          <div class="acc-tab-group">
-            <span class="tab-group-label">物流</span>
-            <button v-for="tab in accTabs.slice(8, 19)" :key="tab.key"
-              :class="{ active: accTab === tab.key }" @click="accTab = tab.key">
-              <component :is="tab.icon" :size="13" />
-              {{ tab.label }}
-            </button>
-          </div>
-          <div class="acc-tab-group">
-            <span class="tab-group-label">财务</span>
-            <button v-for="tab in accTabs.slice(19, 47)" :key="tab.key"
-              :class="{ active: accTab === tab.key }" @click="accTab = tab.key">
-              <component :is="tab.icon" :size="13" />
-              {{ tab.label }}
-            </button>
-          </div>
-          <div class="acc-tab-group">
-            <span class="tab-group-label">客户/供应商</span>
-            <button v-for="tab in accTabs.slice(47, 57)" :key="tab.key"
-              :class="{ active: accTab === tab.key }" @click="accTab = tab.key">
-              <component :is="tab.icon" :size="13" />
-              {{ tab.label }}
-            </button>
-          </div>
-          <div class="acc-tab-group">
-            <span class="tab-group-label">人事组织</span>
-            <button v-for="tab in accTabs.slice(57, 67)" :key="tab.key"
-              :class="{ active: accTab === tab.key }" @click="accTab = tab.key">
-              <component :is="tab.icon" :size="13" />
-              {{ tab.label }}
-            </button>
-          </div>
-          <div class="acc-tab-group">
-            <span class="tab-group-label">基础数据</span>
-            <button v-for="tab in accTabs.slice(67)" :key="tab.key"
-              :class="{ active: accTab === tab.key }" @click="accTab = tab.key">
-              <component :is="tab.icon" :size="13" />
-              {{ tab.label }}
-            </button>
-          </div>
+        <!-- 当前功能标识（替代原顶部 78 按钮平铺，功能已移到左侧二级菜单） -->
+        <div class="acc-current-tab">
+          <component :is="accTabs.find(t => t.key === accTab)?.icon ?? FileText" :size="16" />
+          <strong>{{ accTabs.find(t => t.key === accTab)?.label ?? '快件订单' }}</strong>
         </div>
 
         <!-- Search bar -->

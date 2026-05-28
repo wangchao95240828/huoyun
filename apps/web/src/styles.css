@@ -1821,3 +1821,194 @@ input, select, textarea { font: inherit; }
   margin-top: 4px;
   font-size: 13px;
 }
+
+/* ═══════════════ ERP 双栏侧边导航 ═══════════════ */
+:root {
+  --rail-w: 68px;
+  --submenu-w: 212px;
+}
+
+/* 一级图标栏 */
+.nav-rail {
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  width: var(--rail-w);
+  background: var(--c-sidebar);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 11;
+  padding-bottom: 10px;
+}
+.rail-brand {
+  height: var(--header-h);
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-accent);
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.rail-menu {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 8px 0;
+  gap: 2px;
+  overflow-y: auto;
+}
+.rail-menu button {
+  background: none;
+  border: 0;
+  color: #9aa7b4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 2px;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1.1;
+  border-left: 3px solid transparent;
+  transition: background .12s, color .12s;
+}
+.rail-menu button .rail-label {
+  font-size: 10px;
+  transform: scale(.92);
+  text-align: center;
+  white-space: nowrap;
+}
+.rail-menu button:hover { background: var(--c-sidebar-hover); color: #e2e8f0; }
+.rail-menu button.active {
+  color: #fff;
+  background: var(--c-sidebar-hover);
+  border-left-color: var(--c-accent);
+}
+.rail-status { padding-top: 6px; }
+.rail-status .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.rail-status .dot.green { background: #22c55e; }
+.rail-status .dot.red { background: #ef4444; }
+
+/* 二级菜单栏 */
+.nav-submenu {
+  position: fixed;
+  top: 0; left: var(--rail-w); bottom: 0;
+  width: var(--submenu-w);
+  background: #fff;
+  border-right: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  overflow-y: auto;
+}
+.submenu-head {
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--c-text);
+  border-bottom: 1px solid var(--c-border);
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+}
+.menu-tree { padding: 6px 0; }
+.menu-tree-group { margin-bottom: 1px; }
+.group-head {
+  width: 100%;
+  background: none;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  cursor: pointer;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.group-head:hover { background: #f1f5f4; color: var(--c-text); }
+.group-head.open { color: var(--c-accent); }
+.group-chevron { margin-left: auto; opacity: .7; }
+.group-items {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0 6px;
+}
+.group-items button {
+  background: none;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 7px 30px;
+  cursor: pointer;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  text-align: left;
+  border-left: 3px solid transparent;
+  transition: background .1s, color .1s;
+}
+.group-items button:hover { background: #f1f5f4; color: var(--c-text); }
+.group-items button.active {
+  background: rgba(15,143,127,.10);
+  color: var(--c-accent);
+  border-left-color: var(--c-accent);
+  font-weight: 600;
+}
+/* 系统管理：平铺菜单（无分组） */
+.menu-tree.flat { padding: 8px 0; }
+.menu-tree.flat button {
+  width: 100%;
+  background: none;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  cursor: pointer;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  text-align: left;
+  border-left: 3px solid transparent;
+}
+.menu-tree.flat button:hover { background: #f1f5f4; color: var(--c-text); }
+.menu-tree.flat button.active {
+  background: rgba(15,143,127,.10);
+  color: var(--c-accent);
+  border-left-color: var(--c-accent);
+  font-weight: 600;
+}
+.submenu-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--c-text-muted);
+}
+
+/* 主内容区在双栏右侧 */
+.erp-shell .ruoyi-main {
+  margin-left: calc(var(--rail-w) + var(--submenu-w));
+}
+.erp-shell.collapsed .nav-submenu { display: none; }
+.erp-shell.collapsed .ruoyi-main { margin-left: var(--rail-w); }
+
+/* ACC 当前功能标识（替代原 78 按钮平铺） */
+.acc-current-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #fff;
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text);
+}
+.acc-current-tab strong { font-size: 15px; }
