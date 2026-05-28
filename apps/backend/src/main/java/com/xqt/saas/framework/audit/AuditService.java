@@ -59,10 +59,26 @@ public class AuditService {
 
     private final JdbcTemplate jdbc;
     private final JsonSupport json;
+    private final List<AuditSideEffect> sideEffects;
 
-    public AuditService(JdbcTemplate jdbc, JsonSupport json) {
+    public AuditService(JdbcTemplate jdbc, JsonSupport json, List<AuditSideEffect> sideEffects) {
         this.jdbc = jdbc;
         this.json = json;
+        this.sideEffects = sideEffects == null ? List.of() : sideEffects;
+    }
+
+    /** 审核/反审成功后触发关心该表的副作用（同事务，异常回滚审核）。 */
+    private void fireSideEffects(String table, String entityId, String tenantId,
+                                 String actorName, boolean audited) {
+        for (AuditSideEffect effect : sideEffects) {
+            if (effect.supports(table)) {
+                if (audited) {
+                    effect.onAudited(table, entityId, tenantId, actorName);
+                } else {
+                    effect.onUndone(table, entityId, tenantId, actorName);
+                }
+            }
+        }
     }
 
     public boolean isAuditable(String table) {
@@ -97,6 +113,7 @@ public class AuditService {
         }
         Map<String, Object> after = snapshot(table, entityId);
         recordEvent(table, entityId, AuditAction.AUDIT, actorName, before, after);
+        fireSideEffects(table, entityId, tenantId, actorName, true);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -121,6 +138,7 @@ public class AuditService {
         }
         Map<String, Object> after = snapshot(table, entityId);
         recordEvent(table, entityId, AuditAction.UNDO_AUDIT, actorName, before, after);
+        fireSideEffects(table, entityId, tenantId, actorName, false);
     }
 
     public BatchResult batchAudit(String table, List<String> entityIds, String tenantId, String actorName) {
