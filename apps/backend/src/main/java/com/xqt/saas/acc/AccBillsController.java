@@ -79,6 +79,7 @@ public class AccBillsController {
                   i.audit_name,
                   c.name           AS customer_name,
                   c.account_mode   AS settlement,
+                  u.display_name   AS salesman_name,
                   (
                     SELECT coalesce(sum(p.amount), 0) FROM payments p
                     WHERE p.tenant_id = i.tenant_id AND p.reference_no = i.invoice_no
@@ -88,6 +89,7 @@ public class AccBillsController {
                   ) AS line_count
                 FROM customer_invoices i
                 LEFT JOIN customers c ON c.id = i.customer_id
+                LEFT JOIN users u ON u.id = c.salesman_user_id
                 WHERE (?::text IS NULL OR i.invoice_no ILIKE ?)
                   AND (?::date IS NULL OR i.issued_at >= ?::date)
                   AND (?::date IS NULL OR i.issued_at < (?::date + 1))
@@ -187,7 +189,7 @@ public class AccBillsController {
         out.put("unpay", unpay);
         out.put("quantity", row.get("line_count"));
         out.put("status", row.get("status"));
-        out.put("salesman", "");           // 新模型未建模
+        out.put("salesman", row.get("salesman_name") == null ? "" : row.get("salesman_name"));
         out.put("currency", row.get("currency"));
         // 审核流字段：前端用来显示"已审核"红色标记 + 决定能否点删除/反审按钮
         out.put("auditStatus", row.get("audit_status"));
