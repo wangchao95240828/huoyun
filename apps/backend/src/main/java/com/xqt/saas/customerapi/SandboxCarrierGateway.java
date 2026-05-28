@@ -21,9 +21,19 @@ public class SandboxCarrierGateway implements CarrierGateway {
     private static final AtomicLong SEQ = new AtomicLong(1);
     private static final String ENDPOINT = "https://sandbox.carrier.example.com/v1/shipments";
 
+    /** 模拟 provider 那边的活跃单号集合，cancel 时从中移除。生产 adapter 应调真实 HTTP。 */
+    private static final java.util.Set<String> ACTIVE = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
     @Override
     public String gatewayKey() {
         return "SANDBOX";
+    }
+
+    /** 任务 S2：模拟向 provider 发 cancel HTTP。本地是从 ACTIVE 集合移除。 */
+    @Override
+    public boolean cancel(String tenantId, String masterTrackingNo) {
+        if (masterTrackingNo == null || masterTrackingNo.isBlank()) return false;
+        return ACTIVE.remove(masterTrackingNo);
     }
 
     @Override
@@ -44,6 +54,8 @@ public class SandboxCarrierGateway implements CarrierGateway {
         // 模拟 provider 返回：sandbox 单号 SBX + 时间序列
         String tracking = String.format("SBX%013d", seq + System.currentTimeMillis() % 1_000_000);
         String master = "SBXM" + tracking.substring(3);
+        // 记录到活跃单号集合（cancel 时反向移除）
+        ACTIVE.add(master);
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "ACCEPTED");
         response.put("trackingNumber", tracking);

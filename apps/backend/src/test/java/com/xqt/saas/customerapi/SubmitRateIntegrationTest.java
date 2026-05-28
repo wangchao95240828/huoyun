@@ -71,7 +71,8 @@ class SubmitRateIntegrationTest {
         when(jdbc.queryForObject(any(String.class), any(Class.class), any(Object[].class))).thenReturn(TENANT);
         return new CustomerApiService(repo, json, jdbc,
             new CarrierGatewayRegistry(List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc),
-            engine);
+            engine,
+            mock(SubmitCompensationService.class));
     }
 
     private Quote fullQuote() {

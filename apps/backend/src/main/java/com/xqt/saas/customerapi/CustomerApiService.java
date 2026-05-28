@@ -48,6 +48,7 @@ public class CustomerApiService {
     private final JdbcTemplate jdbc;
     private final CarrierGatewayRegistry carrierGateways;
     private final RateEngine rateEngine;
+    private final SubmitCompensationService compensationService;
 
     /** 生产应为 true：报价失败直接阻断 Submit，不退化为简化估算。 */
     @org.springframework.beans.factory.annotation.Value("${app.rates.strict-quote:false}")
@@ -55,12 +56,14 @@ public class CustomerApiService {
 
     public CustomerApiService(CustomerApiRepository repository, JsonSupport json,
                               JdbcTemplate jdbc, CarrierGatewayRegistry carrierGateways,
-                              RateEngine rateEngine) {
+                              RateEngine rateEngine,
+                              SubmitCompensationService compensationService) {
         this.repository = repository;
         this.json = json;
         this.jdbc = jdbc;
         this.carrierGateways = carrierGateways;
         this.rateEngine = rateEngine;
+        this.compensationService = compensationService;
     }
 
     @Transactional(readOnly = true)
@@ -250,12 +253,27 @@ public class CustomerApiService {
         // 便于运维/客服在前端运单详情看到取号的真实证据（任务5 文档要求）
         String carrierEvidenceJson = issuance.raw() == null || issuance.raw().isEmpty()
             ? null : json.toJson(issuance.raw());
-        repository.insertCarton(
-            principal.tenantId(), shipmentId, "001",
-            weight == null ? BigDecimal.ZERO : weight,
-            issuance.carrierTrackingNo(), issuance.carrierMasterTrackingNo(),
-            carrierEvidenceJson
-        );
+        try {
+            repository.insertCarton(
+                principal.tenantId(), shipmentId, "001",
+                weight == null ? BigDecimal.ZERO : weight,
+                issuance.carrierTrackingNo(), issuance.carrierMasterTrackingNo(),
+                carrierEvidenceJson
+            );
+        } catch (RuntimeException ex) {
+            // 任务 S2：provider 已取号但本地 insert 失败 → 触发补偿（best-effort cancel + 写 orphan 表）
+            CarrierGateway gatewayForCompensation = carrierGateways.forChannel(principal.tenantId(), channelCode);
+            String providerCode = gatewayForCompensation.gatewayKey();
+            compensationService.compensateOrphanTracking(
+                principal.tenantId(), providerCode,
+                issuance.carrierMasterTrackingNo(), issuance.carrierTrackingNo(),
+                channelCode, orderNo, customerRef,
+                "insertCarton failed: " + ex.getMessage(),
+                java.util.Map.of("orderNo", orderNo, "channelCode", channelCode),
+                issuance.raw()
+            );
+            throw ex; // 让外层事务回滚
+        }
 
         // 取号成功后累加渠道账号当日票池，供 RateEngine 限额检查使用（ACC: Channel_Limit）
         String channelAccountCode = stringOrNull(accCompat.get("channelAccount"));

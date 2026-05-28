@@ -18,6 +18,18 @@ public interface CarrierGateway {
 
     Issuance submit(SubmitContext ctx);
 
+    /**
+     * 任务 S2：取消 provider 那侧的子单号（补偿用）。
+     * 用于 DB 后续 insert 失败时主动作废 provider 已发出的单号，避免幽灵单号。
+     *
+     * 默认实现 no-op，仅返回 false 不抛错；真实 adapter 应实现真正的 cancel HTTP 调用。
+     *
+     * @return true = 成功取消；false = 失败或不支持（调用方记录 ORPHAN）
+     */
+    default boolean cancel(String tenantId, String masterTrackingNo) {
+        return false;
+    }
+
     record SubmitContext(
         String tenantId,
         String customerCode,

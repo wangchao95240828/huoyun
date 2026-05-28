@@ -97,7 +97,7 @@ class CustomerApiContractTests {
                 "account_name", "DOC-DEMO USD 预付余额", "status", "ACTIVE")
         ));
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         CustomerApiPrincipal principal = new CustomerApiPrincipal(
             "cred-1", "tenant-1", "cust-1", "DOC-DEMO", "60000DEMO", "secret"
         );
@@ -124,7 +124,7 @@ class CustomerApiContractTests {
                 Map.of("order_no", "DOC-ORD-002", "customer_ref", "ORD-002", "status", "CANCELLED")
             ));
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         StatusList result = service.queryStatus(
             principal(),
             new CustomerApiRequests.OrderRefList(null, List.of("ORD-001", "ORD-002", "MISSING"))
@@ -156,7 +156,7 @@ class CustomerApiContractTests {
                     "created_at", java.sql.Timestamp.valueOf("2026-05-12 10:00:00"))
             ));
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         OrderDetailList result = service.queryDetail(
             principal(),
             new CustomerApiRequests.OrderRefList("ORD-001", null)
@@ -213,7 +213,7 @@ class CustomerApiContractTests {
                 )
             ));
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         TrackingList result = service.queryTracking(
             principal(),
             new CustomerApiRequests.OrderRefList(null, List.of("ORD-001"))
@@ -239,7 +239,7 @@ class CustomerApiContractTests {
         when(repository.findShipmentsForTracking("tenant-1", "cust-1", List.of("ORD-NEW")))
             .thenReturn(List.of());
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         TrackingList result = service.queryTracking(
             principal(),
             new CustomerApiRequests.OrderRefList("ORD-NEW", null)
@@ -263,7 +263,7 @@ class CustomerApiContractTests {
                 "lane", "EU", "last_mile_method", "UPS", "active", true)
         ));
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         ChannelList result = service.listChannels(principal());
 
         assertThat(result.data()).hasSize(1);
@@ -296,7 +296,7 @@ class CustomerApiContractTests {
             .thenReturn("ship-1");
         when(repository.markOrderSubmitted("00000000-0000-0000-0000-000000000001")).thenReturn(1);
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         SubmitResult result = service.submitOrder(principal(), "ORD-S1");
 
         assertThat(result.status()).isEqualTo("SUBMITTED");
@@ -320,7 +320,7 @@ class CustomerApiContractTests {
                 "metadata", "{}"
             )));
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.submitOrder(principal(), "ORD-X"))
             .isInstanceOf(com.xqt.saas.common.ApiException.class)
             .hasMessageContaining("only DRAFT");
@@ -357,7 +357,7 @@ class CustomerApiContractTests {
                 "created_at", java.sql.Timestamp.valueOf("2026-05-13 09:00:00")
             ))));
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         OrderDetail result = service.modifyOrder(principal(), "ORD-M1",
             new CustomerApiRequests.ModifyOrder(null, "GB", new BigDecimal("2.5"), null, null,
                 null, null, null, null, null, "rush"));
@@ -385,7 +385,7 @@ class CustomerApiContractTests {
             )));
         when(repository.markOrderCancelled("id-c1")).thenReturn(1);
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         CancelResult result = service.cancelOrder(principal(), "ORD-C1");
 
         assertThat(result.status()).isEqualTo("CANCELLED");
@@ -412,7 +412,7 @@ class CustomerApiContractTests {
         when(repository.markOrderCancelled("id-c2")).thenReturn(1);
         when(repository.markShipmentExceptionForOrder("tenant-1", "ORD-C2")).thenReturn(1);
 
-        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class));
+        CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class));
         CancelResult result = service.cancelOrder(principal(), "ORD-C2");
 
         assertThat(result.previousStatus()).isEqualTo("SUBMITTED");
