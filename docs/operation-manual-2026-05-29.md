@@ -4,6 +4,8 @@
 > 适用：S1-S9 ACC 全量迁移 + 利润 listener + 银行/支付/汇率 feed 抽象 + 8.148.227.76 生产部署
 > 适用读者：运营 / 财务 / 客服 / 系统管理员 / 一线业务
 
+![登录页](./screenshots/01-login.png)
+
 ---
 
 ## 0. 一页速览
@@ -20,6 +22,13 @@
 ---
 
 ## 1. 系统模块速查表
+
+### 1.0 主驾驶舱
+
+登录后默认进入"驾驶舱"看板，含总营收 / 总成本 / 毛利 / 运单数 / 账单数 5 个 KPI 卡片 +
+DataGear 风格"两线业务经营看板" + 货物轨迹地图。左侧 5 个一级菜单覆盖全平台功能：
+
+![驾驶舱](./screenshots/02-dashboard.png)
 
 按业务面板分组，每条对应前端菜单项与后端 controller：
 
@@ -55,6 +64,18 @@
 | 退货 | `/api/acc/return-orders` | |
 | 异常单 | `/api/acc/exceptions` | |
 
+订单列表（任务 S4 sellCharge / costCharge / branch 实时聚合生效）：
+
+![快件订单](./screenshots/03-acc-orders.png)
+
+出货管理列表：
+
+![出货管理](./screenshots/04-acc-shipments.png)
+
+配载管理列表（状态机 CONFIRMED 触发点）：
+
+![配载管理](./screenshots/05-acc-stowages.png)
+
 ### 1.3 财务（21 项）
 | 菜单 | 端点 | 关键点 |
 |------|------|--------|
@@ -67,6 +88,18 @@
 | 佣金 / 分红 | `/api/acc/commissions` `/dividends` | |
 | 询问 / 借款 | `/api/acc/asks` `/borrowings` | |
 | 工资 / 考勤 | `/api/acc/salaries` `/attendances` | |
+
+应收运费列表（charges 表，AR 行）：
+
+![应收运费](./screenshots/06-acc-charges.png)
+
+利润查询（ProfitSettlementListener 妥投自动写入 + on-the-fly 兜底）：
+
+![利润查询](./screenshots/07-acc-profits.png)
+
+客户调账（审核入账自动写 balance_ledger + fx 快照）：
+
+![客户调账](./screenshots/08-acc-adjusts.png)
 
 ### 1.4 报表 / 看板
 | 菜单 | 端点 | 说明 |
@@ -312,6 +345,14 @@ UPDATE customers SET salesman_user_id = '<userid>' WHERE id = '<customerid>';
 -- 之后该销售登录后只能看到这些客户
 ```
 
+### 6.2.1 客户主数据列表
+
+![客户主数据](./screenshots/09-acc-customers.png)
+
+### 6.2.2 渠道主数据列表
+
+![渠道管理](./screenshots/10-acc-channels.png)
+
 ### 6.3 给分公司经理分配 branch
 
 ```sql
@@ -324,6 +365,14 @@ UPDATE shipments SET branch_id = (
   SELECT branch_id FROM customers WHERE customers.id = shipments.customer_id
 ) WHERE branch_id IS NULL;
 ```
+
+分公司管理界面：
+
+![分公司管理](./screenshots/11-branches.png)
+
+系统管理 > 用户管理（给员工分配 branch_id 的入口）：
+
+![用户管理](./screenshots/12-system-users.png)
 
 ### 6.4 启用 / 禁用 strict 模式
 
