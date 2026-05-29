@@ -1,0 +1,31 @@
+server:
+  port: ${API_PORT:8081}
+
+spring:
+  application:
+    name: dws-backend
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:15432/xqt_saas}
+    username: ${SPRING_DATASOURCE_USERNAME:xqt}
+    password: ${SPRING_DATASOURCE_PASSWORD:38a1ba65af3599208b327625cec5279c698f}
+    hikari:
+      connection-test-query: select 1
+      validation-timeout: 3000
+      connection-timeout: 10000
+      idle-timeout: 60000
+      max-lifetime: 300000
+      keepalive-time: 60000
+
+logging:
+  level:
+    root: INFO
+    com.dws: DEBUG
+    org.springframework.jdbc: DEBUG
+    org.springframework.jdbc.core.JdbcTemplate: DEBUG
+    org.springframework.jdbc.core.StatementCreatorUtils: TRACE
+
+app:
+  iot:
+    token: ${IOT_TOKEN:}
+    secret-key: ${IOT_SECRET_KEY:mei432qiao765wu168mnjsio}
+    default-tenant-id: ${IOT_DEFAULT_TENANT_ID:}
