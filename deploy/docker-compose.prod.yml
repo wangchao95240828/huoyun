@@ -3,7 +3,7 @@
 # infra/docker-compose.yml 保留为本地开发 dev compose（任务书 §7 锁定运维 runbook 范围）。
 services:
   postgres:
-    image: docker.m.daocloud.io/library/postgres:16-alpine
+    image: postgres:16-alpine
     container_name: xqt-postgres
     restart: unless-stopped
     environment:
@@ -79,7 +79,7 @@ services:
       - xqt
 
   redis:
-    image: docker.m.daocloud.io/library/redis:7-alpine
+    image: redis:7-alpine
     container_name: xqt-redis
     restart: unless-stopped
     healthcheck:
