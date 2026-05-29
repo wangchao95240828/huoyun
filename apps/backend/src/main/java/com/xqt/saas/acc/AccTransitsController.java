@@ -32,15 +32,18 @@ public class AccTransitsController {
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
     private final MoneySnapshotService moneySnapshotService;
+    private final com.xqt.saas.stowage.StowageStateMachine stateMachine;
 
     public AccTransitsController(JdbcTemplate jdbc, JsonSupport json,
                                   CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                  MoneySnapshotService moneySnapshotService) {
+                                  MoneySnapshotService moneySnapshotService,
+                                  com.xqt.saas.stowage.StowageStateMachine stateMachine) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.moneySnapshotService = moneySnapshotService;
+        this.stateMachine = stateMachine;
     }
 
     @GetMapping
@@ -131,6 +134,16 @@ public class AccTransitsController {
                 ? BigDecimal.valueOf(n.doubleValue()) : null;
             String currency = row.get("currency") != null ? row.get("currency").toString() : "CNY";
             moneySnapshotService.snapshot(TABLE, id, newCost, currency);
+        }
+        // 任务 S5：IN_TRANSIT 起运时按 acc_transit_items 联动各 shipment 写 tracking_events
+        if ("IN_TRANSIT".equals(allowed.get("status"))) {
+            try {
+                String tenantId = jdbc.queryForObject(
+                    "SELECT tenant_id::text FROM acc_transits WHERE id = ?::uuid", String.class, id);
+                stateMachine.onTransitInTransit(tenantId, id);
+            } catch (org.springframework.dao.DataAccessException ignored) {
+                // state machine 失败不阻断 transit 更新
+            }
         }
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }

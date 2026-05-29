@@ -38,15 +38,18 @@ public class LabelService {
     private final LabelStorage storage;
     private final JdbcTemplate jdbc;
     private final com.xqt.saas.common.JsonSupport json;
+    private final LabelFormatConverter formatConverter;
 
     public LabelService(LabelRepository repository, LabelGatewayRegistry labelGateways,
                         LabelStorage storage, JdbcTemplate jdbc,
-                        com.xqt.saas.common.JsonSupport json) {
+                        com.xqt.saas.common.JsonSupport json,
+                        LabelFormatConverter formatConverter) {
         this.repository = repository;
         this.labelGateways = labelGateways;
         this.storage = storage;
         this.jdbc = jdbc;
         this.json = json;
+        this.formatConverter = formatConverter;
     }
 
     /** 对应 ACC act=Label。 */
@@ -114,6 +117,10 @@ public class LabelService {
                     shipmentId, shipmentNo, customerRef,
                     channelCode, country, requestedType, Map.of()
                 ));
+                // 任务 S9：客户要 PDF 但 provider 返回 ZPL/PNG/JPG → 自动转 PDF
+                if ("PDF".equalsIgnoreCase(requestedType)) {
+                    artifact = formatConverter.convertToPdfIfNeeded(artifact);
+                }
 
                 StoredFile stored = null;
                 String pdfBase64 = null;

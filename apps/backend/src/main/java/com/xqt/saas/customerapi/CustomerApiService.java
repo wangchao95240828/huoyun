@@ -172,6 +172,7 @@ public class CustomerApiService {
         String prepayCurrency = currency == null ? "CNY" : currency;
         Quote quote = null;
         BigDecimal prepayAmount;
+        java.util.List<com.xqt.saas.rates.RateQuoteResponse.BreakdownLine> keywordSurcharges = java.util.List.of();
         try {
             RateQuoteRequest req = buildQuoteRequest(
                 principal.customerId(), accCompat, channelCode, country,
@@ -180,7 +181,19 @@ public class CustomerApiService {
             if (quote != null && !quote.blockers().isEmpty()) {
                 throw ApiException.badRequest("报价被拒：" + String.join("; ", quote.blockers()));
             }
-            prepayAmount = quote == null ? estimatePrepayAmount(weight, declaredValue) : quote.totalAmount();
+            // 任务 S3 A1 接入：根据申报品名扫品名关键词附加费，叠加到 AR 行 + 预扣
+            if (quote != null) {
+                java.util.List<com.xqt.saas.rates.RateQuoteResponse.BreakdownLine> kw =
+                    rateEngine.applyKeywordSurcharges(
+                        principal.tenantId(), extractDeclarationNames(accCompat.get("declare")),
+                        quote.freight(), java.time.LocalDate.now());
+                keywordSurcharges = kw == null ? java.util.List.of() : kw;
+            }
+            BigDecimal baseTotal = quote == null ? estimatePrepayAmount(weight, declaredValue) : quote.totalAmount();
+            BigDecimal kwSum = keywordSurcharges.stream()
+                .map(com.xqt.saas.rates.RateQuoteResponse.BreakdownLine::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            prepayAmount = baseTotal.add(kwSum);
         } catch (ApiException ex) {
             // blockers 是硬性拒绝，永远不能退化
             if (ex.getMessage() != null && ex.getMessage().startsWith("报价被拒")) {
@@ -218,10 +231,10 @@ public class CustomerApiService {
                     prepayAmount, balBefore, balBefore.subtract(prepayAmount),
                     principal.customerCode(), "下单预扣");
                 if (quote != null) {
-                    // 有正式报价：按 breakdown 拆 AR/AP 多费用行
+                    // 有正式报价：按 breakdown 拆 AR/AP 多费用行 + S3 关键词附加费
                     prepaidChargeId = writeBreakdownCharges(
                         principal.tenantId(), shipmentId, prepayCurrency,
-                        balanceAccountId, quote);
+                        balanceAccountId, quote, keywordSurcharges);
                 } else {
                     // 无报价（dev/demo 估算）：落一笔合并 AR 行
                     String chargeItemId = repository.findDefaultFreightChargeItemId(principal.tenantId());
@@ -521,7 +534,8 @@ public class CustomerApiService {
      * @return 第一笔 AR 行的 id（用于 SubmitResult 关联）
      */
     private String writeBreakdownCharges(String tenantId, String shipmentId, String currency,
-                                         String balanceAccountId, Quote quote) {
+                                         String balanceAccountId, Quote quote,
+                                         java.util.List<com.xqt.saas.rates.RateQuoteResponse.BreakdownLine> keywordSurcharges) {
         String prepayAt = java.time.Instant.now().toString();
 
         // ─── AR 三行 ───
@@ -533,6 +547,14 @@ public class CustomerApiService {
         firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
             "REMOTE", quote.surchargeAmount(), quote, firstChargeId);
 
+        // ─── 任务 S3 A1：品名关键词附加费各落一行 AR ───
+        if (keywordSurcharges != null) {
+            for (com.xqt.saas.rates.RateQuoteResponse.BreakdownLine line : keywordSurcharges) {
+                firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
+                    line.code(), line.amount(), quote, firstChargeId);
+            }
+        }
+
         // ─── AP 三行（仅当引擎产出成本价）───
         if (quote.costTotal() != null && quote.costTotal().signum() > 0) {
             insertApLine(tenantId, shipmentId, currency, "FREIGHT", quote.costFreight(), quote);
@@ -540,6 +562,20 @@ public class CustomerApiService {
             insertApLine(tenantId, shipmentId, currency, "REMOTE", quote.costSurcharge(), quote);
         }
         return firstChargeId;
+    }
+
+    /** 任务 S3 A1：从 acc_compat.declare 取所有品名 name 字段。 */
+    @SuppressWarnings("unchecked")
+    private java.util.List<String> extractDeclarationNames(Object declare) {
+        if (!(declare instanceof java.util.List<?> list)) return java.util.List.of();
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof Map<?, ?> m) {
+                Object name = ((Map<String, Object>) m).get("name");
+                if (name != null) out.add(name.toString());
+            }
+        }
+        return out;
     }
 
     private String insertArLine(String tenantId, String shipmentId, String currency,

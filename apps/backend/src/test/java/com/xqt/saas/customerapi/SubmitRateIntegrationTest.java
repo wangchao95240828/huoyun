@@ -181,6 +181,55 @@ class SubmitRateIntegrationTest {
             eq(TENANT), eq("ch-1"), eq("ACC-001"), anyInt(), any());
     }
 
+    // ─── 任务 S3 A1：品名关键词附加费叠加到 AR 行 + 预扣 ───
+    @Test
+    void submitAppliesKeywordSurchargesAndAddsArLine() {
+        // 申报品名 "Lithium Battery" → RateEngine 返回 BATTERY_SURCHARGE 100 元
+        String META_WITH_DECLARE =
+            "{\"acc_compat\":{\"product\":\"EU-AIR-UPS\",\"country\":\"US\",\"weight\":\"1.5\","
+            + "\"piece\":1,\"currency\":\"CNY\",\"channelAccount\":\"ACC-001\","
+            + "\"declare\":[{\"name\":\"Lithium Battery\",\"quantity\":1,\"price\":50}]}}";
+        CustomerApiRepository repo = baseRepo(META_WITH_DECLARE);
+        RateEngine engine = mock(RateEngine.class);
+        when(engine.quote(eq(TENANT), any())).thenReturn(fullQuote());
+        when(engine.applyKeywordSurcharges(eq(TENANT), any(), any(), any()))
+            .thenReturn(List.of(new BreakdownLine("BATTERY_SURCHARGE", "品名附加费",
+                new BigDecimal("100.00"))));
+        // BATTERY_SURCHARGE charge_item lookup
+        when(repo.findChargeItemIdByCode(eq(TENANT), eq("BATTERY_SURCHARGE"))).thenReturn("ci-bat");
+
+        service(repo, engine).submitOrder(principal(), "ORD-S1");
+
+        // 验证：BATTERY_SURCHARGE 行被插入（AR side, amount=100, item=ci-bat）
+        verify(repo, times(1)).insertChargeLine(any(), any(), eq("ci-bat"), eq("AR"),
+            eq(new BigDecimal("100.00")), any(), any());
+        // 预扣金额 = quote.totalAmount(118.50) + 100 = 218.50，写到 balance_ledger
+        verify(repo, times(1)).recordBalanceLedger(
+            eq(TENANT), eq("acct-1"), eq("CUSTOMER"), eq("cust-1"),
+            eq("PREPAY"), eq("order"), eq("DOC-ORD-S1"), eq("CNY"), eq("DEBIT"),
+            eq(new BigDecimal("218.50")),
+            eq(new BigDecimal("100000")), eq(new BigDecimal("99781.50")),
+            any(), any());
+    }
+
+    @Test
+    void submitWithoutDeclareSkipsKeywordSurcharges() {
+        CustomerApiRepository repo = baseRepo(META);
+        RateEngine engine = mock(RateEngine.class);
+        when(engine.quote(eq(TENANT), any())).thenReturn(fullQuote());
+        // 无 declare → applyKeywordSurcharges 收到空 list（仍调用，但应返回空）
+        when(engine.applyKeywordSurcharges(eq(TENANT), any(), any(), any()))
+            .thenReturn(List.of());
+
+        service(repo, engine).submitOrder(principal(), "ORD-S1");
+
+        // 预扣金额 = quote.totalAmount = 118.50（无 keyword 加成）
+        verify(repo, times(1)).recordBalanceLedger(
+            eq(TENANT), eq("acct-1"), any(), any(),
+            eq("PREPAY"), any(), any(), any(), any(),
+            eq(new BigDecimal("118.50")), any(), any(), any(), any());
+    }
+
     // ─── 任务 S8：Submit 必须写 shipment_order_links 强关联 ───
     @Test
     void submitWritesShipmentOrderLink() {

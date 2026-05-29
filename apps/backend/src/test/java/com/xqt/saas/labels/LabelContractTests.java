@@ -44,7 +44,7 @@ class LabelContractTests {
             .thenReturn(List.of("NOOP-SUB-0000000001"));
 
         LabelStorage storage = new LocalFileLabelStorage(System.getProperty("java.io.tmpdir"), "/labels");
-        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()));
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()), new com.xqt.saas.labels.LabelFormatConverter());
 
         LabelBatch result = service.generate(
             principal(),
@@ -91,7 +91,7 @@ class LabelContractTests {
             org.mockito.ArgumentMatchers.anyInt(), any(), any())).thenReturn("label-file-1");
 
         LabelStorage storage = new LocalFileLabelStorage(System.getProperty("java.io.tmpdir"), "/labels");
-        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()));
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()), new com.xqt.saas.labels.LabelFormatConverter());
 
         LabelBatch result = service.generate(
             principal(),
@@ -124,7 +124,7 @@ class LabelContractTests {
         when(repo.listCartonTrackingNos(any(), any())).thenReturn(List.of());
 
         LabelStorage storage = new LocalFileLabelStorage(System.getProperty("java.io.tmpdir"), "/labels");
-        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()));
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()), new com.xqt.saas.labels.LabelFormatConverter());
 
         LabelBatch result = service.generate(
             principal(),
@@ -182,7 +182,7 @@ class LabelContractTests {
         LabelStorage storage = mock(LabelStorage.class);
         when(storage.load(any())).thenReturn(sourcePdf);
 
-        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()));
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()), new com.xqt.saas.labels.LabelFormatConverter());
         RelabelResult result = service.relabel(principal(), new RelabelPdf("OLD-123", 100, 150));
 
         assertThat(result.success()).isTrue();
@@ -235,7 +235,7 @@ class LabelContractTests {
         LabelStorage storage = mock(LabelStorage.class);
         when(storage.load(any())).thenReturn(multiPagePdf);
 
-        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()));
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()), new com.xqt.saas.labels.LabelFormatConverter());
         RelabelResult result = service.relabel(principal(), new RelabelPdf("SUB-2", 100, 150));
 
         assertThat(result.success()).isTrue();
@@ -287,7 +287,7 @@ class LabelContractTests {
         );
 
         LabelStorage storage = mock(LabelStorage.class);
-        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()));
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()), new com.xqt.saas.labels.LabelFormatConverter());
         RelabelResult result = service.relabel(principal(), new RelabelPdf("BLOCKED", null, null));
 
         assertThat(result.success()).isFalse();
@@ -304,7 +304,7 @@ class LabelContractTests {
         when(repo.findShipmentByTrackingNo(any(), any())).thenReturn(null);
 
         LabelStorage storage = mock(LabelStorage.class);
-        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()));
+        LabelService service = new LabelService(repo, noopLabelRegistry(jdbc), storage, jdbc, new com.xqt.saas.common.JsonSupport(new com.fasterxml.jackson.databind.ObjectMapper()), new com.xqt.saas.labels.LabelFormatConverter());
         RelabelResult result = service.relabel(principal(), new RelabelPdf("UNKNOWN", null, null));
 
         assertThat(result.success()).isFalse();

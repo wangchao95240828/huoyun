@@ -95,4 +95,63 @@ class LabelFormatConverterTest {
         assertThatThrownBy(() -> converter.imageToPdf(junk, 100, 150))
             .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void convertToPdfIfNeededPassesThroughPdfArtifact() {
+        byte[] originalContent = "%PDF-fake".getBytes();
+        LabelGateway.LabelArtifact pdf = new LabelGateway.LabelArtifact(
+            originalContent, "PDF", "pdf", "MAIN-1",
+            java.util.List.of("SUB-1"), java.util.Map.of());
+        LabelGateway.LabelArtifact out = converter.convertToPdfIfNeeded(pdf);
+        // 已是 PDF → 原样返回（同 content 引用）
+        assertThat(out.content()).isSameAs(originalContent);
+        assertThat(out.labelType()).isEqualTo("PDF");
+    }
+
+    @Test
+    void convertToPdfIfNeededConvertsZplArtifact() throws Exception {
+        String zpl = "^XA^FO50,50^FDArtifact-ZPL-Test^FS^XZ";
+        LabelGateway.LabelArtifact zplArt = new LabelGateway.LabelArtifact(
+            zpl.getBytes(), "ZPL", "zpl", "MAIN-2",
+            java.util.List.of(), java.util.Map.of());
+
+        LabelGateway.LabelArtifact out = converter.convertToPdfIfNeeded(zplArt);
+
+        assertThat(out.labelType()).isEqualTo("PDF");
+        assertThat(out.fileExt()).isEqualTo("pdf");
+        assertThat(out.mainTrackingNo()).isEqualTo("MAIN-2"); // 元数据保留
+        try (PDDocument doc = Loader.loadPDF(out.content())) {
+            assertThat(new PDFTextStripper().getText(doc)).contains("Artifact-ZPL-Test");
+        }
+    }
+
+    @Test
+    void convertToPdfIfNeededConvertsPngArtifact() throws Exception {
+        java.awt.image.BufferedImage bi = new java.awt.image.BufferedImage(50, 50,
+            java.awt.image.BufferedImage.TYPE_INT_RGB);
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
+        ImageIO.write(bi, "PNG", png);
+        LabelGateway.LabelArtifact pngArt = new LabelGateway.LabelArtifact(
+            png.toByteArray(), "PNG", "png", "MAIN-3",
+            java.util.List.of("S-1"), java.util.Map.of());
+
+        LabelGateway.LabelArtifact out = converter.convertToPdfIfNeeded(pngArt);
+
+        assertThat(out.labelType()).isEqualTo("PDF");
+        assertThat(out.fileExt()).isEqualTo("pdf");
+        try (PDDocument doc = Loader.loadPDF(out.content())) {
+            assertThat(doc.getNumberOfPages()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void convertToPdfIfNeededIgnoresUnknownLabelType() {
+        LabelGateway.LabelArtifact zipArt = new LabelGateway.LabelArtifact(
+            new byte[]{1, 2, 3}, "ZIP", "zip", "MAIN-4",
+            java.util.List.of(), java.util.Map.of());
+        LabelGateway.LabelArtifact out = converter.convertToPdfIfNeeded(zipArt);
+        // ZIP 等未知类型 → 原样返回，不擅自转换
+        assertThat(out.labelType()).isEqualTo("ZIP");
+        assertThat(out.content()).isSameAs(zipArt.content());
+    }
 }

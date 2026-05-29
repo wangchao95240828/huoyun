@@ -110,11 +110,31 @@ class StowageStateMachineTest {
     }
 
     @Test
-    void transitInTransitIsNoOp() {
+    void transitInTransitFanoutsToLinkedShipments() {
+        when(jdbc.queryForList(contains("acc_transit_items"), anyString()))
+            .thenReturn(List.of(
+                shipRow("ship-t1", "SHIP-T1"),
+                shipRow("ship-t2", "SHIP-T2")));
+
         int n = sm.onTransitInTransit(TENANT, "transit-1");
+
+        assertThat(n).isEqualTo(2);
+        verify(jdbc, times(2)).update(contains("INSERT INTO tracking_events"),
+            eq(TENANT), anyString(), anyString(), eq("TRANSIT_DEPARTED"),
+            eq("IN_TRANSIT"), any());
+        // 不改 shipments.status（已在 stowage 阶段推进）
+        verify(jdbc, never()).update(contains("UPDATE shipments SET status"),
+            any(), any());
+    }
+
+    @Test
+    void transitInTransitNoLinkedItemsReturnsZero() {
+        when(jdbc.queryForList(contains("acc_transit_items"), anyString()))
+            .thenReturn(List.of());
+        int n = sm.onTransitInTransit(TENANT, "transit-empty");
         assertThat(n).isZero();
-        verify(jdbc, never()).update(anyString(), any(), any(), any(), any(), any(), any());
-        verify(jdbc, never()).queryForList(anyString(), any(Object[].class));
+        verify(jdbc, never()).update(contains("INSERT INTO tracking_events"),
+            any(), any(), any(), any(), any(), any());
     }
 
     @Test

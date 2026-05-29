@@ -97,6 +97,28 @@ public class LabelFormatConverter {
         }
     }
 
+    /**
+     * 把 artifact 自动转 PDF：labelType=ZPL → zplToPdf；labelType=PNG/JPG → imageToPdf；
+     * 已是 PDF 直接返回 in。默认 100mm × 150mm（标准国际面单尺寸）。
+     */
+    public LabelGateway.LabelArtifact convertToPdfIfNeeded(LabelGateway.LabelArtifact in) {
+        if (in == null || in.content() == null) return in;
+        String type = in.labelType() == null ? "" : in.labelType().toUpperCase();
+        if ("PDF".equals(type)) return in;
+        byte[] pdf;
+        if ("ZPL".equals(type)) {
+            String zpl = new String(in.content(), java.nio.charset.StandardCharsets.UTF_8);
+            pdf = zplToPdf(zpl, 100, 150);
+        } else if ("PNG".equals(type) || "JPG".equals(type) || "JPEG".equals(type)) {
+            pdf = imageToPdf(in.content(), 100, 150);
+        } else {
+            return in;
+        }
+        return new LabelGateway.LabelArtifact(
+            pdf, "PDF", "pdf",
+            in.mainTrackingNo(), in.subTrackingNos(), in.raw());
+    }
+
     private List<String> extractZplText(String zpl) {
         List<String> out = new ArrayList<>();
         Matcher m = ZPL_FD.matcher(zpl);

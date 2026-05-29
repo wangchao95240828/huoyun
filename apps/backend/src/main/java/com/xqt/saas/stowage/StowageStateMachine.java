@@ -64,12 +64,28 @@ public class StowageStateMachine {
     }
 
     /**
-     * 转运起运 → 当前 acc_transits 是 route-level（无 transit_items 关联表），
-     *   无法 fanout 到 shipment 级 tracking_events。
-     * 后期补 `acc_transit_items` 关联表后再接入；当前仅返回 0，方便上层 controller 调用占位。
+     * 转运起运 → 通过 acc_transit_items 关联 stowage_id → cartons → shipments，
+     *   每票 fanout 一条 normalized_status=IN_TRANSIT tracking 事件。
+     * 不强制改 shipments.status（一般 stowage 阶段已推进到 IN_TRANSIT）。
      */
+    @Transactional
     public int onTransitInTransit(String tenantId, String transitId) {
-        return 0;
+        try {
+            List<Map<String, Object>> shipments = jdbc.queryForList("""
+                SELECT DISTINCT s.id::text AS shipment_id, s.shipment_no
+                FROM acc_transit_items ti
+                JOIN cartons c ON c.stowage_id = ti.stowage_id
+                JOIN shipments s ON s.id = c.shipment_id
+                WHERE ti.transit_id = ?::uuid
+                """, transitId);
+            for (Map<String, Object> sh : shipments) {
+                writeTrackingEvent(tenantId, (String) sh.get("shipment_id"),
+                    (String) sh.get("shipment_no"), "TRANSIT_DEPARTED", "IN_TRANSIT", null);
+            }
+            return shipments.size();
+        } catch (DataAccessException ex) {
+            return 0;
+        }
     }
 
     /**
