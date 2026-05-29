@@ -1,0 +1,132 @@
+# 生产部署 compose
+# 与 infra/docker-compose.yml 区分：本文件包含全部 47 migrations、应用镜像、nginx。
+# infra/docker-compose.yml 保留为本地开发 dev compose（任务书 §7 锁定运维 runbook 范围）。
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: xqt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-xqt_saas}
+      POSTGRES_USER: ${POSTGRES_USER:-xqt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xqt_dev_password}
+      TZ: Asia/Hong_Kong
+    volumes:
+      - xqt_pg_data:/var/lib/postgresql/data
+      # ─── 47 migrations ───
+      - ./db/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./db/migrations/002_rls.sql:/docker-entrypoint-initdb.d/002_rls.sql:ro
+      - ./db/migrations/003_ledger.sql:/docker-entrypoint-initdb.d/003_ledger.sql:ro
+      - ./db/migrations/004_jobs_idempotency.sql:/docker-entrypoint-initdb.d/004_jobs_idempotency.sql:ro
+      - ./db/migrations/005_authorization.sql:/docker-entrypoint-initdb.d/005_authorization.sql:ro
+      - ./db/migrations/006_full_painpoint_modules.sql:/docker-entrypoint-initdb.d/006_full_painpoint_modules.sql:ro
+      - ./db/migrations/007_organizations_and_extensions.sql:/docker-entrypoint-initdb.d/007_organizations_and_extensions.sql:ro
+      - ./db/migrations/008_main_master_data.sql:/docker-entrypoint-initdb.d/008_main_master_data.sql:ro
+      - ./db/migrations/009_orders_warehouse.sql:/docker-entrypoint-initdb.d/009_orders_warehouse.sql:ro
+      - ./db/migrations/010_finance_clone_core.sql:/docker-entrypoint-initdb.d/010_finance_clone_core.sql:ro
+      - ./db/migrations/011_external_mapping.sql:/docker-entrypoint-initdb.d/011_external_mapping.sql:ro
+      - ./db/migrations/012_auth_foundation.sql:/docker-entrypoint-initdb.d/012_auth_foundation.sql:ro
+      - ./db/migrations/013_greenfield_two_flows.sql:/docker-entrypoint-initdb.d/013_greenfield_two_flows.sql:ro
+      - ./db/migrations/014_common_saas_foundation.sql:/docker-entrypoint-initdb.d/014_common_saas_foundation.sql:ro
+      - ./db/migrations/015_drop_sys_proto_tables.sql:/docker-entrypoint-initdb.d/015_drop_sys_proto_tables.sql:ro
+      - ./db/migrations/016_acc_customerapi_seed.sql:/docker-entrypoint-initdb.d/016_acc_customerapi_seed.sql:ro
+      - ./db/migrations/017_acc_rates_seed.sql:/docker-entrypoint-initdb.d/017_acc_rates_seed.sql:ro
+      - ./db/migrations/018_finance_core.sql:/docker-entrypoint-initdb.d/018_finance_core.sql:ro
+      - ./db/migrations/019_acc_labels_schema.sql:/docker-entrypoint-initdb.d/019_acc_labels_schema.sql:ro
+      - ./db/migrations/020_acc_stowage_schema.sql:/docker-entrypoint-initdb.d/020_acc_stowage_schema.sql:ro
+      - ./db/migrations/021_acc_audit_framework.sql:/docker-entrypoint-initdb.d/021_acc_audit_framework.sql:ro
+      - ./db/migrations/022_acc_master_data_dicts.sql:/docker-entrypoint-initdb.d/022_acc_master_data_dicts.sql:ro
+      - ./db/migrations/023_acc_exceptions_and_finance.sql:/docker-entrypoint-initdb.d/023_acc_exceptions_and_finance.sql:ro
+      - ./db/migrations/024_acc_finance_txns_and_dicts.sql:/docker-entrypoint-initdb.d/024_acc_finance_txns_and_dicts.sql:ro
+      - ./db/migrations/025_acc_finance_mgmt.sql:/docker-entrypoint-initdb.d/025_acc_finance_mgmt.sql:ro
+      - ./db/migrations/026_acc_hr.sql:/docker-entrypoint-initdb.d/026_acc_hr.sql:ro
+      - ./db/migrations/027_acc_logistics.sql:/docker-entrypoint-initdb.d/027_acc_logistics.sql:ro
+      - ./db/migrations/028_acc_customer_product.sql:/docker-entrypoint-initdb.d/028_acc_customer_product.sql:ro
+      - ./db/migrations/029_acc_rate_full_logic.sql:/docker-entrypoint-initdb.d/029_acc_rate_full_logic.sql:ro
+      - ./db/migrations/030_acc_documentcharges.sql:/docker-entrypoint-initdb.d/030_acc_documentcharges.sql:ro
+      - ./db/migrations/031_acc_customer_fields.sql:/docker-entrypoint-initdb.d/031_acc_customer_fields.sql:ro
+      - ./db/migrations/032_acc_partner_contacts.sql:/docker-entrypoint-initdb.d/032_acc_partner_contacts.sql:ro
+      - ./db/migrations/033_acc_warehouse_org_fields.sql:/docker-entrypoint-initdb.d/033_acc_warehouse_org_fields.sql:ro
+      - ./db/migrations/034_acc_return_amount.sql:/docker-entrypoint-initdb.d/034_acc_return_amount.sql:ro
+      - ./db/migrations/035_acc_payment_bank.sql:/docker-entrypoint-initdb.d/035_acc_payment_bank.sql:ro
+      - ./db/migrations/036_acc_currency_fields.sql:/docker-entrypoint-initdb.d/036_acc_currency_fields.sql:ro
+      - ./db/migrations/037_acc_balance_ledger.sql:/docker-entrypoint-initdb.d/037_acc_balance_ledger.sql:ro
+      - ./db/migrations/038_acc_scale.sql:/docker-entrypoint-initdb.d/038_acc_scale.sql:ro
+      - ./db/migrations/039_acc_channel_provider.sql:/docker-entrypoint-initdb.d/039_acc_channel_provider.sql:ro
+      - ./db/migrations/040_carrier_label_evidence.sql:/docker-entrypoint-initdb.d/040_carrier_label_evidence.sql:ro
+      - ./db/migrations/041_submit_compensation.sql:/docker-entrypoint-initdb.d/041_submit_compensation.sql:ro
+      - ./db/migrations/042_rate_engine_full_rules.sql:/docker-entrypoint-initdb.d/042_rate_engine_full_rules.sql:ro
+      - ./db/migrations/043_tenant_base_currency.sql:/docker-entrypoint-initdb.d/043_tenant_base_currency.sql:ro
+      - ./db/migrations/044_user_level_rls.sql:/docker-entrypoint-initdb.d/044_user_level_rls.sql:ro
+      - ./db/migrations/045_shipment_order_links.sql:/docker-entrypoint-initdb.d/045_shipment_order_links.sql:ro
+      - ./db/migrations/046_acc_transit_items.sql:/docker-entrypoint-initdb.d/046_acc_transit_items.sql:ro
+      - ./db/migrations/047_branch_visibility_fallback.sql:/docker-entrypoint-initdb.d/047_branch_visibility_fallback.sql:ro
+      # ─── seeds ───
+      - ./db/seeds/001_seed.sql:/docker-entrypoint-initdb.d/101_001_seed.sql:ro
+      - ./db/seeds/002_ledger_seed.sql:/docker-entrypoint-initdb.d/102_002_ledger_seed.sql:ro
+      - ./db/seeds/003_auth_seed.sql:/docker-entrypoint-initdb.d/103_003_auth_seed.sql:ro
+      - ./db/seeds/004_full_modules_seed.sql:/docker-entrypoint-initdb.d/104_004_full_modules_seed.sql:ro
+      - ./db/seeds/005_org_seed.sql:/docker-entrypoint-initdb.d/105_005_org_seed.sql:ro
+      - ./db/seeds/006_auth_seed.sql:/docker-entrypoint-initdb.d/106_006_auth_seed.sql:ro
+      - ./db/seeds/007_external_seed.sql:/docker-entrypoint-initdb.d/107_007_external_seed.sql:ro
+      - ./db/seeds/008_demo_flow_seed.sql:/docker-entrypoint-initdb.d/108_008_demo_flow_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xqt} -d ${POSTGRES_DB:-xqt_saas}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - xqt
+
+  redis:
+    image: redis:7-alpine
+    container_name: xqt-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - xqt
+
+  backend:
+    image: xqt-backend:prod
+    container_name: xqt-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-xqt_saas}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-xqt}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-xqt_dev_password}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      API_PORT: 8080
+      # 生产 strict 开关：禁止报价/渠道路由 fallback
+      RATES_STRICT_QUOTE: "${RATES_STRICT_QUOTE:-true}"
+      APP_CARRIER_STRICT_GATEWAY: "${APP_CARRIER_STRICT_GATEWAY:-true}"
+      SPRING_PROFILES_ACTIVE: prod
+    networks:
+      - xqt
+
+  web:
+    image: xqt-web:prod
+    container_name: xqt-web
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${WEB_PORT:-80}:80"
+    networks:
+      - xqt
+
+volumes:
+  xqt_pg_data:
+
+networks:
+  xqt:
+    name: xqt-prod-network
