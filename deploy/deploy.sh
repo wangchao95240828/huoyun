@@ -33,6 +33,21 @@ DEPLOY_PATH="${DEPLOY_PATH:-/opt/xqt-saas}"
 SSH_PORT="${SSH_PORT:-22}"
 SSH_OPTS="${SSH_OPTS:--o StrictHostKeyChecking=accept-new}"
 
+# 密码认证（可选）：DEPLOY_PASSWORD 设置时自动用 sshpass 避免反复输入
+if [[ -n "${DEPLOY_PASSWORD:-}" ]]; then
+  if ! command -v sshpass >/dev/null 2>&1; then
+    echo "DEPLOY_PASSWORD 已设但 sshpass 未安装。brew install sshpass 或 unset 该变量。" >&2
+    exit 1
+  fi
+  SSH_CMD=(sshpass -p "$DEPLOY_PASSWORD" ssh -p "$SSH_PORT" $SSH_OPTS)
+  SCP_CMD=(sshpass -p "$DEPLOY_PASSWORD" scp -P "$SSH_PORT" $SSH_OPTS)
+  RSYNC_RSH="sshpass -p $DEPLOY_PASSWORD ssh -p $SSH_PORT $SSH_OPTS"
+else
+  SSH_CMD=(ssh -p "$SSH_PORT" $SSH_OPTS)
+  SCP_CMD=(scp -P "$SSH_PORT" $SSH_OPTS)
+  RSYNC_RSH="ssh -p $SSH_PORT $SSH_OPTS"
+fi
+
 BACKEND_IMG="xqt-backend:prod"
 WEB_IMG="xqt-web:prod"
 
@@ -41,12 +56,14 @@ ok() { echo -e "\033[1;32m✓ $*\033[0m"; }
 warn() { echo -e "\033[1;33m! $*\033[0m"; }
 
 # ─── 1. 本地构建 ───
-step "1/5 本地构建 backend 镜像"
-docker build --platform linux/amd64 -t "$BACKEND_IMG" "$REPO_ROOT/apps/backend"
+# 用 buildx + --load 把 multi-arch build 出来的镜像导入本地 docker daemon，
+# 才能后面 docker save。
+step "1/5 本地构建 backend 镜像（linux/amd64）"
+docker buildx build --platform linux/amd64 --load -t "$BACKEND_IMG" "$REPO_ROOT/apps/backend"
 ok "backend image ready"
 
-step "2/5 本地构建 web 镜像"
-docker build --platform linux/amd64 -t "$WEB_IMG" "$REPO_ROOT/apps/web"
+step "2/5 本地构建 web 镜像（linux/amd64）"
+docker buildx build --platform linux/amd64 --load -t "$WEB_IMG" "$REPO_ROOT/apps/web"
 ok "web image ready"
 
 # ─── 3. 打包镜像 + 配置 ───
@@ -58,21 +75,21 @@ ok "images.tar.gz: $(du -h "$TMP/images.tar.gz" | cut -f1)"
 
 # ─── 4. 上传到远端 ───
 step "4/5 上传到 $DEPLOY_HOST:$DEPLOY_PATH"
-ssh -p "$SSH_PORT" $SSH_OPTS "$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH/db'"
+"${SSH_CMD[@]}" "$DEPLOY_HOST" "mkdir -p '$DEPLOY_PATH/db'"
 
 # 镜像 + compose + db/
-scp -P "$SSH_PORT" $SSH_OPTS "$TMP/images.tar.gz" "$DEPLOY_HOST:$DEPLOY_PATH/images.tar.gz"
-scp -P "$SSH_PORT" $SSH_OPTS "$SCRIPT_DIR/docker-compose.prod.yml" "$DEPLOY_HOST:$DEPLOY_PATH/docker-compose.yml"
+"${SCP_CMD[@]}" "$TMP/images.tar.gz" "$DEPLOY_HOST:$DEPLOY_PATH/images.tar.gz"
+"${SCP_CMD[@]}" "$SCRIPT_DIR/docker-compose.prod.yml" "$DEPLOY_HOST:$DEPLOY_PATH/docker-compose.yml"
 
 if [[ -f "$SCRIPT_DIR/.env" ]]; then
-  scp -P "$SSH_PORT" $SSH_OPTS "$SCRIPT_DIR/.env" "$DEPLOY_HOST:$DEPLOY_PATH/.env"
+  "${SCP_CMD[@]}" "$SCRIPT_DIR/.env" "$DEPLOY_HOST:$DEPLOY_PATH/.env"
 else
   warn "deploy/.env 不存在，使用 docker-compose 默认值（仅适合演示）"
-  scp -P "$SSH_PORT" $SSH_OPTS "$SCRIPT_DIR/.env.example" "$DEPLOY_HOST:$DEPLOY_PATH/.env"
+  "${SCP_CMD[@]}" "$SCRIPT_DIR/.env.example" "$DEPLOY_HOST:$DEPLOY_PATH/.env"
 fi
 
 # db migrations + seeds（首次 init 用）
-rsync -az -e "ssh -p $SSH_PORT $SSH_OPTS" \
+rsync -az -e "$RSYNC_RSH" \
   --delete \
   "$REPO_ROOT/db/migrations" "$REPO_ROOT/db/seeds" \
   "$DEPLOY_HOST:$DEPLOY_PATH/db/"
@@ -80,7 +97,7 @@ ok "上传完成"
 
 # ─── 5. 远端 load + up ───
 step "5/5 远端 docker load + compose up"
-ssh -p "$SSH_PORT" $SSH_OPTS "$DEPLOY_HOST" bash <<EOF
+"${SSH_CMD[@]}" "$DEPLOY_HOST" bash <<EOF
 set -euo pipefail
 cd '$DEPLOY_PATH'
 echo "→ 加载镜像"
