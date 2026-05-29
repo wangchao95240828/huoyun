@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1.6
 # Backend Spring Boot 多阶段构建（含国内 maven 镜像 + buildkit 缓存）
-FROM maven:3.9-eclipse-temurin-17 AS build
+# 用 daocloud 镜像源直接拉，避免 buildx --platform 时绕过 daemon registry-mirrors
+FROM docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /workspace
 COPY .docker-maven-settings.xml /root/.m2/settings.xml
 COPY pom.xml .
@@ -13,7 +14,7 @@ RUN --mount=type=cache,target=/root/.m2/repository \
  && cp target/xqt-backend-*.jar /workspace/app.jar
 
 # Stage 2: runtime（用通用 tag 避免 alpine multi-arch 不全）
-FROM eclipse-temurin:17-jre
+FROM docker.m.daocloud.io/library/eclipse-temurin:17-jre
 WORKDIR /app
 RUN groupadd -r xqt && useradd -r -g xqt xqt
 COPY --from=build /workspace/app.jar /app/app.jar
