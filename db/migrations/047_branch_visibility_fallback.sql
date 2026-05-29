@@ -1,11 +1,11 @@
--- 任务 S7 收口：BRANCH_MANAGER 在 user_branch_id 未配置时不应被锁死为零行。
+-- 任务 S7 收口：BRANCH_MANAGER 双路 policy（严格匹配 + 空 branch 容错）。
 --
--- 原 migration 044 写的 policy 在 BRANCH_MANAGER 时强制 branch_id = app.user_branch_id；
--- 但 RequestContext 目前总把 app.user_branch_id 设空字符串（AuthPrincipal 暂无 branchId），
--- 实战中 BRANCH_MANAGER 会一行都查不到——比"放行"更糟（功能假坏）。
+-- 配合 AuthPrincipal.branchId 落地（commit 后续）+ users.branch_id JOIN：
+--   - BRANCH_MANAGER 用户带 branchId → 严格 branch_id 匹配（真实分公司隔离）
+--   - BRANCH_MANAGER 用户无 branchId（系统账号、未配置分公司） → 容错放行（避免零行 trap）
 --
--- 修复：BRANCH_MANAGER + branch context 为空时 → 视同 tenant 全可见（与 ADMIN 等价但有审计标记）。
--- 这是有意识的回退口：等 AuthPrincipal 补 branchId 后会自动激活真正的分支隔离。
+-- 与原 044 不同：044 强制匹配 → 任何无 branchId 的用户登录后看零行。
+-- 047 保留容错口让"未配置 branch 的合法账号"不被锁死，但用户有 branch 时立即严格生效。
 
 drop policy if exists shipments_branch_visibility on shipments;
 create policy shipments_branch_visibility on shipments

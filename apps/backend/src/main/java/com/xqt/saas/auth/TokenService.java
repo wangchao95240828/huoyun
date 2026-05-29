@@ -54,7 +54,8 @@ public class TokenService {
             base.roles(),
             base.permissions(),
             exp,
-            UUID.randomUUID().toString()
+            UUID.randomUUID().toString(),
+            base.branchId()
         );
         String header = encodeJson(Map.of("alg", JWT_ALGORITHM, "typ", JWT_TYPE));
         String body = encodeJson(payload);
@@ -88,7 +89,8 @@ public class TokenService {
                 objectMapper.convertValue(payload.get("roles"), STRING_LIST_TYPE),
                 objectMapper.convertValue(payload.get("permissions"), STRING_LIST_TYPE),
                 exp,
-                (String) payload.get("jti")
+                (String) payload.get("jti"),
+                (String) payload.get("branchId")
             );
         } catch (IOException | IllegalArgumentException ex) {
             throw new IllegalArgumentException("Invalid token", ex);

@@ -27,8 +27,8 @@ public class RequestContext {
             String.class, principal.userId() == null ? "" : principal.userId());
         jdbc.queryForObject("select set_config('app.user_role', ?, true)",
             String.class, primaryRole == null ? "" : primaryRole);
-        // branch_id 待 AuthPrincipal 加字段后补；当前空字符串
+        // 任务 S7 收口：principal.branchId 已从 users.branch_id JOIN 取出
         jdbc.queryForObject("select set_config('app.user_branch_id', ?, true)",
-            String.class, "");
+            String.class, principal.branchId() == null ? "" : principal.branchId());
     }
 }

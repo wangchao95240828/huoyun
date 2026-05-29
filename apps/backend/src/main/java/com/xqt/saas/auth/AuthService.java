@@ -121,6 +121,7 @@ public class AuthService {
               u.password_hash,
               u.status,
               u.locked_until,
+              u.branch_id::text AS branch_id,
               COALESCE(array_agg(DISTINCT r.code) FILTER (WHERE r.code IS NOT NULL), ARRAY[]::text[]) AS roles,
               COALESCE(array_agg(DISTINCT p.code) FILTER (WHERE p.code IS NOT NULL), ARRAY[]::text[]) AS permissions
             FROM tenants t
@@ -131,7 +132,7 @@ public class AuthService {
             LEFT JOIN permissions p ON p.tenant_id = t.id AND p.id = rp.permission_id
             WHERE t.code = ?
               AND (u.username = ? OR u.email = ?)
-            GROUP BY t.id, t.code, u.id, u.username, u.email, u.display_name, u.password_hash, u.status, u.locked_until
+            GROUP BY t.id, t.code, u.id, u.username, u.email, u.display_name, u.password_hash, u.status, u.locked_until, u.branch_id
             LIMIT 1
             """, tenantCode, username, username);
     }
@@ -175,6 +176,7 @@ public class AuthService {
 
     private AuthPrincipal loginPrincipal(Map<String, Object> row, String tenantId, String userId) {
         String username = string(row.get(FIELD_USERNAME));
+        String branchId = string(row.get("branch_id"));
         return new AuthPrincipal(
             userId,
             tenantId,
@@ -184,7 +186,8 @@ public class AuthService {
             textArray(row.get(FIELD_ROLES)),
             textArray(row.get(FIELD_PERMISSIONS)),
             0,
-            ""
+            "",
+            isBlank(branchId) ? null : branchId
         );
     }
 

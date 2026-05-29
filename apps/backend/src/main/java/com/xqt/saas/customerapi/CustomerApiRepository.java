@@ -136,18 +136,22 @@ public class CustomerApiRepository {
                                  String shipmentNo, String customerRef,
                                  String country, BigDecimal declaredValue,
                                  String declaredCurrency) {
+        // 任务 S7 收口：从 customers.branch_id 级联，让 RLS BRANCH_MANAGER 策略真正生效
         return jdbc.queryForObject("""
             INSERT INTO shipments (
               tenant_id, customer_id, channel_id, shipment_no, customer_ref,
-              status, destination_country, declared_value, declared_currency, ordered_at
+              status, destination_country, declared_value, declared_currency, ordered_at,
+              branch_id
             ) VALUES (
               ?::uuid, ?::uuid, ?::uuid, ?, ?,
-              'ORDERED', ?, ?, ?, now()
+              'ORDERED', ?, ?, ?, now(),
+              (SELECT branch_id FROM customers WHERE id = ?::uuid)
             )
             RETURNING id::text
             """, String.class,
             tenantId, customerId, channelId, shipmentNo, customerRef,
-            country, declaredValue, declaredCurrency);
+            country, declaredValue, declaredCurrency,
+            customerId);
     }
 
     /**

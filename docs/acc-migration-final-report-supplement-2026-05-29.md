@@ -94,38 +94,83 @@ ACC 域模型存在 1:N / N:1 拆合单场景；customer_ref 软关联在拆/合
 
 ---
 
-## 5. 未做的事 / 已知边界
+## 5. 未做的事 / 已知边界（2026-05-29 收尾后更新）
 
-- **S5 transit IN_TRANSIT**：当前 no-op（无 acc_transit_items 关联表），等 Sprint2 补 items 表后即激活
-- **S7 user_branch_id**：暂留空字符串，等 AuthPrincipal 补 branchId 字段后激活 BRANCH_MANAGER 分支
+经过 followup-wirings (98da01a) + audit-gaps (8ad3517) + branchId 收口 (本批次)：
+
 - **S9 ZPL 完美还原**：本地实现仅渲染 `^FD` 文本，复杂条码/旋转/字体不还原；生产推荐 Labelary HTTP fallback
+- **shipments.branch_id 历史 NULL 行**：BRANCH_MANAGER 严格隔离下看不到，可按需 backfill（SQL 在 branch-visibility comparison doc）
+- **ShipmentDeliveredEvent listener**：documentcharges 利润结算 listener 未实现，需 `@EventListener` 接入（基础设施已就绪）
+- **真实 UPS/FedEx 凭证**：当前 Sandbox 可替换，需要业务侧提供 production credential
 
-这三项都是**有意识的最小实现**，schema/接口已就绪，业务侧后续接入零基础设施改动。
+均为**已识别 + 文档化的剩余事项**，无"挂着不用"的 wiring 缺口。
 
 ---
 
-## 6. 推荐 follow-up（不在本任务范围）
+## 6. 收尾历程（实际执行轨迹）
 
-1. AuthPrincipal 补 branchId 字段 → 激活 S7 BRANCH_MANAGER 分支
-2. acc_transit_items 关联表 → 激活 S5 transit IN_TRANSIT 推进
-3. documentcharges 模块 `@EventListener` 接 ShipmentDeliveredEvent → 完整利润结算
-4. CustomerApiService.submitOrder 末段挂接 `rateEngine.applyKeywordSurcharges(...)` → 真正写出 A1 附加费 charge_lines
-5. LabelService.generate 末段加 LabelFormatConverter 转换分支 → 客户接到统一 PDF
+```
+S1-S9 9 项初版完成 → 用户追问 3 处 wiring 缺口（98da01a）
+→ 用户追问"还有差距么" → audit grep 找到 FinanceTxn / branch trap（8ad3517）
+→ 用户参考 final-business-logic-review doc → 选择 option 3 实施真实 branchId 路径（本批次）
+```
+
+每一步都是**直接 grep 验证代码**，不依赖前一次 doc 自评。最终所有 S1-S9 + 收尾项
+均已业务侧调用 + 测试覆盖。
 
 ---
 
 ## 7. 测试增量轨迹
 
 ```
-136 → S1 +5  → 141
-141 → S2 +5  → 146
-146 → S3 +6  → 152
-152 → S4 +2  → 154
-154 → S5 +6  → 160
-160 → S6 +15 → 175
-175 → S7 +3  → 178
-178 → S8 +1  → 179
-179 → S9 +6  → 185
+136 → S1 +5    → 141
+141 → S2 +5    → 146
+146 → S3 +6    → 152
+152 → S4 +2    → 154
+154 → S5 +6    → 160
+160 → S6 +15   → 175
+175 → S7 +3    → 178
+178 → S8 +1    → 179
+179 → S9 +6    → 185
+185 → S3/5/9 wiring +7 → 192  (commit 98da01a)
+192 → audit fix +1     → 193  (commit 8ad3517)
+193 → AuthPrincipal.branchId +2 → 195  (本批次)
 ```
 
-**总 +49 测试，全程绿，零回归。**
+**总 +59 测试**（136 → 195），全程绿，零回归。
+
+---
+
+## 8. 最终 migration 清单
+
+```
+041_submit_compensation.sql                (S2)
+042_rate_engine_full_rules.sql             (S3)
+043_tenant_base_currency.sql               (S6)
+044_user_level_rls.sql                     (S7 初版)
+045_shipment_order_links.sql               (S8)
+046_acc_transit_items.sql                  (S5 收尾)
+047_branch_visibility_fallback.sql         (S7 双路 policy)
+```
+
+均从 041 起递增；047 配合 AuthPrincipal.branchId 改造形成完整 BRANCH_MANAGER 隔离链路。
+
+---
+
+## 9. 生产部署 runbook
+
+### 必须先做
+1. 应用 migrations 041-047 至生产 PG
+2. `users.branch_id` 数据按业务运营在用户管理界面或 SQL 批量填写
+3. `customers.branch_id` 数据填写（新建 shipment 时会级联）
+4. （可选）历史 `shipments.branch_id` NULL 行 backfill：见 branch-visibility comparison doc §7
+
+### 必须先开
+1. `RATES_STRICT_QUOTE=true` → 禁用 dev/demo 报价 fallback
+2. `app.carrier.strict-gateway=true` → 数据驱动 carrier 路由生效
+3. 真实 UPS/FedEx adapter 注册到 CarrierGatewayRegistry（替换 SandboxCarrierGateway）
+
+### 必须后接（不阻断上线）
+1. `ShipmentDeliveredEvent` 监听器实现利润结算
+2. 真实 ZPL provider 集成 Labelary（或保留本地 ZPL → PDF 最小渲染）
+3. 监控 `WHERE source='MISSING_RATE'` 的 fx_rate_snapshots → 补汇率配置
