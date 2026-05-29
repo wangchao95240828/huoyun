@@ -23,9 +23,12 @@ import org.springframework.stereotype.Component;
 @Component
 public class FinanceTxnAuditSideEffect implements AuditSideEffect {
     private final JdbcTemplate jdbc;
+    private final com.xqt.saas.finance.FxSnapshotCapture fxCapture;
 
-    public FinanceTxnAuditSideEffect(JdbcTemplate jdbc) {
+    public FinanceTxnAuditSideEffect(JdbcTemplate jdbc,
+                                      com.xqt.saas.finance.FxSnapshotCapture fxCapture) {
         this.jdbc = jdbc;
+        this.fxCapture = fxCapture;
     }
 
     @Override
@@ -94,6 +97,9 @@ public class FinanceTxnAuditSideEffect implements AuditSideEffect {
             """, tenantId, accountId, side, ownerId, bizType,
             txn.get("txn_no"), currency, direction, delta.abs(),
             before, after, actorName, remark);
+        // 任务 S6：fx 快照覆盖（审核入账 REFUND/REBATE/VOID/ADJUST 4 类 biz_type）
+        fxCapture.captureForLedger(tenantId, currency, bizType, "acc_finance_txns",
+            (String) txn.get("txn_no"));
     }
 
     private String mapBizType(String txnType) {

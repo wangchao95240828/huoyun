@@ -24,12 +24,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 class FinanceTxnAuditSideEffectTest {
     private static final String TENANT = "tenant-1";
     private JdbcTemplate jdbc;
+    private com.xqt.saas.finance.FxSnapshotCapture fxCapture;
     private FinanceTxnAuditSideEffect effect;
 
     @BeforeEach
     void setup() {
         jdbc = mock(JdbcTemplate.class);
-        effect = new FinanceTxnAuditSideEffect(jdbc);
+        fxCapture = mock(com.xqt.saas.finance.FxSnapshotCapture.class);
+        effect = new FinanceTxnAuditSideEffect(jdbc, fxCapture);
     }
 
     /** queryForMap 真实返回的 row 含 null 值，Map.of 不允许 null，故用 HashMap。 */
@@ -126,5 +128,23 @@ class FinanceTxnAuditSideEffectTest {
         effect.onAudited("acc_finance_txns", "txn-1", TENANT, "admin");
 
         verify(jdbc, never()).update(anyString(), (Object[]) any());
+    }
+
+    // 任务 S6 收口：审核入账写 balance_ledger 后必须调 fxCapture（不漏 4 类 biz_type）
+    @Test
+    void auditCallsFxCaptureAfterLedgerWrite() {
+        when(jdbc.queryForMap(contains("FROM acc_finance_txns"), eq("txn-x")))
+            .thenReturn(txn("CUSTOMER", "REFUND", "cust-1", null, new BigDecimal("99.00"), "RFD-001"));
+        // findOwnerAccount: 5 args (side, ownerId, currency, currency, currency)
+        when(jdbc.queryForObject(contains("financial_accounts"), eq(String.class),
+            any(Object[].class))).thenReturn("acct-1");
+        // findAccountBalance: 1 arg
+        when(jdbc.queryForObject(contains("SELECT balance FROM financial_accounts"),
+            eq(BigDecimal.class), anyString())).thenReturn(new BigDecimal("1000.00"));
+
+        effect.onAudited("acc_finance_txns", "txn-x", TENANT, "admin");
+
+        verify(fxCapture, times(1)).captureForLedger(
+            eq(TENANT), eq("CNY"), eq("REFUND"), eq("acc_finance_txns"), eq("RFD-001"));
     }
 }
