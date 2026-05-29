@@ -5,7 +5,18 @@
       "Bash(npm run *)",
       "Bash(netstat -ano)",
       "Bash(awk '{print $5}')",
-      "Bash(taskkill *)"
+      "Bash(taskkill *)",
+      "Bash(python3 -c \"from docx import Document; doc = Document\\(r'D:\\\\works\\\\javaproject\\\\huoyun\\\\docs\\\\ACC-剩余28tab-3人2天分工.docx'\\); [print\\(p.text\\) for p in doc.paragraphs]\")",
+      "Bash(python -c \"from docx import Document; doc = Document\\(r'D:\\\\works\\\\javaproject\\\\huoyun\\\\docs\\\\ACC-剩余28tab-3人2天分工.docx'\\); [print\\(p.text\\) for p in doc.paragraphs]\")",
+      "Bash(python3 *)",
+      "Bash(pip install *)",
+      "Bash(python -c \"import docx2txt; print\\(docx2txt.process\\(r'D:\\\\works\\\\javaproject\\\\huoyun\\\\docs\\\\ACC-剩余28tab-3人2天分工.docx'\\)\\)\")",
+      "Bash(python *)",
+      "Bash(./mvnw -DskipTests compile)",
+      "Bash(xxd)",
+      "Bash(./mvnw compile *)",
+      "Bash(./mvnw test *)",
+      "Bash(bash *)"
     ]
   }
 }
