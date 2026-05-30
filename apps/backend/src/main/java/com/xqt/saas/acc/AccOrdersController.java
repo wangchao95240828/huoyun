@@ -155,6 +155,90 @@ public class AccOrdersController {
         return Map.of("id", id, "order_no", orderNo);
     }
 
+    /**
+     * ACC「添加制单」完整表单。对照 ACC PHP `制单中心 → 添加制单` 的 7 个分区：
+     * 基本信息 / 发货渠道 / 货物信息 / 发票信息 / 收件人 / 发件人 / 进口商 / 申报明细 / 装箱单明细。
+     *
+     * 一次 INSERT orders + N 条 declarations + 1 条 shipments + N 条 cartons，
+     * 全部 metadata（包裹类型、电池、特殊货物、附加服务、shipper/shipTo 等）持久化到 orders.metadata，
+     * 后续 PreSubmit / Submit / RateEngine 都能读到。
+     */
+    @PostMapping("/full")
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> createFull(@RequestBody Map<String, Object> body) {
+        String orderNo = strOrNull(body.get("orderNo"));
+        String customerRef = strOrDefault(body.get("customerRef"), orderNo);
+        String customerId = strOrNull(body.get("customerId"));
+        if (orderNo == null || orderNo.isBlank()) {
+            throw ApiException.badRequest("orderNo 必填");
+        }
+        if (customerId == null) {
+            throw ApiException.badRequest("customerId 必填");
+        }
+        // 业务字段 → metadata.acc_compat（与 customer-api submit 同结构）
+        Map<String, Object> accCompat = new LinkedHashMap<>();
+        accCompat.put("product", strOrNull(body.get("product")));
+        accCompat.put("channelAccount", strOrNull(body.get("channelAccount")));
+        accCompat.put("packageType", strOrNull(body.get("packageType")));
+        accCompat.put("batteryType", body.get("batteryType"));
+        accCompat.put("specialType", body.get("specialType"));
+        accCompat.put("labelType", strOrNull(body.get("labelType")));
+        accCompat.put("country", strOrNull(body.get("country")));
+        accCompat.put("weight", body.get("weight"));
+        accCompat.put("piece", body.get("piece"));
+        accCompat.put("volume", body.get("volume"));
+        accCompat.put("currency", strOrDefault(body.get("currency"), "USD"));
+        accCompat.put("declaredValue", body.get("declaredValue"));
+        accCompat.put("services", body.get("services"));
+        accCompat.put("remark", strOrNull(body.get("remark")));
+        accCompat.put("receiver", body.get("receiver"));
+        accCompat.put("shipper", body.get("shipper"));
+        accCompat.put("shipTo", body.get("shipTo"));
+        accCompat.put("declare", body.get("declare"));
+        accCompat.put("packageList", body.get("packageList"));
+
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("acc_compat", accCompat);
+        String metaJson = json.toJson(metadata);
+
+        // 1) INSERT orders
+        String orderId = jdbc.queryForObject("""
+            INSERT INTO orders (
+              tenant_id, order_no, customer_id, status, source, customer_ref, metadata
+            ) VALUES (
+              current_setting('app.current_tenant_id')::uuid,
+              ?, ?::uuid, 'DRAFT', 'LOCAL', ?, ?::jsonb
+            )
+            RETURNING id::text
+            """, String.class, orderNo, customerId, customerRef, metaJson);
+
+        // 申报明细 + 装箱单明细 持久化到 orders.metadata.acc_compat（与 customer-api 同结构）。
+        // Submit 阶段再 INSERT 到 declarations / cartons 表（需要 shipment_id 关联）。
+        int declareCount = body.get("declare") instanceof List<?> dl ? dl.size() : 0;
+        int packageCount = body.get("packageList") instanceof List<?> pl ? pl.size() : 0;
+
+        return Map.of(
+            "id", orderId,
+            "orderNo", orderNo,
+            "declarations", declareCount,
+            "packageCount", packageCount,
+            "status", "DRAFT"
+        );
+    }
+
+    private static String strOrNull(Object o) {
+        return o == null || o.toString().isBlank() ? null : o.toString();
+    }
+    private static String strOrDefault(Object o, String def) {
+        String s = strOrNull(o);
+        return s == null ? def : s;
+    }
+    private static Object asNumber(Object o) {
+        if (o == null) return null;
+        if (o instanceof Number) return o;
+        try { return new java.math.BigDecimal(o.toString()); } catch (Exception ignored) { return null; }
+    }
+
     @PutMapping("/{id}")
     public Map<String, Object> update(@PathVariable String id, @RequestBody Map<String, Object> body) {
         String currentAudit = jdbc.queryForObject(

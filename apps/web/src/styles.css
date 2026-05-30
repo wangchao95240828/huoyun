@@ -1529,6 +1529,67 @@ input, select, textarea { font: inherit; }
   flex-direction: column;
 }
 .modal-sm { width: 420px; }
+.modal-xl { width: 1200px; max-width: 95vw; max-height: 92vh; }
+
+/* ACC 完整制单表单分区 */
+.form-section { margin-bottom: 22px; }
+.form-section > h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a4480;
+  background: #eef5fb;
+  padding: 8px 14px;
+  margin: 0 0 12px 0;
+  border-left: 3px solid #1a4480;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.form-section .form-grid { gap: 12px 16px; }
+.radio-row, .checkbox-row {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 6px 0;
+}
+.radio-row label, .checkbox-row label {
+  font-size: 13px;
+  color: var(--c-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 400;
+}
+.radio-row input, .checkbox-row input { margin: 0; }
+.inline-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.inline-table th, .inline-table td {
+  border: 1px solid var(--c-border);
+  padding: 4px 6px;
+  text-align: left;
+}
+.inline-table th {
+  background: #f6f8fa;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+  white-space: nowrap;
+}
+.inline-table td input {
+  width: 100%;
+  border: none;
+  padding: 4px 4px;
+  font-size: 12px;
+  outline: none;
+  background: transparent;
+}
+.inline-table td input:focus { background: #fffbea; }
+.danger-btn.sm { padding: 2px 6px; font-size: 11px; }
 .modal-header {
   display: flex;
   align-items: center;

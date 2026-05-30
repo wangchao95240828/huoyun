@@ -222,7 +222,7 @@ const formData = reactive<Record<string, any>>({});
 const editId = ref(0);
 const formSaving = ref(false);
 const formError = ref('');
-const selectOptions = ref<Record<string, Array<{ id: number; name: string }>>>({});
+const selectOptions = ref<Record<string, Array<{ id: any; name: string; code?: string }>>>({});
 const showDeleteConfirm = ref(false);
 const deleteTarget = ref<{ id: number; label: string }>({ id: 0, label: '' });
 
@@ -2243,6 +2243,10 @@ async function loadSelectOptions(fields: FormField[]) {
 }
 
 async function openAdd() {
+  // 订单 tab 走 ACC 完整制单表单
+  if (accTab.value === 'orders') {
+    return openFullOrderAdd();
+  }
   formMode.value = 'add';
   editId.value = 0;
   formError.value = '';
@@ -2256,6 +2260,103 @@ async function openAdd() {
   });
   await loadSelectOptions(fields);
   showForm.value = true;
+}
+
+// ════════ ACC 完整制单表单（对应 ACC PHP 「添加制单」7 分区）════════
+const showFullOrderForm = ref(false);
+const fullOrderError = ref('');
+const fullOrderSaving = ref(false);
+const emptyParty = () => ({ company: '', name: '', phone: '', province: '', postcode: '', city: '', vat: '', address: '', houseNo: '' });
+const emptyDeclareRow = () => ({ name: '', cnName: '', origin: '', quantity: 1, price: 0, hsCode: '', remark: '' });
+const emptyPackageRow = () => ({ no: '', weight: 0, name: '', cnName: '', hsCode: '', grossWeight: 0, length: 0, width: 0, height: 0, quantity: 1, price: 0, material: '' });
+const fullOrderData = reactive<any>({
+  orderNo: '',
+  orderDate: new Date().toISOString().slice(0, 10),
+  customerId: '',
+  product: '',
+  channelAccount: '',
+  packageType: 'PARCEL',
+  batteryType: 0,
+  specialType: 0,
+  labelType: 'PDF',
+  country: '',
+  weight: 0,
+  piece: 1,
+  volume: 0,
+  currency: 'USD',
+  declaredValue: 0,
+  services: [] as string[],
+  remark: '',
+  receiver: { warehouseCode: '', country: '', ...emptyParty() },
+  shipper: emptyParty(),
+  shipTo: { templateId: '', ...emptyParty() },
+  declare: [emptyDeclareRow()],
+  packageList: [emptyPackageRow()],
+});
+
+async function openFullOrderAdd() {
+  fullOrderError.value = '';
+  // reset
+  Object.assign(fullOrderData, {
+    orderNo: 'ORD-' + Date.now().toString(36).toUpperCase(),
+    orderDate: new Date().toISOString().slice(0, 10),
+    customerId: '',
+    product: '', channelAccount: '', packageType: 'PARCEL',
+    batteryType: 0, specialType: 0, labelType: 'PDF',
+    country: '', weight: 0, piece: 1, volume: 0,
+    currency: 'USD', declaredValue: 0, services: [], remark: '',
+    receiver: { warehouseCode: '', country: '', ...emptyParty() },
+    shipper: emptyParty(),
+    shipTo: { templateId: '', ...emptyParty() },
+    declare: [emptyDeclareRow()],
+    packageList: [emptyPackageRow()],
+  });
+  // 加载所需下拉
+  await loadSelectOptions([
+    { type: 'select', ref: 'customers' } as any,
+    { type: 'select', ref: 'channels' } as any,
+    { type: 'select', ref: 'countries' } as any,
+    { type: 'select', ref: 'warehouses' } as any,
+  ]);
+  showFullOrderForm.value = true;
+}
+
+function addDeclareRow() { fullOrderData.declare.push(emptyDeclareRow()); }
+function removeDeclareRow(i: number) { fullOrderData.declare.splice(i, 1); }
+function addPackageRow() { fullOrderData.packageList.push(emptyPackageRow()); }
+function removePackageRow(i: number) { fullOrderData.packageList.splice(i, 1); }
+
+async function saveFullOrder() {
+  fullOrderError.value = '';
+  if (!fullOrderData.orderNo || !fullOrderData.customerId) {
+    fullOrderError.value = '客户单号、客户必填';
+    return;
+  }
+  fullOrderSaving.value = true;
+  try {
+    // 清掉空 declare / package 行
+    const body = {
+      ...fullOrderData,
+      declare: fullOrderData.declare.filter((r: any) => r.name || r.cnName),
+      packageList: fullOrderData.packageList.filter((r: any) => r.no || r.name),
+    };
+    const res = await apiFetch(`${API}/api/acc/orders/full`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.error || (!data.id && !data.ok)) {
+      fullOrderError.value = data.error || '保存失败';
+    } else {
+      showFullOrderForm.value = false;
+      fetchAccData();
+    }
+  } catch (e: any) {
+    fullOrderError.value = e.message;
+  } finally {
+    fullOrderSaving.value = false;
+  }
 }
 
 async function openEdit(row: any) {
@@ -3342,6 +3443,247 @@ async function doReloadBill(id: number) {
       </template>
     </section>
     </section>
+
+    <!-- ════════ ACC 完整制单表单（对应 ACC「添加制单」）════════ -->
+    <div class="modal-backdrop" v-if="showFullOrderForm" @click.self="showFullOrderForm = false">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-header">
+          <h3>新增 快件订单（完整制单）</h3>
+          <button class="modal-close" @click="showFullOrderForm = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <div class="error-bar" v-if="fullOrderError">{{ fullOrderError }}</div>
+
+          <!-- 基本信息 -->
+          <div class="form-section">
+            <h4>基本信息</h4>
+            <div class="form-grid">
+              <div class="form-field"><label>客户单号 <span class="required">*</span></label><input type="text" v-model="fullOrderData.orderNo" /></div>
+              <div class="form-field"><label>日期 <span class="required">*</span></label><input type="date" v-model="fullOrderData.orderDate" /></div>
+              <div class="form-field">
+                <label>客户 <span class="required">*</span></label>
+                <select v-model="fullOrderData.customerId">
+                  <option value="">请选择</option>
+                  <option v-for="opt in (selectOptions['customers'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 发货渠道 -->
+          <div class="form-section">
+            <h4>发货渠道</h4>
+            <div class="form-grid">
+              <div class="form-field">
+                <label>发货产品</label>
+                <select v-model="fullOrderData.product">
+                  <option value="">请选择产品</option>
+                  <option v-for="opt in (selectOptions['channels'] ?? [])" :key="opt.id" :value="opt.code || opt.name">{{ opt.name }}</option>
+                </select>
+              </div>
+              <div class="form-field"><label>制单账号</label><input type="text" v-model="fullOrderData.channelAccount" placeholder="ACC-001" /></div>
+              <div class="form-field">
+                <label>包裹类型</label>
+                <div class="radio-row">
+                  <label><input type="radio" value="DOCUMENT" v-model="fullOrderData.packageType" /> 文件</label>
+                  <label><input type="radio" value="PARCEL" v-model="fullOrderData.packageType" /> 包裹</label>
+                </div>
+              </div>
+              <div class="form-field">
+                <label>电池选项</label>
+                <select v-model.number="fullOrderData.batteryType">
+                  <option :value="0">不带电</option>
+                  <option :value="1">内置电池</option>
+                  <option :value="2">干电池</option>
+                </select>
+              </div>
+              <div class="form-field full-width">
+                <label>特殊货物</label>
+                <div class="radio-row">
+                  <label><input type="radio" :value="0" v-model.number="fullOrderData.specialType" /> 普货</label>
+                  <label><input type="radio" :value="5" v-model.number="fullOrderData.specialType" /> 仿牌</label>
+                  <label><input type="radio" :value="1" v-model.number="fullOrderData.specialType" /> 特殊产品</label>
+                  <label><input type="radio" :value="2" v-model.number="fullOrderData.specialType" /> 港发件</label>
+                  <label><input type="radio" :value="3" v-model.number="fullOrderData.specialType" /> 报关件</label>
+                  <label><input type="radio" :value="4" v-model.number="fullOrderData.specialType" /> 纺织品</label>
+                </div>
+              </div>
+              <div class="form-field">
+                <label>标签类型</label>
+                <div class="radio-row">
+                  <label><input type="radio" value="PDF" v-model="fullOrderData.labelType" /> PDF</label>
+                  <label><input type="radio" value="ZPL" v-model="fullOrderData.labelType" /> ZPL</label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 货物信息 -->
+          <div class="form-section">
+            <h4>货物信息</h4>
+            <div class="form-grid">
+              <div class="form-field full-width"><label>英文描述</label><input type="text" v-model="fullOrderData.receiver.englishDesc" /></div>
+              <div class="form-field full-width"><label>中文描述</label><input type="text" v-model="fullOrderData.receiver.chineseDesc" /></div>
+              <div class="form-field"><label>件数</label><input type="number" v-model.number="fullOrderData.piece" /></div>
+              <div class="form-field"><label>重量 (kg)</label><input type="number" step="any" v-model.number="fullOrderData.weight" /></div>
+              <div class="form-field"><label>体积 (m³)</label><input type="number" step="any" v-model.number="fullOrderData.volume" /></div>
+            </div>
+          </div>
+
+          <!-- 发票信息 -->
+          <div class="form-section">
+            <h4>发票信息</h4>
+            <div class="form-grid">
+              <div class="form-field full-width">
+                <label>附加服务</label>
+                <div class="checkbox-row">
+                  <label><input type="checkbox" value="PREPAID_DUTY" v-model="fullOrderData.services" /> 预付关税</label>
+                  <label><input type="checkbox" value="SIGN_CONFIRM" v-model="fullOrderData.services" /> 签收确认</label>
+                  <label><input type="checkbox" value="ADULT_SIGN" v-model="fullOrderData.services" /> 成人签收确认</label>
+                </div>
+              </div>
+              <div class="form-field">
+                <label>货币</label>
+                <select v-model="fullOrderData.currency">
+                  <option value="USD">USD</option>
+                  <option value="CNY">CNY</option>
+                  <option value="EUR">EUR</option>
+                  <option value="HKD">HKD</option>
+                  <option value="GBP">GBP</option>
+                  <option value="JPY">JPY</option>
+                </select>
+              </div>
+              <div class="form-field"><label>货物金额</label><input type="number" step="any" v-model.number="fullOrderData.declaredValue" /></div>
+              <div class="form-field full-width"><label>备注</label><textarea v-model="fullOrderData.remark" rows="2" /></div>
+            </div>
+          </div>
+
+          <!-- 收件人 -->
+          <div class="form-section">
+            <h4>收件人</h4>
+            <div class="form-grid">
+              <div class="form-field">
+                <label>仓库地址</label>
+                <select v-model="fullOrderData.receiver.warehouseCode">
+                  <option value="">请选择仓库地址</option>
+                  <option v-for="opt in (selectOptions['warehouses'] ?? [])" :key="opt.id" :value="opt.code || opt.id">{{ opt.name }}</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label>目的地 <span class="required">*</span></label>
+                <select v-model="fullOrderData.country">
+                  <option value="">请选择</option>
+                  <option v-for="opt in (selectOptions['countries'] ?? [])" :key="opt.id" :value="opt.code || opt.name">{{ opt.name }}</option>
+                </select>
+              </div>
+              <div class="form-field"><label>公司 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.company" /></div>
+              <div class="form-field"><label>收件人 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.name" /></div>
+              <div class="form-field"><label>电话 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.phone" /></div>
+              <div class="form-field"><label>省/洲</label><input type="text" v-model="fullOrderData.receiver.province" /></div>
+              <div class="form-field"><label>邮编</label><input type="text" v-model="fullOrderData.receiver.postcode" /></div>
+              <div class="form-field"><label>城市</label><input type="text" v-model="fullOrderData.receiver.city" /></div>
+              <div class="form-field"><label>税号 (VAT)</label><input type="text" v-model="fullOrderData.receiver.vat" /></div>
+              <div class="form-field full-width"><label>地址 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.address" /></div>
+              <div class="form-field"><label>门牌号</label><input type="text" v-model="fullOrderData.receiver.houseNo" /></div>
+            </div>
+          </div>
+
+          <!-- 发件人 -->
+          <div class="form-section">
+            <h4>发件人 <span style="color:#c00;font-size:12px;font-weight:normal">（为空则按默认）</span></h4>
+            <div class="form-grid">
+              <div class="form-field"><label>发件公司</label><input type="text" v-model="fullOrderData.shipper.company" /></div>
+              <div class="form-field"><label>发件人</label><input type="text" v-model="fullOrderData.shipper.name" /></div>
+              <div class="form-field"><label>电话</label><input type="text" v-model="fullOrderData.shipper.phone" /></div>
+              <div class="form-field"><label>省/洲</label><input type="text" v-model="fullOrderData.shipper.province" /></div>
+              <div class="form-field"><label>邮编</label><input type="text" v-model="fullOrderData.shipper.postcode" /></div>
+              <div class="form-field"><label>城市</label><input type="text" v-model="fullOrderData.shipper.city" /></div>
+              <div class="form-field"><label>税号</label><input type="text" v-model="fullOrderData.shipper.vat" /></div>
+              <div class="form-field full-width"><label>发件地址</label><input type="text" v-model="fullOrderData.shipper.address" /></div>
+            </div>
+          </div>
+
+          <!-- 进口商 -->
+          <div class="form-section">
+            <h4>进口商 (IOR)</h4>
+            <div class="form-grid">
+              <div class="form-field"><label>预设模板</label><input type="text" v-model="fullOrderData.shipTo.templateId" placeholder="选择预设的进口商模板" /></div>
+              <div class="form-field"><label>公司名称</label><input type="text" v-model="fullOrderData.shipTo.company" /></div>
+              <div class="form-field"><label>联系人</label><input type="text" v-model="fullOrderData.shipTo.name" /></div>
+              <div class="form-field"><label>电话</label><input type="text" v-model="fullOrderData.shipTo.phone" /></div>
+              <div class="form-field"><label>洲/省</label><input type="text" v-model="fullOrderData.shipTo.province" /></div>
+              <div class="form-field"><label>邮编</label><input type="text" v-model="fullOrderData.shipTo.postcode" /></div>
+              <div class="form-field"><label>城市</label><input type="text" v-model="fullOrderData.shipTo.city" /></div>
+              <div class="form-field"><label>税号</label><input type="text" v-model="fullOrderData.shipTo.vat" /></div>
+              <div class="form-field full-width"><label>地址</label><input type="text" v-model="fullOrderData.shipTo.address" /></div>
+            </div>
+          </div>
+
+          <!-- 申报明细 -->
+          <div class="form-section">
+            <h4>申报明细 <button class="primary sm" type="button" @click="addDeclareRow"><Plus :size="13" /> 添加商品</button></h4>
+            <table class="inline-table">
+              <thead><tr>
+                <th>序号</th><th>英文品名</th><th>中文品名</th><th>原产地</th>
+                <th>数量</th><th>单价</th><th>小计</th><th>海关编码</th><th>备注</th><th></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(row, i) in fullOrderData.declare" :key="i">
+                  <td>{{ i + 1 }}</td>
+                  <td><input type="text" v-model="row.name" /></td>
+                  <td><input type="text" v-model="row.cnName" /></td>
+                  <td><input type="text" v-model="row.origin" /></td>
+                  <td><input type="number" v-model.number="row.quantity" /></td>
+                  <td><input type="number" step="any" v-model.number="row.price" /></td>
+                  <td>{{ ((row.quantity || 0) * (row.price || 0)).toFixed(2) }}</td>
+                  <td><input type="text" v-model="row.hsCode" /></td>
+                  <td><input type="text" v-model="row.remark" /></td>
+                  <td><button class="danger-btn sm" type="button" @click="removeDeclareRow(i)" v-if="fullOrderData.declare.length > 1"><X :size="13" /></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- 装箱单明细 -->
+          <div class="form-section">
+            <h4>装箱单明细 <button class="primary sm" type="button" @click="addPackageRow"><Plus :size="13" /> 添加装箱</button></h4>
+            <table class="inline-table">
+              <thead><tr>
+                <th>序号</th><th>装箱单号</th><th>货箱重量</th><th>英文品名</th><th>中文品名</th>
+                <th>海关编码</th><th>商品毛重</th><th>长</th><th>宽</th><th>高</th>
+                <th>数量</th><th>单价</th><th>材质</th><th></th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="(row, i) in fullOrderData.packageList" :key="i">
+                  <td>{{ i + 1 }}</td>
+                  <td><input type="text" v-model="row.no" /></td>
+                  <td><input type="number" step="any" v-model.number="row.weight" /></td>
+                  <td><input type="text" v-model="row.name" /></td>
+                  <td><input type="text" v-model="row.cnName" /></td>
+                  <td><input type="text" v-model="row.hsCode" /></td>
+                  <td><input type="number" step="any" v-model.number="row.grossWeight" /></td>
+                  <td><input type="number" step="any" v-model.number="row.length" /></td>
+                  <td><input type="number" step="any" v-model.number="row.width" /></td>
+                  <td><input type="number" step="any" v-model.number="row.height" /></td>
+                  <td><input type="number" v-model.number="row.quantity" /></td>
+                  <td><input type="number" step="any" v-model.number="row.price" /></td>
+                  <td><input type="text" v-model="row.material" /></td>
+                  <td><button class="danger-btn sm" type="button" @click="removePackageRow(i)" v-if="fullOrderData.packageList.length > 1"><X :size="13" /></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showFullOrderForm = false">取消</button>
+          <button class="primary" @click="saveFullOrder" :disabled="fullOrderSaving">
+            <RefreshCw v-if="fullOrderSaving" :size="14" class="spinning" />
+            <Save v-else :size="14" />
+            {{ fullOrderSaving ? '保存中...' : '确认添加' }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- ════════ Form Dialog ════════ -->
     <div class="modal-backdrop" v-if="showForm" @click.self="closeForm">
