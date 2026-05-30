@@ -14,7 +14,7 @@ import com.xqt.saas.framework.audit.AuditSideEffect;
  * 业务流程：
  *  1. 运营在订单上点「申请作废」→ orders.audit_status='PENDING'，订单进入"作废待审"队列
  *  2. 财务/管理员在"作废订单" tab 点「审核」→ AuditService.audit("orders", id, ...)
- *     → 本 SideEffect 触发 → orders.status='VOID'
+ *     → 本 SideEffect 触发 → orders.status='CANCELLED'
  *  3. 误审？点「反审」→ AuditService.undoAudit → 本 SideEffect → orders.status 回退到原值
  *
  * 反审恢复原 status：用 metadata.acc_compat.status_before_void 保存当前 status，
@@ -50,7 +50,7 @@ public class OrderVoidAuditSideEffect implements AuditSideEffect {
                 """, entityId, tenantId);
             // 2) 改 status=VOID
             int n = jdbc.update("""
-                UPDATE orders SET status = 'VOID'
+                UPDATE orders SET status = 'CANCELLED'
                 WHERE id = ?::uuid AND tenant_id = ?::uuid
                 """, entityId, tenantId);
             LOGGER.info("order {} → VOID (audit_status=AUDITED), rows={}", entityId, n);
@@ -69,7 +69,7 @@ public class OrderVoidAuditSideEffect implements AuditSideEffect {
                 """, String.class, entityId, tenantId);
             int n = jdbc.update("""
                 UPDATE orders SET status = ?::text
-                WHERE id = ?::uuid AND tenant_id = ?::uuid AND status = 'VOID'
+                WHERE id = ?::uuid AND tenant_id = ?::uuid AND status = 'CANCELLED'
                 """, prev == null ? "DRAFT" : prev, entityId, tenantId);
             LOGGER.info("order {} restored to {} (audit_status=UNAUDITED), rows={}", entityId, prev, n);
         } catch (DataAccessException ex) {

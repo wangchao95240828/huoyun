@@ -300,7 +300,7 @@ public class AccOrdersController {
                   '{acc_compat,void_request_reason}',
                   to_jsonb(coalesce(?::text, ''))
                 )
-            WHERE id = ?::uuid AND status NOT IN ('VOID', 'DRAFT')
+            WHERE id = ?::uuid AND status NOT IN ('CANCELLED', 'DRAFT')
             """, reason, id);
         if (n == 0) {
             throw ApiException.badRequest("订单状态不允许申请作废（DRAFT/VOID 已不需作废）");

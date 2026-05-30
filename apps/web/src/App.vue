@@ -417,11 +417,11 @@ async function loadSystemData() {
 
 const accTabs = [
   // 订单管理（对应 ACC 制单中心左侧 4 个状态分类）
+  // 注：orders.status 枚举不含 VOID，作废 == CANCELLED
   { key: "orders", label: "快件订单", icon: FileText, api: "orders" },
   { key: "orders-draft", label: "未提交", icon: FileText, api: "orders", statusFilter: "DRAFT" },
   { key: "orders-history", label: "历史制单", icon: FileText, api: "orders", statusFilter: "HISTORY" },
-  { key: "orders-cancelled", label: "取消订单", icon: FileText, api: "orders", statusFilter: "CANCELLED" },
-  { key: "orders-void", label: "作废订单", icon: FileText, api: "orders", statusFilter: "VOID" },
+  { key: "orders-cancelled", label: "作废订单", icon: FileText, api: "orders", statusFilter: "CANCELLED" },
   { key: "collects", label: "总单/留仓", icon: ClipboardList, api: "collects" },
   { key: "returns", label: "退件管理", icon: CornerDownLeft, api: "returns" },
   { key: "detains", label: "扣件管理", icon: Lock, api: "detains" },
@@ -532,7 +532,7 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
   get(target, key: string) {
     // 4 个订单状态分类 sub-tab 共用 orders 列定义
     if (key === 'orders-draft' || key === 'orders-history'
-        || key === 'orders-cancelled' || key === 'orders-void') {
+        || key === 'orders-cancelled') {
       return target['orders'];
     }
     return target[key];
@@ -540,7 +540,7 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
   set(target, key: string, value: any) { target[key] = value; return true; },
   has(target, key: string) {
     if (key === 'orders-draft' || key === 'orders-history'
-        || key === 'orders-cancelled' || key === 'orders-void') {
+        || key === 'orders-cancelled') {
       return 'orders' in target;
     }
     return key in target;
@@ -2470,8 +2470,7 @@ async function doDelete() {
 // 也可审核但前端不显示按钮——审核策略由运营在后端 API 调用而非每行按钮决定。
 const bizAuditTabs = new Set([
   // 订单 / 出货 / 配载（含 ACC 订单状态 4 个 sub-tab）
-  'orders', 'orders-draft', 'orders-history', 'orders-cancelled', 'orders-void',
-  'shipments', 'packages', 'stowages', 'transits',
+  'orders', 'orders-draft', 'orders-history', 'orders-cancelled',   'shipments', 'packages', 'stowages', 'transits',
   // 财务核心
   'charges', 'costs', 'bills', 'receiveds', 'payments', 'commissions',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
@@ -2491,8 +2490,7 @@ const bizAuditTabs = new Set([
 
 // 批量审核：与 bizAuditTabs 同口径，ACC 原行为也是凡审核处都能批量
 const batchAuditTabs = new Set([
-  'orders', 'orders-draft', 'orders-history', 'orders-cancelled', 'orders-void',
-  'shipments', 'packages', 'stowages', 'transits',
+  'orders', 'orders-draft', 'orders-history', 'orders-cancelled',   'shipments', 'packages', 'stowages', 'transits',
   'charges', 'costs', 'bills', 'receiveds', 'payments', 'commissions',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
   'customer-fines', 'supplier-fines', 'customer-adjusts', 'supplier-adjusts',
@@ -3352,13 +3350,13 @@ async function doReloadBill(id: number) {
                   </button>
                   <!-- ACC 制单中心：申请作废 + 恢复（仅订单 tab）-->
                   <button class="action-btn"
-                          v-if="(accTab === 'orders' || accTab === 'orders-history') && row.status !== 'VOID' && row.status !== 'DRAFT'"
+                          v-if="(accTab === 'orders' || accTab === 'orders-history') && row.status !== 'CANCELLED' && row.status !== 'DRAFT'"
                           @click="doRequestVoid(row)" title="申请作废" :disabled="bizLoading"
                           style="color:#dc2626">
                     <MinusCircle :size="12" />
                   </button>
                   <button class="action-btn"
-                          v-if="(accTab === 'orders-void' || accTab === 'orders-cancelled') && row.status === 'VOID'"
+                          v-if="accTab === 'orders-cancelled' && row.status === 'CANCELLED'"
                           @click="doRestoreVoid(row)" title="恢复" :disabled="bizLoading"
                           style="color:#059669">
                     <Undo2 :size="12" />

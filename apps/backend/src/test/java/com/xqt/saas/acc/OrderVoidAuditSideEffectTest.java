@@ -45,8 +45,8 @@ class OrderVoidAuditSideEffectTest {
         // 1) 保存 status_before_void 到 metadata
         verify(jdbc, times(1)).update(contains("status_before_void"),
             eq(ORDER_ID), eq(TENANT));
-        // 2) 改 status='VOID'
-        verify(jdbc, times(1)).update(contains("status = 'VOID'"),
+        // 2) 改 status='CANCELLED'
+        verify(jdbc, times(1)).update(contains("status = 'CANCELLED'"),
             eq(ORDER_ID), eq(TENANT));
     }
 
@@ -80,7 +80,7 @@ class OrderVoidAuditSideEffectTest {
         // 不抛
         effect.onAudited("orders", ORDER_ID, TENANT, "admin");
         // 第二步 UPDATE 不会执行（exception 阻断）
-        verify(jdbc, never()).update(contains("status = 'VOID'"),
+        verify(jdbc, never()).update(contains("status = 'CANCELLED'"),
             anyString(), anyString());
     }
 }
