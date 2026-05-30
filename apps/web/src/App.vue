@@ -2469,8 +2469,9 @@ async function doDelete() {
 // 主数据/字典类（customers/channels/currencies/bank-names/postcodes 等）后端
 // 也可审核但前端不显示按钮——审核策略由运营在后端 API 调用而非每行按钮决定。
 const bizAuditTabs = new Set([
-  // 订单 / 出货 / 配载
-  'orders', 'shipments', 'packages', 'stowages', 'transits',
+  // 订单 / 出货 / 配载（含 ACC 订单状态 4 个 sub-tab）
+  'orders', 'orders-draft', 'orders-history', 'orders-cancelled', 'orders-void',
+  'shipments', 'packages', 'stowages', 'transits',
   // 财务核心
   'charges', 'costs', 'bills', 'receiveds', 'payments', 'commissions',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
@@ -2490,7 +2491,8 @@ const bizAuditTabs = new Set([
 
 // 批量审核：与 bizAuditTabs 同口径，ACC 原行为也是凡审核处都能批量
 const batchAuditTabs = new Set([
-  'orders', 'shipments', 'packages', 'stowages', 'transits',
+  'orders', 'orders-draft', 'orders-history', 'orders-cancelled', 'orders-void',
+  'shipments', 'packages', 'stowages', 'transits',
   'charges', 'costs', 'bills', 'receiveds', 'payments', 'commissions',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
   'customer-fines', 'supplier-fines', 'customer-adjusts', 'supplier-adjusts',
@@ -2572,6 +2574,39 @@ async function doUndoAudit(id: any) {
     bizLoading.value = false;
     setTimeout(() => { bizMessage.value = ''; }, 3000);
   }
+}
+
+// 申请作废订单（对应 ACC 制单中心「申请作废」按钮）
+// audit_status → PENDING，进入「作废订单」队列等待审核
+async function doRequestVoid(row: any) {
+  if (!confirm(`确认申请作废订单 ${row.orderNo}？提交后需财务审核。`)) return;
+  bizLoading.value = true;
+  bizMessage.value = '';
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/${row.id}/request-void`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: '' }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) {
+      bizMessage.value = '已申请作废，等待审核';
+      fetchAccData();
+    } else {
+      bizMessage.value = '申请失败: ' + (json.error ?? `HTTP ${res.status}`);
+    }
+  } catch (e: any) {
+    bizMessage.value = '申请失败: ' + e.message;
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 3000);
+  }
+}
+
+// 恢复作废订单（已 status=VOID 的订单走 undo-biz 触发 OrderVoidAuditSideEffect.onUndone）
+async function doRestoreVoid(row: any) {
+  if (!confirm(`确认恢复订单 ${row.orderNo}？将取消作废并恢复到作废前的状态。`)) return;
+  return doUndoAudit(row.id);
 }
 
 async function doBatchAudit() {
@@ -3314,6 +3349,19 @@ async function doReloadBill(id: number) {
                   </button>
                   <button class="action-btn" v-if="accTab === 'bills'" @click="doReloadBill(row.id)" title="重算" :disabled="bizLoading">
                     <Calculator :size="12" />
+                  </button>
+                  <!-- ACC 制单中心：申请作废 + 恢复（仅订单 tab）-->
+                  <button class="action-btn"
+                          v-if="(accTab === 'orders' || accTab === 'orders-history') && row.status !== 'VOID' && row.status !== 'DRAFT'"
+                          @click="doRequestVoid(row)" title="申请作废" :disabled="bizLoading"
+                          style="color:#dc2626">
+                    <MinusCircle :size="12" />
+                  </button>
+                  <button class="action-btn"
+                          v-if="(accTab === 'orders-void' || accTab === 'orders-cancelled') && row.status === 'VOID'"
+                          @click="doRestoreVoid(row)" title="恢复" :disabled="bizLoading"
+                          style="color:#059669">
+                    <Undo2 :size="12" />
                   </button>
                   <button class="action-btn del" v-if="canCrud && row.auditStatus !== 'AUDITED'"
                           @click="confirmDeleteRow(row)" title="删除">

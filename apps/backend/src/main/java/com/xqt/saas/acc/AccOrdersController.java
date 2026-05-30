@@ -283,6 +283,31 @@ public class AccOrdersController {
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
 
+    /**
+     * 申请作废订单 — 对应 ACC 制单中心「申请作废」按钮。
+     *
+     * 仅把 audit_status 置 'PENDING' 进入"作废待审"队列；不立即改 status。
+     * 后续走 /api/acc/orders/{id}/audit-biz → OrderVoidAuditSideEffect → status='VOID'。
+     */
+    @PostMapping("/{id}/request-void")
+    public Map<String, Object> requestVoid(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        String reason = body == null ? null : strOrNull(body.get("reason"));
+        int n = jdbc.update("""
+            UPDATE orders
+            SET audit_status = 'PENDING',
+                metadata = jsonb_set(
+                  coalesce(metadata, '{}'::jsonb),
+                  '{acc_compat,void_request_reason}',
+                  to_jsonb(coalesce(?::text, ''))
+                )
+            WHERE id = ?::uuid AND status NOT IN ('VOID', 'DRAFT')
+            """, reason, id);
+        if (n == 0) {
+            throw ApiException.badRequest("订单状态不允许申请作废（DRAFT/VOID 已不需作废）");
+        }
+        return Map.of("id", id, "audit_status", "PENDING", "void_requested", true);
+    }
+
     @DeleteMapping("/{id}")
     public Map<String, Object> delete(@PathVariable String id) {
         String auditStatus = jdbc.queryForObject(
