@@ -2867,10 +2867,7 @@ async function doReloadBill(id: number) {
         </div>
       </div>
       <form class="login-form" @submit.prevent="login">
-        <label>
-          <span>租户</span>
-          <input v-model="loginForm.tenantCode" autocomplete="organization" />
-        </label>
+        <!-- 单租户部署，tenantCode 隐式 xqt，去 UI 字段 -->
         <label>
           <span>用户名</span>
           <input v-model="loginForm.username" autocomplete="username" />

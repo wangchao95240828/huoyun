@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -68,7 +69,7 @@ class AccOrdersListProjectionTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         AccOrdersController c = new AccOrdersController(jdbc,
             new JsonSupport(new ObjectMapper()),
-            mock(CascadeChecker.class), mock(FieldGate.class));
+            mock(CascadeChecker.class), mock(FieldGate.class), new BranchAccessFilter());
 
         List<Map<String, Object>> items = stubAndCall(jdbc, c,
             orderRow(new BigDecimal("280.00"), new BigDecimal("180.00"), "上海分公司"), "ORD");
@@ -89,7 +90,7 @@ class AccOrdersListProjectionTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         AccOrdersController c = new AccOrdersController(jdbc,
             new JsonSupport(new ObjectMapper()),
-            mock(CascadeChecker.class), mock(FieldGate.class));
+            mock(CascadeChecker.class), mock(FieldGate.class), new BranchAccessFilter());
 
         List<Map<String, Object>> items = stubAndCall(jdbc, c,
             orderRow(BigDecimal.ZERO, BigDecimal.ZERO, null), null);

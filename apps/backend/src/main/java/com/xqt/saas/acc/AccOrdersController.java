@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -38,13 +39,16 @@ public class AccOrdersController {
     private final JsonSupport json;
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
+    private final BranchAccessFilter branchAccess;
 
     public AccOrdersController(JdbcTemplate jdbc, JsonSupport json,
-                               CascadeChecker cascadeChecker, FieldGate fieldGate) {
+                               CascadeChecker cascadeChecker, FieldGate fieldGate,
+                               BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+        this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -61,25 +65,27 @@ public class AccOrdersController {
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
 
-            // status 过滤模式：
-            //   "DRAFT"      → 未提交
-            //   "CANCELLED"  → 取消订单（包括 CANCELED 拼写差异）
-            //   "VOID"       → 作废订单
-            //   "HISTORY"    → 历史制单（已 SUBMITTED / ACCEPTED / FULFILLING / 等非 DRAFT 状态）
-            //   其他具体状态  → 直接 equals
+            // status 过滤模式：DRAFT/CANCELLED/HISTORY/具体值
             String statusMode = status == null || status.isBlank() ? null : status.toUpperCase();
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM orders o
-                WHERE (?::text IS NULL OR (o.order_no ILIKE ? OR o.customer_ref ILIKE ?))
-                  AND (?::date IS NULL OR o.created_at >= ?::date)
-                  AND (?::date IS NULL OR o.created_at < (?::date + 1))
-                  AND (
-                    ?::text IS NULL
-                    OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))
-                    OR o.status = ?::text
-                  )
-                """, Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo,
-                statusMode, statusMode, statusMode);
+            // RBAC 分公司/销售可见性
+            var access = branchAccess.forCurrent("o");
+
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo,
+                statusMode, statusMode, statusMode));
+            countParams.addAll(access.params());
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM orders o"
+                + " WHERE (?::text IS NULL OR (o.order_no ILIKE ? OR o.customer_ref ILIKE ?))"
+                + "   AND (?::date IS NULL OR o.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR o.created_at < (?::date + 1))"
+                + "   AND ("
+                + "     ?::text IS NULL"
+                + "     OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))"
+                + "     OR o.status = ?::text"
+                + "   )"
+                + access.sql(),
+                Long.class, countParams.toArray());
 
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT
@@ -132,18 +138,20 @@ public class AccOrdersController {
                 FROM orders o
                 LEFT JOIN customers c ON c.id = o.customer_id
                 LEFT JOIN organizations org ON org.id = o.branch_id
-                WHERE (?::text IS NULL OR (o.order_no ILIKE ? OR o.customer_ref ILIKE ?))
-                  AND (?::date IS NULL OR o.created_at >= ?::date)
-                  AND (?::date IS NULL OR o.created_at < (?::date + 1))
-                  AND (
-                    ?::text IS NULL
-                    OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))
-                    OR o.status = ?::text
-                  )
-                ORDER BY o.created_at DESC
-                LIMIT ? OFFSET ?
-                """, search, search, search, dateFrom, dateFrom, dateTo, dateTo,
-                statusMode, statusMode, statusMode, limit, offset);
+                WHERE 1=1
+                """
+                + " AND (?::text IS NULL OR (o.order_no ILIKE ? OR o.customer_ref ILIKE ?))"
+                + " AND (?::date IS NULL OR o.created_at >= ?::date)"
+                + " AND (?::date IS NULL OR o.created_at < (?::date + 1))"
+                + " AND ("
+                + "   ?::text IS NULL"
+                + "   OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))"
+                + "   OR o.status = ?::text"
+                + " )"
+                + access.sql()
+                + " ORDER BY o.created_at DESC"
+                + " LIMIT ? OFFSET ?",
+                buildListParams(search, dateFrom, dateTo, statusMode, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -244,6 +252,23 @@ public class AccOrdersController {
             "packageCount", packageCount,
             "status", "DRAFT"
         );
+    }
+
+    /**
+     * 拼接 list 查询的参数数组：base 字段 + RBAC access 参数 + 分页 limit/offset。
+     */
+    private static Object[] buildListParams(String search, String dateFrom, String dateTo,
+                                             String statusMode,
+                                             BranchAccessFilter.AccessClause access,
+                                             int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, search,
+            dateFrom, dateFrom, dateTo, dateTo,
+            statusMode, statusMode, statusMode));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private static String strOrNull(Object o) {
