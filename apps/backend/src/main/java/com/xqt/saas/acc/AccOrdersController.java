@@ -53,19 +53,33 @@ public class AccOrdersController {
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String status
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
 
+            // status 过滤模式：
+            //   "DRAFT"      → 未提交
+            //   "CANCELLED"  → 取消订单（包括 CANCELED 拼写差异）
+            //   "VOID"       → 作废订单
+            //   "HISTORY"    → 历史制单（已 SUBMITTED / ACCEPTED / FULFILLING / 等非 DRAFT 状态）
+            //   其他具体状态  → 直接 equals
+            String statusMode = status == null || status.isBlank() ? null : status.toUpperCase();
             Long total = jdbc.queryForObject("""
                 SELECT count(*) FROM orders o
                 WHERE (?::text IS NULL OR (o.order_no ILIKE ? OR o.customer_ref ILIKE ?))
                   AND (?::date IS NULL OR o.created_at >= ?::date)
                   AND (?::date IS NULL OR o.created_at < (?::date + 1))
-                """, Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+                  AND (
+                    ?::text IS NULL
+                    OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))
+                    OR o.status = ?::text
+                  )
+                """, Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo,
+                statusMode, statusMode, statusMode);
 
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT
@@ -121,9 +135,15 @@ public class AccOrdersController {
                 WHERE (?::text IS NULL OR (o.order_no ILIKE ? OR o.customer_ref ILIKE ?))
                   AND (?::date IS NULL OR o.created_at >= ?::date)
                   AND (?::date IS NULL OR o.created_at < (?::date + 1))
+                  AND (
+                    ?::text IS NULL
+                    OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))
+                    OR o.status = ?::text
+                  )
                 ORDER BY o.created_at DESC
                 LIMIT ? OFFSET ?
-                """, search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+                """, search, search, search, dateFrom, dateFrom, dateTo, dateTo,
+                statusMode, statusMode, statusMode, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {

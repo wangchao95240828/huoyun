@@ -416,8 +416,12 @@ async function loadSystemData() {
 }
 
 const accTabs = [
-  // 订单管理
+  // 订单管理（对应 ACC 制单中心左侧 4 个状态分类）
   { key: "orders", label: "快件订单", icon: FileText, api: "orders" },
+  { key: "orders-draft", label: "未提交", icon: FileText, api: "orders", statusFilter: "DRAFT" },
+  { key: "orders-history", label: "历史制单", icon: FileText, api: "orders", statusFilter: "HISTORY" },
+  { key: "orders-cancelled", label: "取消订单", icon: FileText, api: "orders", statusFilter: "CANCELLED" },
+  { key: "orders-void", label: "作废订单", icon: FileText, api: "orders", statusFilter: "VOID" },
   { key: "collects", label: "总单/留仓", icon: ClipboardList, api: "collects" },
   { key: "returns", label: "退件管理", icon: CornerDownLeft, api: "returns" },
   { key: "detains", label: "扣件管理", icon: Lock, api: "detains" },
@@ -524,7 +528,26 @@ function selectAccTab(key: string) {
 }
 
 // Column definitions per ACC tab
-const accColumns: Record<string, Array<{ key: string; label: string; fmt?: string }>> = {
+const accColumns: Record<string, Array<{ key: string; label: string; fmt?: string }>> = new Proxy({} as any, {
+  get(target, key: string) {
+    // 4 个订单状态分类 sub-tab 共用 orders 列定义
+    if (key === 'orders-draft' || key === 'orders-history'
+        || key === 'orders-cancelled' || key === 'orders-void') {
+      return target['orders'];
+    }
+    return target[key];
+  },
+  set(target, key: string, value: any) { target[key] = value; return true; },
+  has(target, key: string) {
+    if (key === 'orders-draft' || key === 'orders-history'
+        || key === 'orders-cancelled' || key === 'orders-void') {
+      return 'orders' in target;
+    }
+    return key in target;
+  }
+});
+
+Object.assign(accColumns, {
   orders: [
     { key: "orderNo", label: "客户单号" },
     { key: "trackNo", label: "服务商单号" },
@@ -1184,7 +1207,7 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
     { key: "sendSelf", label: "发自己", fmt: "bool" },
     { key: "isSave", label: "保存", fmt: "bool" },
   ],
-};
+});
 
 const moduleCards = [
   { icon: WalletCards, title: "费率引擎", desc: "规则版本、低消、分抛、燃油、附加费叠加/取大", status: "P0" },
@@ -2162,6 +2185,8 @@ async function fetchAccData() {
   if (accKeyword.value) params.set("keyword", accKeyword.value);
   if (accDateFrom.value && !noDateTabs.has(accTab.value)) params.set("dateFrom", accDateFrom.value);
   if (accDateTo.value && !noDateTabs.has(accTab.value)) params.set("dateTo", accDateTo.value);
+  // ACC 订单状态分类 sub-tab → status 参数
+  if ((tab as any).statusFilter) params.set("status", (tab as any).statusFilter);
 
   try {
     const res = await apiFetch(`${API}/api/acc/${tab.api}?${params}`);
