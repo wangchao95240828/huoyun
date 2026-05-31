@@ -54,11 +54,28 @@ public class AccDwsController {
         if (!validToken(time, token)) {
             return fail("Token 校验失败");
         }
+
+        // DWS 走自己的 md5 token 不带 JWT principal，手动设 tenant 上下文（单租户）
+        setSingleTenantContext();
+
         return switch (action) {
             case "check" -> doCheck(body);
             case "pickup", "update" -> doPickup(body, action);
             default -> fail("不支持的 action: " + action);
         };
+    }
+
+    /** 单租户：根据 tenant code 'xqt' 解析 tenant_id 并设入 session 变量，供后续 INSERT 用。 */
+    private void setSingleTenantContext() {
+        try {
+            String tenantId = jdbc.queryForObject(
+                "SELECT id::text FROM tenants WHERE code = 'xqt' LIMIT 1", String.class);
+            if (tenantId != null) {
+                jdbc.queryForObject(
+                    "SELECT set_config('app.current_tenant_id', ?, true)",
+                    String.class, tenantId);
+            }
+        } catch (DataAccessException ignored) {}
     }
 
     // ───── check：根据箱号 + 运单号在 cartons 里查信息 ─────

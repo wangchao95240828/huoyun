@@ -61,6 +61,7 @@ public class SecurityConfig {
                     "/api/health",
                     "/api/public/**",
                     "/api/device/scale/**",
+                    "/api/acc/dws",          // DWS 实物分拣推送，使用自己的 md5 token 校验
                     "/actuator/health/**",
                     "/v3/api-docs/**",
                     "/swagger-ui/**",
