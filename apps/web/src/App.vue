@@ -504,16 +504,54 @@ const accTabs = [
   { key: "logistics-interfaces", label: "物流接口", icon: Layers, api: "logistics-interfaces" },
   { key: "tasks", label: "定时任务", icon: ListChecks, api: "tasks" },
   { key: "templates", label: "消息模板", icon: FileText, api: "templates" },
+  // ACC 基础信息 → 运费管理 新增 4 个 tab
+  { key: "sales-prices", label: "销售价格", icon: WalletCards, api: "sales-prices" },
+  { key: "customer-prices", label: "客户价格", icon: WalletCards, api: "customer-prices" },
+  { key: "published-prices", label: "公布价格", icon: WalletCards, api: "published-prices" },
+  { key: "files", label: "文件管理", icon: FileText, api: "files" },
 ];
 
-// ACC 二级菜单：6 大功能组（ERP 式折叠菜单树）。索引区间对应 accTabs 顺序。
+// ACC 基础信息（对应 ACC 顶部"基础信息"菜单的 4 大子组、共 21 项）。
+// 复用 accTabs 里已有的 key，新增 4 个价格/文件 tab。
+const accBasicTabs = [
+  // 信息管理 (8)
+  accTabs.find(t => t.key === "acc-branches")!,        // 分店管理
+  accTabs.find(t => t.key === "customer-groups")!,     // 分组管理
+  accTabs.find(t => t.key === "districts")!,           // 地区管理
+  accTabs.find(t => t.key === "postcodes")!,           // 邮编管理
+  accTabs.find(t => t.key === "remotes")!,             // 偏远邮编
+  accTabs.find(t => t.key === "fee-types")!,           // 杂费类型
+  accTabs.find(t => t.key === "fees")!,                // 杂费套餐
+  accTabs.find(t => t.key === "fuels")!,               // 燃油费用
+  // 运费管理 (8)
+  accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号
+  accTabs.find(t => t.key === "products")!,            // 销售产品
+  accTabs.find(t => t.key === "sales-prices")!,        // 销售价格
+  accTabs.find(t => t.key === "customer-prices")!,     // 客户价格
+  accTabs.find(t => t.key === "published-prices")!,    // 公布价格
+  accTabs.find(t => t.key === "zones")!,               // 价格分区
+  accTabs.find(t => t.key === "channels")!,            // 渠道类型
+  accTabs.find(t => t.key === "files")!,               // 文件管理
+  // 物流商管理 (2)（"创建物流商"用列表里的"新增"按钮，不单独占 tab）
+  accTabs.find(t => t.key === "suppliers")!,           // 物流商列表
+  accTabs.find(t => t.key === "supplier-adjusts")!,    // 物流商调账
+  // 物流商往来 (5)
+  accTabs.find(t => t.key === "bills")!,               // 应付款项（账单视图，过滤 supplier）
+  accTabs.find(t => t.key === "supplier-rebates")!,    // 物流商返利
+  accTabs.find(t => t.key === "supplier-fines")!,      // 物流商罚款
+  accTabs.find(t => t.key === "payments")!,            // 付款记录
+  accTabs.find(t => t.key === "supplier-refunds")!,    // 退款记录
+];
+
+// ACC 二级菜单：7 大功能组（ERP 式折叠菜单树）。基础信息独立成组。
 const accMenuGroups = [
   { key: "order", label: "订单管理", icon: FileText, tabs: accTabs.slice(0, 8) },
   { key: "logistics", label: "物流管理", icon: Truck, tabs: accTabs.slice(8, 19) },
   { key: "finance", label: "财务管理", icon: DollarSign, tabs: accTabs.slice(19, 47) },
   { key: "partner", label: "客户/供应商", icon: Users, tabs: accTabs.slice(47, 57) },
   { key: "hr", label: "人事组织", icon: Building2, tabs: accTabs.slice(57, 67) },
-  { key: "basic", label: "基础数据", icon: Globe, tabs: accTabs.slice(67) },
+  { key: "basic", label: "基础数据", icon: Globe, tabs: accTabs.slice(67, 78) },
+  { key: "basic-info", label: "基础信息 (ACC)", icon: Layers, tabs: accBasicTabs },
 ];
 // 当前展开的 ACC 功能组（手风琴，一次展开一个）
 const expandedAccGroup = ref<string>("order");
@@ -1207,6 +1245,50 @@ Object.assign(accColumns, {
     { key: "sendSelf", label: "发自己", fmt: "bool" },
     { key: "isSave", label: "保存", fmt: "bool" },
   ],
+  "sales-prices": [
+    { key: "name", label: "价格名称" },
+    { key: "service", label: "渠道/服务" },
+    { key: "receiveArea", label: "收件区域" },
+    { key: "minWeight", label: "最小重量" },
+    { key: "maxWeight", label: "最大重量" },
+    { key: "zipPrefix", label: "邮编前缀" },
+    { key: "priority", label: "优先级" },
+    { key: "status", label: "启用", fmt: "bool" },
+    { key: "createdAt", label: "创建时间", fmt: "datetime" },
+  ],
+  "customer-prices": [
+    { key: "name", label: "价格名称" },
+    { key: "userName", label: "客户" },
+    { key: "userLevel", label: "客户等级" },
+    { key: "service", label: "渠道/服务" },
+    { key: "receiveArea", label: "收件区域" },
+    { key: "minWeight", label: "最小重量" },
+    { key: "maxWeight", label: "最大重量" },
+    { key: "status", label: "启用", fmt: "bool" },
+    { key: "createdAt", label: "创建时间", fmt: "datetime" },
+  ],
+  "published-prices": [
+    { key: "name", label: "价格名称" },
+    { key: "service", label: "渠道/服务" },
+    { key: "receiveArea", label: "收件区域" },
+    { key: "minWeight", label: "最小重量" },
+    { key: "maxWeight", label: "最大重量" },
+    { key: "zipPrefix", label: "邮编前缀" },
+    { key: "priority", label: "优先级" },
+    { key: "status", label: "启用", fmt: "bool" },
+    { key: "createdAt", label: "创建时间", fmt: "datetime" },
+  ],
+  files: [
+    { key: "fileName", label: "文件名" },
+    { key: "fileType", label: "类型" },
+    { key: "mimeType", label: "MIME" },
+    { key: "sizeBytes", label: "大小" },
+    { key: "uploaderName", label: "上传人" },
+    { key: "status", label: "状态" },
+    { key: "auditStatus", label: "审核状态" },
+    { key: "createdAt", label: "上传时间", fmt: "datetime" },
+    { key: "remark", label: "备注" },
+  ],
 });
 
 const moduleCards = [
@@ -1220,7 +1302,7 @@ const moduleCards = [
 
 // ═══════════════ Form Schemas ═══════════════
 
-const readOnlyTabs = new Set(['profits', 'void-orders']);
+const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'customer-prices', 'published-prices']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
@@ -1825,6 +1907,16 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'SendSelf', label: '发自己', type: 'boolean' },
     { col: 'isSave', label: '保存', type: 'boolean' },
   ],
+  files: [
+    { col: 'fileName', label: '文件名', type: 'text', required: true },
+    { col: 'fileType', label: '类型', type: 'text' },
+    { col: 'mimeType', label: 'MIME 类型', type: 'text' },
+    { col: 'sizeBytes', label: '大小(字节)', type: 'number' },
+    { col: 'storageUrl', label: '存储路径/URL', type: 'text' },
+    { col: 'uploaderName', label: '上传人', type: 'text' },
+    { col: 'status', label: '状态', type: 'text' },
+    { col: 'remark', label: '备注', type: 'textarea' },
+  ],
 };
 
 const currentFormFields = computed(() => accFormFields[accTab.value] ?? []);
@@ -2169,7 +2261,7 @@ async function fetchDashboard() {
 
 // ACC data fetching
 
-const noDateTabs = new Set(["channels", "acc-branches", "departments", "countries", "fuels", "currencies", "fees", "fee-types", "banks", "ports", "warehouses", "customer-groups", "zones", "stowage-categories", "stowage-steps", "tracks", "expense-categories", "fee-item-types", "bank-names", "logistics-interfaces", "potentials", "sold-tos", "notices", "social-persons", "fund-persons", "commission-rules", "districts", "tasks", "templates"]);
+const noDateTabs = new Set(["channels", "acc-branches", "departments", "countries", "fuels", "currencies", "fees", "fee-types", "banks", "ports", "warehouses", "customer-groups", "zones", "stowage-categories", "stowage-steps", "tracks", "expense-categories", "fee-item-types", "bank-names", "logistics-interfaces", "potentials", "sold-tos", "notices", "social-persons", "fund-persons", "commission-rules", "districts", "tasks", "templates", "sales-prices", "customer-prices", "published-prices", "files"]);
 const noPaginationTabs = new Set(["channels", "acc-branches", "departments", "countries", "fuels", "currencies", "fees", "fee-types", "banks", "ports", "warehouses", "customer-groups", "zones", "stowage-categories", "stowage-steps", "tracks", "expense-categories", "fee-item-types", "bank-names", "logistics-interfaces"]);
 
 async function fetchAccData() {

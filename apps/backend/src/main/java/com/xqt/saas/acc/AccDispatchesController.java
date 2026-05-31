@@ -56,21 +56,27 @@ public AccDispatchesController(JdbcTemplate jdbc, JsonSupport json,
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+            var access = branchAccess.forCurrentViaCustomer("d");
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(search, search));
+            countParams.addAll(access.params());
             long total = json.value(jdbc.queryForObject(
-                "SELECT count(*) FROM acc_dispatches WHERE ?::text IS NULL OR dispatch_no ILIKE ?",
-                Long.class, search, search)) instanceof Number n ? n.longValue() : 0;
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT d.id::text AS id, d.dispatch_no, d.customer_id::text AS customer_id,
-                       d.contact_name, d.contact_mobile, d.pick_address, d.pick_date,
-                       d.pick_time_range, d.package_count, d.weight, d.status, d.remark,
-                       c.name AS customer_name,
-                       d.audit_status, d.audited_at, d.audit_name, d.created_at
-                FROM acc_dispatches d
-                LEFT JOIN customers c ON c.id = d.customer_id
-                WHERE ?::text IS NULL OR d.dispatch_no ILIKE ?
-                ORDER BY d.pick_date DESC
-                LIMIT ? OFFSET ?
-                """, search, search, limit, offset);
+                "SELECT count(*) FROM acc_dispatches d"
+                + " WHERE (?::text IS NULL OR d.dispatch_no ILIKE ?)"
+                + access.sql(),
+                Long.class, countParams.toArray())) instanceof Number n ? n.longValue() : 0;
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT d.id::text AS id, d.dispatch_no, d.customer_id::text AS customer_id,"
+                + "       d.contact_name, d.contact_mobile, d.pick_address, d.pick_date,"
+                + "       d.pick_time_range, d.package_count, d.weight, d.status, d.remark,"
+                + "       c.name AS customer_name,"
+                + "       d.audit_status, d.audited_at, d.audit_name, d.created_at"
+                + " FROM acc_dispatches d"
+                + " LEFT JOIN customers c ON c.id = d.customer_id"
+                + " WHERE (?::text IS NULL OR d.dispatch_no ILIKE ?)"
+                + access.sql()
+                + " ORDER BY d.pick_date DESC"
+                + " LIMIT ? OFFSET ?",
+                buildDispatchesListParams(search, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(), total);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
@@ -152,6 +158,16 @@ public AccDispatchesController(JdbcTemplate jdbc, JsonSupport json,
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM acc_dispatches WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    private static Object[] buildDispatchesListParams(String search,
+                                                       BranchAccessFilter.AccessClause access,
+                                                       int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(search, search));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

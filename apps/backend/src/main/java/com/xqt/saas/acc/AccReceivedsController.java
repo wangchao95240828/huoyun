@@ -67,35 +67,41 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM payments p
-                WHERE (?::text IS NULL OR p.reference_no ILIKE ?)
-                  AND (?::date IS NULL OR p.received_at >= ?::date)
-                  AND (?::date IS NULL OR p.received_at < (?::date + 1))
-                """, Long.class, search, search, dateFrom, dateFrom, dateTo, dateTo);
+            var access = branchAccess.forCurrentViaCustomer("p");
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, dateFrom, dateFrom, dateTo, dateTo));
+            countParams.addAll(access.params());
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM payments p"
+                + " WHERE (?::text IS NULL OR p.reference_no ILIKE ?)"
+                + "   AND (?::date IS NULL OR p.received_at >= ?::date)"
+                + "   AND (?::date IS NULL OR p.received_at < (?::date + 1))"
+                + access.sql(),
+                Long.class, countParams.toArray());
 
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT
-                  p.id::text       AS id,
-                  p.reference_no,
-                  p.currency,
-                  p.amount,
-                  p.received_at,
-                  p.remark,
-                  p.audit_status,
-                  p.audited_at,
-                  p.audit_name,
-                  c.name           AS customer_name,
-                  coalesce(fa.bank_name, fa.account_name) AS bank_name
-                FROM payments p
-                LEFT JOIN customers c ON c.id = p.customer_id
-                LEFT JOIN financial_accounts fa ON fa.id = p.financial_account_id
-                WHERE (?::text IS NULL OR p.reference_no ILIKE ?)
-                  AND (?::date IS NULL OR p.received_at >= ?::date)
-                  AND (?::date IS NULL OR p.received_at < (?::date + 1))
-                ORDER BY p.received_at DESC
-                LIMIT ? OFFSET ?
-                """, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT"
+                + "  p.id::text       AS id,"
+                + "  p.reference_no,"
+                + "  p.currency,"
+                + "  p.amount,"
+                + "  p.received_at,"
+                + "  p.remark,"
+                + "  p.audit_status,"
+                + "  p.audited_at,"
+                + "  p.audit_name,"
+                + "  c.name           AS customer_name,"
+                + "  coalesce(fa.bank_name, fa.account_name) AS bank_name"
+                + " FROM payments p"
+                + " LEFT JOIN customers c ON c.id = p.customer_id"
+                + " LEFT JOIN financial_accounts fa ON fa.id = p.financial_account_id"
+                + " WHERE (?::text IS NULL OR p.reference_no ILIKE ?)"
+                + "   AND (?::date IS NULL OR p.received_at >= ?::date)"
+                + "   AND (?::date IS NULL OR p.received_at < (?::date + 1))"
+                + access.sql()
+                + " ORDER BY p.received_at DESC"
+                + " LIMIT ? OFFSET ?",
+                buildReceivedsListParams(search, dateFrom, dateTo, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -219,6 +225,17 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
             throw com.xqt.saas.common.ApiException.unauthorized("authentication required");
         }
         return p;
+    }
+
+    private static Object[] buildReceivedsListParams(String search, String dateFrom, String dateTo,
+                                                       BranchAccessFilter.AccessClause access,
+                                                       int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

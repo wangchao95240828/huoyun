@@ -88,6 +88,21 @@ class BranchAccessFilterTest {
     }
 
     @Test
+    void forCurrentViaCustomerUsesJoinSubquery() {
+        setPrincipal(List.of("BRANCH_MANAGER"), "b-1");
+        var c = filter.forCurrentViaCustomer("d");
+        assertThat(c.sql()).contains("d.customer_id IN");
+        assertThat(c.sql()).contains("branch_id = ?");
+        assertThat(c.params()).containsExactly("b-1");
+
+        setPrincipal(List.of("SALESMAN"), null);
+        c = filter.forCurrentViaCustomer("d");
+        assertThat(c.sql()).contains("d.customer_id IN");
+        assertThat(c.sql()).contains("salesman_user_id = ?");
+        assertThat(c.params()).containsExactly("u-1");
+    }
+
+    @Test
     void unknownRoleReturnsEmpty() {
         setPrincipal(List.of("WAREHOUSE_OP"), null);
         assertThat(filter.forCurrent("o").sql()).isEmpty();

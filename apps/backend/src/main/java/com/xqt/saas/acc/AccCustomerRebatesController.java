@@ -27,7 +27,7 @@ public AccCustomerRebatesController(JdbcTemplate jdbc, JsonSupport json,
                                         CascadeChecker cascadeChecker, FieldGate fieldGate,
                                         MoneySnapshotService moneySnapshotService,
                                   BranchAccessFilter branchAccess) {
-        super(jdbc, json, cascadeChecker, fieldGate, moneySnapshotService);
+        super(jdbc, json, cascadeChecker, fieldGate, moneySnapshotService, branchAccess);
             this.branchAccess = branchAccess;
     }
     @Override protected String side()    { return "CUSTOMER"; }

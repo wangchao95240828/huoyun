@@ -30,15 +30,18 @@ abstract class AccFinanceTxnsBase {
     protected final CascadeChecker cascadeChecker;
     protected final FieldGate fieldGate;
     protected final MoneySnapshotService moneySnapshotService;
+    protected final com.xqt.saas.common.BranchAccessFilter branchAccess;
 
     protected AccFinanceTxnsBase(JdbcTemplate jdbc, JsonSupport json,
                                  CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                 MoneySnapshotService moneySnapshotService) {
+                                 MoneySnapshotService moneySnapshotService,
+                                 com.xqt.saas.common.BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.moneySnapshotService = moneySnapshotService;
+        this.branchAccess = branchAccess;
     }
 
     /** 'CUSTOMER' / 'SUPPLIER' */
@@ -56,34 +59,49 @@ abstract class AccFinanceTxnsBase {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM acc_finance_txns t
-                LEFT JOIN customers c ON c.id = t.customer_id
-                LEFT JOIN partners  p ON p.id = t.partner_id
-                WHERE t.side = ? AND t.txn_type = ?
-                  AND (?::text IS NULL OR t.txn_no ILIKE ? OR c.name ILIKE ? OR p.name ILIKE ?)
-                  AND (?::date IS NULL OR t.the_date >= ?::date)
-                  AND (?::date IS NULL OR t.the_date < (?::date + 1))
-                """, Long.class, side(), txnType(),
+            // CUSTOMER 侧按当前用户 branch/sales 过滤；SUPPLIER 侧不过滤
+            var access = "CUSTOMER".equals(side())
+                ? branchAccess.forCurrentViaCustomer("t")
+                : com.xqt.saas.common.BranchAccessFilter.AccessClause.empty();
+
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                side(), txnType(),
                 search, search, search, search,
-                dateFrom, dateFrom, dateTo, dateTo);
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT t.id::text AS id, t.txn_no, t.the_date, t.amount, t.currency,
-                       t.reason, t.remark, t.status, t.add_name, t.created_at,
-                       t.audit_status, t.audited_at, t.audit_name,
-                       c.name AS customer_name, p.name AS partner_name
-                FROM acc_finance_txns t
-                LEFT JOIN customers c ON c.id = t.customer_id
-                LEFT JOIN partners  p ON p.id = t.partner_id
-                WHERE t.side = ? AND t.txn_type = ?
-                  AND (?::text IS NULL OR t.txn_no ILIKE ? OR c.name ILIKE ? OR p.name ILIKE ?)
-                  AND (?::date IS NULL OR t.the_date >= ?::date)
-                  AND (?::date IS NULL OR t.the_date < (?::date + 1))
-                ORDER BY t.created_at DESC
-                LIMIT ? OFFSET ?
-                """, side(), txnType(),
+                dateFrom, dateFrom, dateTo, dateTo));
+            countParams.addAll(access.params());
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM acc_finance_txns t"
+                + " LEFT JOIN customers c ON c.id = t.customer_id"
+                + " LEFT JOIN partners  p ON p.id = t.partner_id"
+                + " WHERE t.side = ? AND t.txn_type = ?"
+                + "   AND (?::text IS NULL OR t.txn_no ILIKE ? OR c.name ILIKE ? OR p.name ILIKE ?)"
+                + "   AND (?::date IS NULL OR t.the_date >= ?::date)"
+                + "   AND (?::date IS NULL OR t.the_date < (?::date + 1))"
+                + access.sql(),
+                Long.class, countParams.toArray());
+
+            java.util.List<Object> listParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                side(), txnType(),
                 search, search, search, search,
-                dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+                dateFrom, dateFrom, dateTo, dateTo));
+            listParams.addAll(access.params());
+            listParams.add(limit);
+            listParams.add(offset);
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT t.id::text AS id, t.txn_no, t.the_date, t.amount, t.currency,"
+                + " t.reason, t.remark, t.status, t.add_name, t.created_at,"
+                + " t.audit_status, t.audited_at, t.audit_name,"
+                + " c.name AS customer_name, p.name AS partner_name"
+                + " FROM acc_finance_txns t"
+                + " LEFT JOIN customers c ON c.id = t.customer_id"
+                + " LEFT JOIN partners  p ON p.id = t.partner_id"
+                + " WHERE t.side = ? AND t.txn_type = ?"
+                + "   AND (?::text IS NULL OR t.txn_no ILIKE ? OR c.name ILIKE ? OR p.name ILIKE ?)"
+                + "   AND (?::date IS NULL OR t.the_date >= ?::date)"
+                + "   AND (?::date IS NULL OR t.the_date < (?::date + 1))"
+                + access.sql()
+                + " ORDER BY t.created_at DESC LIMIT ? OFFSET ?",
+                listParams.toArray());
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {

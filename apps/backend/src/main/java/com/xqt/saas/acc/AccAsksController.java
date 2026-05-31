@@ -55,26 +55,32 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM acc_asks a
-                LEFT JOIN shipments s ON s.id = a.shipment_id
-                WHERE (?::text IS NULL OR a.customer_ref ILIKE ? OR s.shipment_no ILIKE ?)
-                  AND (?::date IS NULL OR a.created_at >= ?::date)
-                  AND (?::date IS NULL OR a.created_at < (?::date + 1))
-                """, Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT a.id::text AS id, a.customer_ref, a.content, a.source, a.ask_type, a.status,
-                       a.add_name, a.created_at,
-                       a.audit_status, a.audited_at, a.audit_name,
-                       s.shipment_no
-                FROM acc_asks a
-                LEFT JOIN shipments s ON s.id = a.shipment_id
-                WHERE (?::text IS NULL OR a.customer_ref ILIKE ? OR s.shipment_no ILIKE ?)
-                  AND (?::date IS NULL OR a.created_at >= ?::date)
-                  AND (?::date IS NULL OR a.created_at < (?::date + 1))
-                ORDER BY a.created_at DESC
-                LIMIT ? OFFSET ?
-                """, search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+            var access = branchAccess.forCurrent("s");
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+            countParams.addAll(access.params());
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM acc_asks a"
+                + " LEFT JOIN shipments s ON s.id = a.shipment_id"
+                + " WHERE (?::text IS NULL OR a.customer_ref ILIKE ? OR s.shipment_no ILIKE ?)"
+                + "   AND (?::date IS NULL OR a.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR a.created_at < (?::date + 1))"
+                + access.sql(),
+                Long.class, countParams.toArray());
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT a.id::text AS id, a.customer_ref, a.content, a.source, a.ask_type, a.status,"
+                + "       a.add_name, a.created_at,"
+                + "       a.audit_status, a.audited_at, a.audit_name,"
+                + "       s.shipment_no"
+                + " FROM acc_asks a"
+                + " LEFT JOIN shipments s ON s.id = a.shipment_id"
+                + " WHERE (?::text IS NULL OR a.customer_ref ILIKE ? OR s.shipment_no ILIKE ?)"
+                + "   AND (?::date IS NULL OR a.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR a.created_at < (?::date + 1))"
+                + access.sql()
+                + " ORDER BY a.created_at DESC"
+                + " LIMIT ? OFFSET ?",
+                buildAsksListParams(search, dateFrom, dateTo, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(), total == null ? 0 : total);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
@@ -140,6 +146,17 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM acc_asks WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    private static Object[] buildAsksListParams(String search, String dateFrom, String dateTo,
+                                                  BranchAccessFilter.AccessClause access,
+                                                  int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

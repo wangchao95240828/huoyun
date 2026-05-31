@@ -2,6 +2,7 @@ package com.xqt.saas.acc;
 
 import java.util.Map;
 
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -24,7 +25,8 @@ public class AccSupplierFinesController extends AccFinesBase {
 
     public AccSupplierFinesController(JdbcTemplate jdbc, JsonSupport json,
                                       CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                      MoneySnapshotService moneySnapshotService) {
+                                      MoneySnapshotService moneySnapshotService,
+                                        BranchAccessFilter branchAccess) {
         super(jdbc, json, cascadeChecker, fieldGate, moneySnapshotService);
     }
 

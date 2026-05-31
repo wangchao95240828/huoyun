@@ -2,6 +2,7 @@ package com.xqt.saas.acc;
 
 import java.util.Map;
 
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -22,8 +23,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class AccSupplierRefundsController extends AccFinanceTxnsBase {
     public AccSupplierRefundsController(JdbcTemplate jdbc, JsonSupport json,
                                         CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                        MoneySnapshotService moneySnapshotService) {
-        super(jdbc, json, cascadeChecker, fieldGate, moneySnapshotService);
+                                        MoneySnapshotService moneySnapshotService,
+                                        BranchAccessFilter branchAccess) {
+        super(jdbc, json, cascadeChecker, fieldGate, moneySnapshotService, branchAccess);
     }
     @Override protected String side()    { return "SUPPLIER"; }
     @Override protected String txnType() { return "REFUND"; }

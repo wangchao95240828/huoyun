@@ -56,6 +56,39 @@ public class BranchAccessFilter {
     }
 
     /**
+     * 给只有 customer_id（无 branch_id）的业务表用：通过 customer_id 关联 customers 表做过滤。
+     *   - BRANCH_MANAGER → customer_id IN (SELECT id FROM customers WHERE branch_id = ?)
+     *   - SALESMAN       → customer_id IN (SELECT id FROM customers WHERE salesman_user_id = ?)
+     */
+    public AccessClause forCurrentViaCustomer(String tableAlias) {
+        AuthPrincipal p = current();
+        if (p == null) return AccessClause.empty();
+        List<String> roles = p.roles();
+        if (roles.contains("ADMIN") || roles.contains("FINANCE_MANAGER")
+            || roles.contains("FINANCE")) {
+            return AccessClause.empty();
+        }
+        if (roles.contains("BRANCH_MANAGER")) {
+            if (p.branchId() == null || p.branchId().isBlank()) {
+                return AccessClause.empty();
+            }
+            return new AccessClause(
+                " AND " + tableAlias + ".customer_id IN ("
+                + " SELECT id FROM customers WHERE branch_id = ?::uuid)",
+                List.of(p.branchId())
+            );
+        }
+        if (roles.contains("SALESMAN")) {
+            return new AccessClause(
+                " AND " + tableAlias + ".customer_id IN ("
+                + " SELECT id FROM customers WHERE salesman_user_id = ?::uuid)",
+                List.of(p.userId())
+            );
+        }
+        return AccessClause.empty();
+    }
+
+    /**
      * 给 customers 表本身用（区别于按 customer_id 关联的业务表）。
      */
     public AccessClause forCustomers(String tableAlias) {

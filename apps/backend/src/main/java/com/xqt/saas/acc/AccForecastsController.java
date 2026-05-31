@@ -53,22 +53,28 @@ public AccForecastsController(JdbcTemplate jdbc, JsonSupport json,
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+            var access = branchAccess.forCurrentViaCustomer("f");
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(search, search));
+            countParams.addAll(access.params());
             long total = json.value(jdbc.queryForObject(
-                "SELECT count(*) FROM acc_forecasts WHERE ?::text IS NULL OR forecast_no ILIKE ?",
-                Long.class, search, search)) instanceof Number n ? n.longValue() : 0;
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT f.id::text AS id, f.forecast_no, f.customer_id::text AS customer_id,
-                       f.channel_id::text AS channel_id, f.package_count, f.weight, f.volume,
-                       f.origin, f.destination, f.forecast_date, f.status, f.remark,
-                       c.name AS customer_name, ch.name AS channel_name,
-                       f.audit_status, f.audited_at, f.audit_name, f.created_at
-                FROM acc_forecasts f
-                LEFT JOIN customers c ON c.id = f.customer_id
-                LEFT JOIN channels ch ON ch.id = f.channel_id
-                WHERE ?::text IS NULL OR f.forecast_no ILIKE ?
-                ORDER BY f.forecast_date DESC
-                LIMIT ? OFFSET ?
-                """, search, search, limit, offset);
+                "SELECT count(*) FROM acc_forecasts f"
+                + " WHERE (?::text IS NULL OR f.forecast_no ILIKE ?)"
+                + access.sql(),
+                Long.class, countParams.toArray())) instanceof Number n ? n.longValue() : 0;
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT f.id::text AS id, f.forecast_no, f.customer_id::text AS customer_id,"
+                + "       f.channel_id::text AS channel_id, f.package_count, f.weight, f.volume,"
+                + "       f.origin, f.destination, f.forecast_date, f.status, f.remark,"
+                + "       c.name AS customer_name, ch.name AS channel_name,"
+                + "       f.audit_status, f.audited_at, f.audit_name, f.created_at"
+                + " FROM acc_forecasts f"
+                + " LEFT JOIN customers c ON c.id = f.customer_id"
+                + " LEFT JOIN channels ch ON ch.id = f.channel_id"
+                + " WHERE (?::text IS NULL OR f.forecast_no ILIKE ?)"
+                + access.sql()
+                + " ORDER BY f.forecast_date DESC"
+                + " LIMIT ? OFFSET ?",
+                buildForecastsListParams(search, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(), total);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
@@ -134,6 +140,16 @@ public AccForecastsController(JdbcTemplate jdbc, JsonSupport json,
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM acc_forecasts WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    private static Object[] buildForecastsListParams(String search,
+                                                       BranchAccessFilter.AccessClause access,
+                                                       int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(search, search));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {
