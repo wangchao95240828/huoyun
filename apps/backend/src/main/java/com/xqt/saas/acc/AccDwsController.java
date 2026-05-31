@@ -211,7 +211,8 @@ public class AccDwsController {
                 + " action, weight_kg, length_cm, width_cm, height_cm,"
                 + " volume_weight, chargeable_kg, pic_url, raw_payload, status, info"
                 + ") VALUES ("
-                + " current_setting('app.current_tenant_id')::uuid, ?, ?, ?::uuid, ?::uuid,"
+                + " (SELECT id FROM tenants WHERE code='xqt' LIMIT 1),"
+                + " ?, ?, ?::uuid, ?::uuid,"
                 + " ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?"
                 + ")",
                 itemNo, shipNo, shipId, cartonId,
@@ -219,7 +220,8 @@ public class AccDwsController {
                 volumeWeight, chargeable, picUrl, json.toJson(raw == null ? Map.of() : raw),
                 status, info);
         } catch (DataAccessException ex) {
-            // 流水落库失败不影响主响应
+            // 流水落库失败不影响主响应 - 但记到 stderr 方便排查
+            System.err.println("[AccDwsController] insertScan failed: " + ex.getMessage());
         }
     }
 
