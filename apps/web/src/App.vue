@@ -255,7 +255,6 @@ const sysInfo = ref<any>(null);
 const navItems = [
   { key: "dashboard", label: "驾驶舱", icon: BarChart3 },
   { key: "acc", label: "委托运输 (ACC)", icon: Truck },
-  { key: "xqt", label: "集货入仓 (XQT)", icon: Package },
   { key: "branches", label: "分公司管理", icon: Building2 },
   { key: "system", label: "系统管理", icon: ShieldCheck },
 ];
@@ -581,16 +580,70 @@ const accFinanceTabs = [
   accTabs.find(t => t.key === "profits-lowprofit")!,      // 低利快件
 ];
 
-// ACC 二级菜单：8 大功能组（ERP 式折叠菜单树）。
+// ACC 二级菜单：对齐 ACC PHP 原版的 9 大顶部菜单（系统设置/数据管理合并）
+const T = (k: string) => accTabs.find(t => t.key === k)!;
+
+// 制单中心
+const accGroupOrder = [
+  T("orders"), T("orders-draft"), T("orders-history"), T("orders-cancelled"),
+  T("quick-orders"), T("void-orders"),
+];
+// 配载中心
+const accGroupStowage = [
+  T("shipments"), T("stowages"), T("packages"), T("transits"),
+  T("ports"), T("warehouses"), T("stowage-categories"), T("stowage-steps"),
+  T("forecasts"), T("tracks"),
+];
+// 客服中心（收货 + 异常）
+const accGroupCustomerService = [
+  T("dispatches"),       // 上门揽收（收货前置）
+  T("collects"),         // 总单/留仓（收货主表）
+  T("returns"),          // 退件管理
+  T("detains"),          // 扣件管理
+  T("asks"),             // 问题件
+  T("reparations"),      // 赔偿管理
+  T("received-sms"),     // 收款短信（客服触发）
+];
+// 销售中心
+const accGroupSales = [
+  T("customers"), T("customer-groups"), T("suppliers"),
+  T("channels"), T("channel-accounts"),
+  T("products"), T("product-items"),
+  T("potentials"), T("sold-tos"), T("notices"),
+];
+// 核算中心（业务核算 - SKU 级 AR/AP/利润）
+const accGroupAccounting = [
+  T("charges"), T("costs"), T("bills"),
+  T("profits"),
+  T("commissions"), T("commission-rules"),
+  T("expenses"), T("cycles"),
+  T("fees"), T("fee-types"), T("expense-categories"), T("fee-item-types"),
+];
+// 人事组织（保留，对应 ACC 部分原系统设置/数据管理范畴）
+const accGroupHR = [
+  T("employees"), T("wages"), T("attendances"),
+  T("acc-branches"), T("departments"),
+  T("socials"), T("social-persons"), T("funds"), T("fund-persons"),
+];
+// 数据管理 / 系统设置（master + 接口 + 任务）
+const accGroupSystem = [
+  T("countries"), T("districts"),
+  T("postcodes"), T("remotes"),
+  T("fuels"), T("hscodes"),
+  T("zones"), T("bank-names"),
+  T("logistics-interfaces"), T("tasks"), T("templates"),
+];
+
 const accMenuGroups = [
-  { key: "order", label: "订单管理", icon: FileText, tabs: accTabs.slice(0, 8) },
-  { key: "logistics", label: "物流管理", icon: Truck, tabs: accTabs.slice(8, 19) },
-  { key: "finance", label: "财务管理", icon: DollarSign, tabs: accTabs.slice(19, 47) },
-  { key: "partner", label: "客户/供应商", icon: Users, tabs: accTabs.slice(47, 57) },
-  { key: "hr", label: "人事组织", icon: Building2, tabs: accTabs.slice(57, 67) },
-  { key: "basic", label: "基础数据", icon: Globe, tabs: accTabs.slice(67, 78) },
-  { key: "basic-info", label: "基础信息 (ACC)", icon: Layers, tabs: accBasicTabs },
-  { key: "finance-center", label: "财务中心 (ACC)", icon: DollarSign, tabs: accFinanceTabs },
+  { key: "order",          label: "制单中心",       icon: FileText,    tabs: accGroupOrder },
+  { key: "stowage",        label: "配载中心",       icon: Plane,       tabs: accGroupStowage },
+  { key: "customer-svc",   label: "客服中心 (收货)", icon: HelpCircle,  tabs: accGroupCustomerService },
+  { key: "sales",          label: "销售中心",       icon: Users,       tabs: accGroupSales },
+  { key: "accounting",     label: "核算中心",       icon: BarChart3,   tabs: accGroupAccounting },
+  { key: "finance-center", label: "财务中心",       icon: DollarSign,  tabs: accFinanceTabs },
+  { key: "basic-info",     label: "基础信息",       icon: Layers,      tabs: accBasicTabs },
+  { key: "hr",             label: "人事组织",       icon: Building2,   tabs: accGroupHR },
+  { key: "system",         label: "数据管理",       icon: Globe,       tabs: accGroupSystem },
 ];
 // 当前展开的 ACC 功能组（手风琴，一次展开一个）
 const expandedAccGroup = ref<string>("order");
@@ -2193,7 +2246,7 @@ const dashboardAlerts = computed(() => {
     items.push({ tone: "amber", title: "业务线暂无数据", desc: "卖货/制单流程尚未形成可分析样本。" });
   }
   if (!health.value?.upstreams.acc.connected || !health.value?.upstreams.xqt.connected) {
-    items.push({ tone: "blue", title: "外部系统仅作对照", desc: "ACC 与 XQT 当前不作为运行时依赖，新系统数据以本地库为准。" });
+    items.push({ tone: "blue", title: "单一 ACC 体系", desc: "已合并为单套 ACC，制单/收货/财务统一在新平台运行。" });
   }
   if (!items.length) {
     items.push({ tone: "green", title: "核心链路正常", desc: "认证、数据库、业务聚合接口均可用于驾驶舱刷新。" });
@@ -3670,21 +3723,6 @@ async function doReloadBill(id: number) {
             下一页 <ChevronRight :size="14" />
           </button>
         </div>
-      </template>
-
-      <!-- ════════ XQT ════════ -->
-      <template v-if="currentNav === 'xqt'">
-        <header class="topbar">
-          <div>
-            <p>集货入仓</p>
-            <h1>XQT 系统 — 客户卖货给我们</h1>
-          </div>
-        </header>
-        <section class="placeholder">
-          <Package :size="48" />
-          <p>XQT 运单管理（收货 → 换标 → 出货 → 轨迹跟踪）</p>
-          <p class="sub">通过 REST API 调用 XQT ParcelOS 系统</p>
-        </section>
       </template>
 
       <!-- ════════ Branches ════════ -->
