@@ -42,6 +42,7 @@ public class BearerAuthFilter extends OncePerRequestFilter {
             || "/api/health".equals(path)
             || path.startsWith("/api/customer-api/")
             || path.startsWith("/api/device/scale/")
+            || "/api/acc/dws".equals(path)        // DWS 用自己的 md5 token 校验
             || path.startsWith("/actuator/health")
             || path.startsWith("/v3/api-docs")
             || path.startsWith("/swagger-ui")
