@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.JsonSupport;
+import com.xqt.saas.rates.RateEngine;
+import com.xqt.saas.rates.RateQuoteRequest;
+import com.xqt.saas.rates.RateQuoteResponse.Quote;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -39,10 +42,12 @@ public class AccDwsController {
 
     private final JdbcTemplate jdbc;
     private final JsonSupport json;
+    private final RateEngine rateEngine;
 
-    public AccDwsController(JdbcTemplate jdbc, JsonSupport json) {
+    public AccDwsController(JdbcTemplate jdbc, JsonSupport json, RateEngine rateEngine) {
         this.jdbc = jdbc;
         this.json = json;
+        this.rateEngine = rateEngine;
     }
 
     @PostMapping
@@ -143,6 +148,9 @@ public class AccDwsController {
         syncMeasurementToInboundParcel(parcelId, weight, length, width, height,
             volumeWeight, chargeable, picUrl);
 
+        // 调用费率引擎按表价生成 AR charges（成功 → status='CHARGED'）
+        BigDecimal ratedAmount = ratePriceAndGenerateCharges(parcelId);
+
         // 当前同一运单已扫件数（用 waybill_no 统计）
         String pieces;
         if (waybillNo != null && !waybillNo.isBlank()) {
@@ -158,7 +166,11 @@ public class AccDwsController {
             pieces = "1/1";
         }
 
-        Map<String, Object> resp = ok("收货成功 " + pieces, buildOptions(meta, pieces, chargeable));
+        List<Map<String, Object>> opts = buildOptions(meta, pieces, chargeable);
+        if (ratedAmount != null) {
+            opts.add(opt("应收金额(¥)", ratedAmount));
+        }
+        Map<String, Object> resp = ok("收货成功 " + pieces, opts);
         resp.put("voice_text", "收货成功 " + pieces);
 
         // 全部箱收齐 → 停流水线
@@ -252,6 +264,135 @@ public class AccDwsController {
                 weight, length, width, height, volumeWeight, chargeable, cbm, picUrl, parcelId);
         } catch (DataAccessException ex) {
             System.err.println("[AccDwsController] syncMeasurementToInboundParcel failed: " + ex.getMessage());
+        }
+    }
+
+    /**
+     * 调 RateEngine 按表价生成应收 charges 并把汇总金额回写 inbound_parcels.
+     *
+     * 拆 3 行：FREIGHT (基础运费) / FUEL (燃油附加费) / SURCHARGE (其他附加费)
+     * 全部走 side='AR'，并把 FREIGHT 那行 id 写到 inbound_parcels.charge_id 做主链接。
+     *
+     * 失败时记 stderr，返 null（parcel 留在 SCANNED，留人工处理）。
+     */
+    private BigDecimal ratePriceAndGenerateCharges(String parcelId) {
+        try {
+            // 1) 取 parcel 数据
+            Map<String, Object> p = jdbc.queryForMap(
+                "SELECT p.id::text                      AS id,"
+                + "       p.tenant_id::text             AS tenant_id,"
+                + "       p.customer_id::text           AS customer_id,"
+                + "       p.chargeable_kg, p.cbm,"
+                + "       p.destination_country, p.destination_postal_code,"
+                + "       cn.code                       AS channel_code,"
+                + "       p.channel_id::text            AS channel_id"
+                + " FROM acc_inbound_parcels p"
+                + " LEFT JOIN channels cn ON cn.id = p.channel_id"
+                + " WHERE p.id = ?::uuid", parcelId);
+
+            String channelCode = (String) p.get("channel_code");
+            String country = (String) p.get("destination_country");
+            BigDecimal chargeable = (BigDecimal) p.get("chargeable_kg");
+            if (channelCode == null || country == null || chargeable == null
+                || chargeable.signum() <= 0) {
+                // 缺关键信息无法定价，留在 SCANNED 状态
+                return null;
+            }
+
+            RateQuoteRequest req = new RateQuoteRequest(
+                (String) p.get("customer_id"),
+                null,
+                channelCode,
+                null,
+                null,
+                country,
+                (String) p.get("destination_postal_code"),
+                chargeable,
+                1,
+                (BigDecimal) p.get("cbm"),
+                null,
+                "CNY",
+                null, 0, 0, 0);
+
+            Quote quote = rateEngine.quote((String) p.get("tenant_id"), req);
+            if (quote == null || quote.totalAmount() == null) return null;
+
+            // 2) 解析 charge_item id（FREIGHT / FUEL / 其他）
+            String freightItemId = chargeItemId("FREIGHT");
+            String fuelItemId    = chargeItemId("FUEL");
+            String surchargeItemId = chargeItemId("SENSITIVE_GOODS");   // 通用占位
+
+            String currency = quote.currency() == null ? "CNY" : quote.currency();
+            String mainChargeId = null;
+
+            if (quote.freight() != null && quote.freight().signum() > 0 && freightItemId != null) {
+                mainChargeId = insertCharge(parcelId, freightItemId, currency,
+                    chargeable, quote.freight(), "DWS_RATING_FREIGHT");
+            }
+            if (quote.fuelAmount() != null && quote.fuelAmount().signum() > 0 && fuelItemId != null) {
+                insertCharge(parcelId, fuelItemId, currency,
+                    BigDecimal.ONE, quote.fuelAmount(), "DWS_RATING_FUEL");
+            }
+            if (quote.surchargeAmount() != null && quote.surchargeAmount().signum() > 0 && surchargeItemId != null) {
+                insertCharge(parcelId, surchargeItemId, currency,
+                    BigDecimal.ONE, quote.surchargeAmount(), "DWS_RATING_SURCHARGE");
+            }
+
+            // 3) 回写 parcel：rate_amount + charge_id + status='CHARGED'
+            jdbc.update(
+                "UPDATE acc_inbound_parcels SET"
+                + "  rate_amount = ?,"
+                + "  currency    = ?,"
+                + "  charge_id   = ?::uuid,"
+                + "  status      = 'CHARGED',"
+                + "  updated_at  = now()"
+                + " WHERE id = ?::uuid",
+                quote.totalAmount(), currency, mainChargeId, parcelId);
+
+            return quote.totalAmount();
+        } catch (DataAccessException ex) {
+            System.err.println("[AccDwsController] ratePriceAndGenerateCharges DB failed: " + ex.getMessage());
+        } catch (Exception ex) {
+            System.err.println("[AccDwsController] ratePriceAndGenerateCharges failed: " + ex.getMessage());
+        }
+        return null;
+    }
+
+    private String chargeItemId(String code) {
+        try {
+            return jdbc.queryForObject(
+                "SELECT id::text FROM charge_items WHERE code = ? LIMIT 1",
+                String.class, code);
+        } catch (DataAccessException ex) {
+            return null;
+        }
+    }
+
+    /** 写一条 charges (side=AR) 行，关联 inbound_parcel 信息存到 evidence。 */
+    private String insertCharge(String parcelId, String chargeItemId, String currency,
+                                 BigDecimal quantity, BigDecimal amount, String evidenceTag) {
+        try {
+            BigDecimal unitPrice = amount;
+            if (quantity != null && quantity.signum() > 0) {
+                unitPrice = amount.divide(quantity, 4, RoundingMode.HALF_UP);
+            }
+            return jdbc.queryForObject(
+                "INSERT INTO charges ("
+                + "  tenant_id, charge_item_id, side, status, currency,"
+                + "  quantity, unit_price, amount, rule_snapshot, evidence, source"
+                + ") VALUES ("
+                + "  (SELECT id FROM tenants WHERE code='xqt' LIMIT 1),"
+                + "  ?::uuid, 'AR', 'DRAFT', ?,"
+                + "  ?, ?, ?, '{}'::jsonb,"
+                + "  jsonb_build_object('inbound_parcel_id', ?::text, 'tag', ?::text), 'DWS_AUTO'"
+                + ") RETURNING id::text",
+                String.class,
+                chargeItemId, currency,
+                quantity, unitPrice, amount,
+                parcelId, evidenceTag);
+        } catch (DataAccessException ex) {
+            System.err.println("[AccDwsController] insertCharge failed (" + evidenceTag + "): " + ex.getMessage());
+            return null;
         }
     }
 
