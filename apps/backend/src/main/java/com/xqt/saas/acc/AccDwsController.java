@@ -138,10 +138,14 @@ public class AccDwsController {
         }
 
         // 用计算后的 chargeable 写入流水
+        String cartonId = (String) meta.get("carton_id");
         insertScanWithMeasure(itemNo, shipmentNo,
-            (String) meta.get("shipment_id"), (String) meta.get("carton_id"),
+            (String) meta.get("shipment_id"), cartonId,
             action, weight, length, width, height, volumeWeight, chargeable,
             picUrl, "OK", null, body);
+
+        // 回写 cartons：以 DWS 实测值覆盖制单录入值，触发后续计费重算
+        syncMeasurementToCarton(cartonId, weight, length, width, height, chargeable);
 
         // 当前件数 / 总箱数
         Long currentCount = jdbc.queryForObject(
@@ -196,6 +200,40 @@ public class AccDwsController {
                             String status, String info, Map<String, Object> raw) {
         insertScanWithMeasure(itemNo, shipNo, shipId, cartonId, action,
             weight, length, width, height, null, null, null, status, info, raw);
+    }
+
+    /**
+     * 把 DWS 实测值回写 cartons 表，让后续核算（profits/charges）按实测值走。
+     *   - actual_weight_kg / length_cm / width_cm / height_cm 用 DWS 值覆盖
+     *   - chargeable_weight_kg 用 max(实测重, 体积重)
+     *   - cbm = LxWxH/1_000_000 (cm³ → m³)
+     *   - carrier_evidence.dws_measured = true（标记本箱已 DWS 实测）
+     */
+    private void syncMeasurementToCarton(String cartonId, java.math.BigDecimal weight,
+                                          java.math.BigDecimal length, java.math.BigDecimal width,
+                                          java.math.BigDecimal height, java.math.BigDecimal chargeable) {
+        if (cartonId == null) return;
+        try {
+            java.math.BigDecimal cbm = null;
+            if (length != null && width != null && height != null) {
+                cbm = length.multiply(width).multiply(height)
+                    .divide(new java.math.BigDecimal("1000000"), 4, RoundingMode.HALF_UP);
+            }
+            jdbc.update(
+                "UPDATE cartons SET"
+                + "  actual_weight_kg     = coalesce(?, actual_weight_kg),"
+                + "  length_cm            = coalesce(?, length_cm),"
+                + "  width_cm             = coalesce(?, width_cm),"
+                + "  height_cm            = coalesce(?, height_cm),"
+                + "  chargeable_weight_kg = coalesce(?, chargeable_weight_kg),"
+                + "  cbm                  = coalesce(?, cbm),"
+                + "  carrier_evidence     = coalesce(carrier_evidence, '{}'::jsonb)"
+                + "                          || jsonb_build_object('dws_measured', true, 'dws_scanned_at', now())"
+                + " WHERE id = ?::uuid",
+                weight, length, width, height, chargeable, cbm, cartonId);
+        } catch (DataAccessException ex) {
+            System.err.println("[AccDwsController] syncMeasurementToCarton failed: " + ex.getMessage());
+        }
     }
 
     private void insertScanWithMeasure(String itemNo, String shipNo, String shipId, String cartonId,

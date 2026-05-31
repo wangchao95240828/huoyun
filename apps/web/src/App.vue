@@ -70,6 +70,7 @@ import {
   PanelLeftClose,
   Settings,
   Maximize2,
+  Scale,
 } from "lucide-vue-next";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -509,6 +510,9 @@ const accTabs = [
   { key: "customer-prices", label: "客户价格", icon: WalletCards, api: "customer-prices" },
   { key: "published-prices", label: "公布价格", icon: WalletCards, api: "published-prices" },
   { key: "files", label: "文件管理", icon: FileText, api: "files" },
+  // DWS 实物分拣 (客服中心 收货线)
+  { key: "dws-scans", label: "DWS 扫描流水", icon: Scale, api: "dws-scans" },
+  { key: "dws-discrepancies", label: "重量差异", icon: AlertTriangle, api: "dws-discrepancies" },
   // ACC 财务中心 新增 8 个 tab（往来账户 + 4 个待审 + 3 个利润视图）
   { key: "account-transactions", label: "往来账户", icon: ArrowLeftRight, api: "account-transactions" },
   { key: "receiveds-pending", label: "待审收款", icon: Coins, api: "receiveds", statusFilter: "UNAUDITED" },
@@ -596,13 +600,15 @@ const accGroupStowage = [
 ];
 // 客服中心（收货 + 异常）
 const accGroupCustomerService = [
-  T("dispatches"),       // 上门揽收（收货前置）
-  T("collects"),         // 总单/留仓（收货主表）
-  T("returns"),          // 退件管理
-  T("detains"),          // 扣件管理
-  T("asks"),             // 问题件
-  T("reparations"),      // 赔偿管理
-  T("received-sms"),     // 收款短信（客服触发）
+  T("dispatches"),         // 上门揽收（收货前置）
+  T("collects"),           // 总单/留仓（收货主表）
+  T("dws-scans"),          // DWS 实物分拣流水
+  T("dws-discrepancies"),  // 重量差异（DWS 实测 vs 制单录入）
+  T("returns"),            // 退件管理
+  T("detains"),            // 扣件管理
+  T("asks"),               // 问题件
+  T("reparations"),        // 赔偿管理
+  T("received-sms"),       // 收款短信（客服触发）
 ];
 // 销售中心
 const accGroupSales = [
@@ -1415,6 +1421,32 @@ Object.assign(accColumns, {
     { key: "remark", label: "备注" },
     { key: "createBy", label: "录入人" },
   ],
+  "dws-scans": [
+    { key: "itemNumber", label: "箱号" },
+    { key: "shipmentNumber", label: "运单号" },
+    { key: "action", label: "动作" },
+    { key: "status", label: "状态" },
+    { key: "weightKg", label: "实重(kg)" },
+    { key: "lengthCm", label: "长(cm)" },
+    { key: "widthCm", label: "宽(cm)" },
+    { key: "heightCm", label: "高(cm)" },
+    { key: "volumeWeight", label: "体积重(kg)" },
+    { key: "chargeableKg", label: "计费重(kg)" },
+    { key: "info", label: "提示" },
+    { key: "scannedAt", label: "扫描时间", fmt: "datetime" },
+  ],
+  "dws-discrepancies": [
+    { key: "itemNumber", label: "箱号" },
+    { key: "shipmentNumber", label: "运单号" },
+    { key: "customerName", label: "客户" },
+    { key: "destinationCountry", label: "国家" },
+    { key: "accWeight", label: "制单重(kg)" },
+    { key: "dwsWeight", label: "DWS 实测(kg)" },
+    { key: "diff", label: "差值(kg)" },
+    { key: "accChargeable", label: "制单计费重" },
+    { key: "dwsChargeable", label: "DWS 计费重" },
+    { key: "scannedAt", label: "扫描时间", fmt: "datetime" },
+  ],
 });
 
 const moduleCards = [
@@ -1430,7 +1462,8 @@ const moduleCards = [
 
 const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'customer-prices', 'published-prices',
   'account-transactions', 'profits-unfinished', 'profits-overdue', 'profits-lowprofit',
-  'receiveds-pending', 'customer-refunds-pending', 'payments-pending', 'supplier-refunds-pending']);
+  'receiveds-pending', 'customer-refunds-pending', 'payments-pending', 'supplier-refunds-pending',
+  'dws-scans', 'dws-discrepancies']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
