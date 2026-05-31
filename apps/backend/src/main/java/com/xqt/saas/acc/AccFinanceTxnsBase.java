@@ -55,10 +55,16 @@ abstract class AccFinanceTxnsBase {
 
     protected Map<String, Object> listImpl(Integer page, Integer pageSize, String keyword,
                                            String dateFrom, String dateTo) {
+        return listImpl(page, pageSize, keyword, dateFrom, dateTo, null);
+    }
+
+    protected Map<String, Object> listImpl(Integer page, Integer pageSize, String keyword,
+                                           String dateFrom, String dateTo, String status) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+            String auditStatus = (status == null || status.isBlank()) ? null : status;
             // CUSTOMER 侧按当前用户 branch/sales 过滤；SUPPLIER 侧不过滤
             var access = "CUSTOMER".equals(side())
                 ? branchAccess.forCurrentViaCustomer("t")
@@ -67,7 +73,8 @@ abstract class AccFinanceTxnsBase {
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
                 side(), txnType(),
                 search, search, search, search,
-                dateFrom, dateFrom, dateTo, dateTo));
+                dateFrom, dateFrom, dateTo, dateTo,
+                auditStatus, auditStatus));
             countParams.addAll(access.params());
             Long total = jdbc.queryForObject(
                 "SELECT count(*) FROM acc_finance_txns t"
@@ -77,13 +84,15 @@ abstract class AccFinanceTxnsBase {
                 + "   AND (?::text IS NULL OR t.txn_no ILIKE ? OR c.name ILIKE ? OR p.name ILIKE ?)"
                 + "   AND (?::date IS NULL OR t.the_date >= ?::date)"
                 + "   AND (?::date IS NULL OR t.the_date < (?::date + 1))"
+                + "   AND (?::text IS NULL OR t.audit_status = ?)"
                 + access.sql(),
                 Long.class, countParams.toArray());
 
             java.util.List<Object> listParams = new java.util.ArrayList<>(java.util.Arrays.asList(
                 side(), txnType(),
                 search, search, search, search,
-                dateFrom, dateFrom, dateTo, dateTo));
+                dateFrom, dateFrom, dateTo, dateTo,
+                auditStatus, auditStatus));
             listParams.addAll(access.params());
             listParams.add(limit);
             listParams.add(offset);
@@ -99,6 +108,7 @@ abstract class AccFinanceTxnsBase {
                 + "   AND (?::text IS NULL OR t.txn_no ILIKE ? OR c.name ILIKE ? OR p.name ILIKE ?)"
                 + "   AND (?::date IS NULL OR t.the_date >= ?::date)"
                 + "   AND (?::date IS NULL OR t.the_date < (?::date + 1))"
+                + "   AND (?::text IS NULL OR t.audit_status = ?)"
                 + access.sql()
                 + " ORDER BY t.created_at DESC LIMIT ? OFFSET ?",
                 listParams.toArray());

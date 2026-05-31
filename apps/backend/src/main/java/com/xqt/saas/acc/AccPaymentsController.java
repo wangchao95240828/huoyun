@@ -58,44 +58,48 @@ public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String status
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM partner_payments p
-                WHERE (?::text IS NULL OR p.payment_no ILIKE ?)
-                  AND (?::date IS NULL OR p.created_at >= ?::date)
-                  AND (?::date IS NULL OR p.created_at < (?::date + 1))
-                """, Long.class, search, search, dateFrom, dateFrom, dateTo, dateTo);
+            String auditStatus = (status == null || status.isBlank()) ? null : status;
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM partner_payments p"
+                + " WHERE (?::text IS NULL OR p.payment_no ILIKE ?)"
+                + "   AND (?::date IS NULL OR p.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR p.created_at < (?::date + 1))"
+                + "   AND (?::text IS NULL OR p.audit_status = ?)",
+                Long.class, search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus);
 
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT
-                  p.id::text       AS id,
-                  p.payment_no,
-                  p.currency,
-                  p.amount,
-                  p.payment_type,
-                  p.reference_no,
-                  p.status,
-                  p.paid_at,
-                  p.created_at,
-                  p.audit_status,
-                  p.audited_at,
-                  p.audit_name,
-                  pr.name           AS partner_name,
-                  coalesce(fa.bank_name, fa.account_name) AS bank_name
-                FROM partner_payments p
-                LEFT JOIN partners pr ON pr.id = p.partner_id
-                LEFT JOIN financial_accounts fa ON fa.id = p.financial_account_id
-                WHERE (?::text IS NULL OR p.payment_no ILIKE ?)
-                  AND (?::date IS NULL OR p.created_at >= ?::date)
-                  AND (?::date IS NULL OR p.created_at < (?::date + 1))
-                ORDER BY p.created_at DESC
-                LIMIT ? OFFSET ?
-                """, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT"
+                + "  p.id::text       AS id,"
+                + "  p.payment_no,"
+                + "  p.currency,"
+                + "  p.amount,"
+                + "  p.payment_type,"
+                + "  p.reference_no,"
+                + "  p.status,"
+                + "  p.paid_at,"
+                + "  p.created_at,"
+                + "  p.audit_status,"
+                + "  p.audited_at,"
+                + "  p.audit_name,"
+                + "  pr.name           AS partner_name,"
+                + "  coalesce(fa.bank_name, fa.account_name) AS bank_name"
+                + " FROM partner_payments p"
+                + " LEFT JOIN partners pr ON pr.id = p.partner_id"
+                + " LEFT JOIN financial_accounts fa ON fa.id = p.financial_account_id"
+                + " WHERE (?::text IS NULL OR p.payment_no ILIKE ?)"
+                + "   AND (?::date IS NULL OR p.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR p.created_at < (?::date + 1))"
+                + "   AND (?::text IS NULL OR p.audit_status = ?)"
+                + " ORDER BY p.created_at DESC"
+                + " LIMIT ? OFFSET ?",
+                search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {

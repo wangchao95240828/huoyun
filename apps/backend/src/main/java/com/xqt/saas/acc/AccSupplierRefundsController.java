@@ -36,8 +36,9 @@ public class AccSupplierRefundsController extends AccFinanceTxnsBase {
                                     @RequestParam(required=false) Integer pageSize,
                                     @RequestParam(required=false) String keyword,
                                     @RequestParam(required=false) String dateFrom,
-                                    @RequestParam(required=false) String dateTo) {
-        return listImpl(page, pageSize, keyword, dateFrom, dateTo);
+                                    @RequestParam(required=false) String dateTo,
+                                    @RequestParam(required=false) String status) {
+        return listImpl(page, pageSize, keyword, dateFrom, dateTo, status);
     }
     @GetMapping("/{id}/raw") public Map<String, Object> raw(@PathVariable String id) { return rawImpl(id); }
     @PostMapping public Map<String, Object> create(@RequestBody Map<String, Object> body) { return createImpl(body); }

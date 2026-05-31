@@ -509,6 +509,15 @@ const accTabs = [
   { key: "customer-prices", label: "客户价格", icon: WalletCards, api: "customer-prices" },
   { key: "published-prices", label: "公布价格", icon: WalletCards, api: "published-prices" },
   { key: "files", label: "文件管理", icon: FileText, api: "files" },
+  // ACC 财务中心 新增 8 个 tab（往来账户 + 4 个待审 + 3 个利润视图）
+  { key: "account-transactions", label: "往来账户", icon: ArrowLeftRight, api: "account-transactions" },
+  { key: "receiveds-pending", label: "待审收款", icon: Coins, api: "receiveds", statusFilter: "UNAUDITED" },
+  { key: "customer-refunds-pending", label: "待审退款(应收)", icon: Undo2, api: "customer-refunds", statusFilter: "UNAUDITED" },
+  { key: "payments-pending", label: "待审付款", icon: Landmark, api: "payments", statusFilter: "UNAUDITED" },
+  { key: "supplier-refunds-pending", label: "待审退款(应付)", icon: Undo2, api: "supplier-refunds", statusFilter: "UNAUDITED" },
+  { key: "profits-unfinished", label: "未完结快件", icon: BarChart3, api: "profits", statusFilter: "UNFINISHED" },
+  { key: "profits-overdue", label: "逾期未结", icon: AlertTriangle, api: "profits", statusFilter: "OVERDUE" },
+  { key: "profits-lowprofit", label: "低利快件", icon: BarChart3, api: "profits", statusFilter: "LOWPROFIT" },
 ];
 
 // ACC 基础信息（对应 ACC 顶部"基础信息"菜单的 4 大子组、共 21 项）。
@@ -543,7 +552,35 @@ const accBasicTabs = [
   accTabs.find(t => t.key === "supplier-refunds")!,    // 退款记录
 ];
 
-// ACC 二级菜单：7 大功能组（ERP 式折叠菜单树）。基础信息独立成组。
+// ACC 财务中心（对应 ACC 顶部"财务中心"菜单的 4 大子组、共 20 项）
+const accFinanceTabs = [
+  // 资金账户 (5)
+  accTabs.find(t => t.key === "banks")!,                  // 账户管理
+  accTabs.find(t => t.key === "transfers")!,              // 资金转账
+  accTabs.find(t => t.key === "borrowings")!,             // 资金借贷
+  accTabs.find(t => t.key === "account-transactions")!,   // 往来账户
+  accTabs.find(t => t.key === "currencies")!,             // 币种管理
+  // 应收 (5)
+  accTabs.find(t => t.key === "charges")!,                // 应收款项
+  accTabs.find(t => t.key === "receiveds")!,              // 收款记录
+  accTabs.find(t => t.key === "receiveds-pending")!,      // 待审收款
+  accTabs.find(t => t.key === "customer-refunds")!,       // 退款记录
+  accTabs.find(t => t.key === "customer-refunds-pending")!, // 待审退款
+  // 应付 (5)
+  accTabs.find(t => t.key === "costs")!,                  // 应付款项
+  accTabs.find(t => t.key === "payments")!,               // 付款记录
+  accTabs.find(t => t.key === "payments-pending")!,       // 待审付款
+  accTabs.find(t => t.key === "supplier-refunds")!,       // 退款记录
+  accTabs.find(t => t.key === "supplier-refunds-pending")!, // 待审退款
+  // 利润列表 (5)
+  accTabs.find(t => t.key === "profits")!,                // 利润查询
+  accTabs.find(t => t.key === "profits-unfinished")!,     // 未完结快件
+  accTabs.find(t => t.key === "profits-overdue")!,        // 逾期未结
+  accTabs.find(t => t.key === "profits")!,                // 快件利润（同利润查询）
+  accTabs.find(t => t.key === "profits-lowprofit")!,      // 低利快件
+];
+
+// ACC 二级菜单：8 大功能组（ERP 式折叠菜单树）。
 const accMenuGroups = [
   { key: "order", label: "订单管理", icon: FileText, tabs: accTabs.slice(0, 8) },
   { key: "logistics", label: "物流管理", icon: Truck, tabs: accTabs.slice(8, 19) },
@@ -552,6 +589,7 @@ const accMenuGroups = [
   { key: "hr", label: "人事组织", icon: Building2, tabs: accTabs.slice(57, 67) },
   { key: "basic", label: "基础数据", icon: Globe, tabs: accTabs.slice(67, 78) },
   { key: "basic-info", label: "基础信息 (ACC)", icon: Layers, tabs: accBasicTabs },
+  { key: "finance-center", label: "财务中心 (ACC)", icon: DollarSign, tabs: accFinanceTabs },
 ];
 // 当前展开的 ACC 功能组（手风琴，一次展开一个）
 const expandedAccGroup = ref<string>("order");
@@ -573,6 +611,17 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
         || key === 'orders-cancelled') {
       return target['orders'];
     }
+    // 财务中心 sub-tab 复用父 tab 的列定义
+    const subTabMap: Record<string, string> = {
+      'receiveds-pending': 'receiveds',
+      'customer-refunds-pending': 'customer-refunds',
+      'payments-pending': 'payments',
+      'supplier-refunds-pending': 'supplier-refunds',
+      'profits-unfinished': 'profits',
+      'profits-overdue': 'profits',
+      'profits-lowprofit': 'profits',
+    };
+    if (subTabMap[key]) return target[subTabMap[key]];
     return target[key];
   },
   set(target, key: string, value: any) { target[key] = value; return true; },
@@ -581,6 +630,16 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
         || key === 'orders-cancelled') {
       return 'orders' in target;
     }
+    const subTabMap: Record<string, string> = {
+      'receiveds-pending': 'receiveds',
+      'customer-refunds-pending': 'customer-refunds',
+      'payments-pending': 'payments',
+      'supplier-refunds-pending': 'supplier-refunds',
+      'profits-unfinished': 'profits',
+      'profits-overdue': 'profits',
+      'profits-lowprofit': 'profits',
+    };
+    if (subTabMap[key]) return subTabMap[key] in target;
     return key in target;
   }
 });
@@ -1289,6 +1348,19 @@ Object.assign(accColumns, {
     { key: "createdAt", label: "上传时间", fmt: "datetime" },
     { key: "remark", label: "备注" },
   ],
+  "account-transactions": [
+    { key: "transactionNo", label: "流水号" },
+    { key: "accountId", label: "账户" },
+    { key: "customerId", label: "客户" },
+    { key: "transactionType", label: "类型" },
+    { key: "currency", label: "币种" },
+    { key: "amount", label: "金额", fmt: "money" },
+    { key: "fee", label: "手续费", fmt: "money" },
+    { key: "creditAmount", label: "信用额度", fmt: "money" },
+    { key: "paymentTime", label: "支付时间", fmt: "datetime" },
+    { key: "remark", label: "备注" },
+    { key: "createBy", label: "录入人" },
+  ],
 });
 
 const moduleCards = [
@@ -1302,7 +1374,9 @@ const moduleCards = [
 
 // ═══════════════ Form Schemas ═══════════════
 
-const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'customer-prices', 'published-prices']);
+const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'customer-prices', 'published-prices',
+  'account-transactions', 'profits-unfinished', 'profits-overdue', 'profits-lowprofit',
+  'receiveds-pending', 'customer-refunds-pending', 'payments-pending', 'supplier-refunds-pending']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
@@ -2277,8 +2351,11 @@ async function fetchAccData() {
   if (accKeyword.value) params.set("keyword", accKeyword.value);
   if (accDateFrom.value && !noDateTabs.has(accTab.value)) params.set("dateFrom", accDateFrom.value);
   if (accDateTo.value && !noDateTabs.has(accTab.value)) params.set("dateTo", accDateTo.value);
-  // ACC 订单状态分类 sub-tab → status 参数
-  if ((tab as any).statusFilter) params.set("status", (tab as any).statusFilter);
+  // 状态 sub-tab → status 参数；profits-* sub-tab → mode 参数（后端不同）
+  if ((tab as any).statusFilter) {
+    const paramName = (tab.api === "profits") ? "mode" : "status";
+    params.set(paramName, (tab as any).statusFilter);
+  }
 
   try {
     const res = await apiFetch(`${API}/api/acc/${tab.api}?${params}`);

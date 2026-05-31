@@ -42,12 +42,27 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String mode
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+
+            // mode 决定额外过滤条件：
+            //   UNFINISHED → status != COMPLETED
+            //   OVERDUE    → status != COMPLETED AND created_at < (now - 30 days)
+            //   LOWPROFIT  → AR - AP < 50 (低利阈值，可后续做成配置)
+            String modeFilter = "";
+            if ("UNFINISHED".equalsIgnoreCase(mode)) {
+                modeFilter = " AND s.status <> 'COMPLETED'";
+            } else if ("OVERDUE".equalsIgnoreCase(mode)) {
+                modeFilter = " AND s.status <> 'COMPLETED' AND s.created_at < (now() - interval '30 days')";
+            } else if ("LOWPROFIT".equalsIgnoreCase(mode)) {
+                modeFilter = " AND (coalesce((SELECT sum(ch.amount) FROM charges ch WHERE ch.shipment_id = s.id AND ch.side='AR' AND ch.settlement_status <> 'VOID'), 0)"
+                           + " - coalesce((SELECT sum(ch.amount) FROM charges ch WHERE ch.shipment_id = s.id AND ch.side='AP' AND ch.settlement_status <> 'VOID'), 0)) < 50";
+            }
 
             // 每个 shipment 一行：AR/AP sum + 客户/渠道/国家。计费重/渠道重都来自 cartons。
             var access = branchAccess.forCurrent("s");
@@ -60,6 +75,7 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
                 + "   AND (?::date IS NULL OR s.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR s.created_at < (?::date + 1))"
                 + "   AND EXISTS (SELECT 1 FROM charges ch WHERE ch.shipment_id = s.id)"
+                + modeFilter
                 + access.sql(),
                 Long.class, countParams.toArray());
 
@@ -102,6 +118,7 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
                 + " AND (?::date IS NULL OR s.created_at >= ?::date)"
                 + " AND (?::date IS NULL OR s.created_at < (?::date + 1))"
                 + " AND EXISTS (SELECT 1 FROM charges ch WHERE ch.shipment_id = s.id)"
+                + modeFilter
                 + access.sql()
                 + " ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
                 buildProfitsListParams(search, dateFrom, dateTo, access, limit, offset));
