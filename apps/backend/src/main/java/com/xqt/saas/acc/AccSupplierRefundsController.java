@@ -44,4 +44,14 @@ public class AccSupplierRefundsController extends AccFinanceTxnsBase {
     @PostMapping public Map<String, Object> create(@RequestBody Map<String, Object> body) { return createImpl(body); }
     @PutMapping("/{id}") public Map<String, Object> update(@PathVariable String id, @RequestBody Map<String, Object> body) { return updateImpl(id, body); }
     @DeleteMapping("/{id}") public Map<String, Object> delete(@PathVariable String id) { return deleteImpl(id); }
+
+    /** 批量汇款：body = { ids:[...], financialAccountId, remitName } */
+    @PostMapping("/batch-remit")
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> batchRemit(@RequestBody Map<String, Object> body) {
+        java.util.List<String> ids = (java.util.List<String>) body.getOrDefault("ids", java.util.List.of());
+        String acct = (String) body.get("financialAccountId");
+        String remitName = (String) body.getOrDefault("remitName", "");
+        return batchRemitImpl(ids, acct, remitName);
+    }
 }

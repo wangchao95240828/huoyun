@@ -196,6 +196,7 @@ const openedTabs = ref<string[]>(["dashboard"]);
 const accTab = ref("orders");
 const accData = ref<any[]>([]);
 const accTotal = ref(0);
+const accAggregations = ref<Record<string, any> | null>(null);
 const accPage = ref(1);
 const accPageSize = ref(50);
 const accLoading = ref(false);
@@ -2072,6 +2073,19 @@ function fmtCell(value: any, format?: string): string {
   return String(value);
 }
 
+// 按币种符号格式化金额（CNY=¥ USD=$ EUR=€ GBP=£ JPY=¥ HKD=HK$ AUD=A$ CAD=C$ 其它=原符号）
+function fmtMoney(value: any, currency?: string): string {
+  if (value === null || value === undefined) return "-";
+  const n = Number(value);
+  const cur = (currency ?? "CNY").trim().toUpperCase();
+  const symbols: Record<string, string> = {
+    CNY: "¥", USD: "$", EUR: "€", GBP: "£", JPY: "¥",
+    HKD: "HK$", AUD: "A$", CAD: "C$", SGD: "S$",
+  };
+  const sym = symbols[cur] ?? (cur + " ");
+  return sym + fmt(n);
+}
+
 const dashboardFlows = computed<DashboardFlowData[]>(() => {
   const flows = dashboard.value?.flows ?? [];
   if (flows.length) return flows;
@@ -2363,13 +2377,16 @@ async function fetchAccData() {
     if (Array.isArray(json)) {
       accData.value = json;
       accTotal.value = json.length;
+      accAggregations.value = null;
     } else {
       accData.value = json.data ?? [];
       accTotal.value = json.total ?? accData.value.length;
+      accAggregations.value = json.aggregations ?? null;
     }
   } catch (e: any) {
     accData.value = [];
     accTotal.value = 0;
+    accAggregations.value = null;
   } finally {
     accLoading.value = false;
   }
@@ -2674,10 +2691,86 @@ const importTabs = new Set(['orders', 'charges', 'costs']);
 const exportTabs = new Set([
   'orders', 'shipments', 'charges', 'costs', 'bills', 'payments', 'receiveds',
   'profits', 'commissions', 'expenses', 'customers', 'suppliers',
+  'customer-refunds', 'supplier-refunds', 'customer-rebates', 'supplier-rebates',
+  'customer-adjusts', 'supplier-adjusts', 'customer-fines', 'supplier-fines',
+  'transfers', 'borrowings', 'account-transactions',
+  'orders-draft', 'orders-history', 'orders-cancelled',
+  'receiveds-pending', 'customer-refunds-pending', 'payments-pending', 'supplier-refunds-pending',
+  'profits-unfinished', 'profits-overdue', 'profits-lowprofit',
 ]);
 
 const canAudit = computed(() => bizAuditTabs.has(accTab.value));
 const canBatchAudit = computed(() => batchAuditTabs.has(accTab.value));
+
+// 批量汇款：仅退款类（acc_finance_txns）支持
+const batchRemitTabs = new Set([
+  'customer-refunds', 'customer-refunds-pending',
+  'supplier-refunds', 'supplier-refunds-pending',
+]);
+const canBatchRemit = computed(() => batchRemitTabs.has(accTab.value));
+
+// 行复选框：批量审核 OR 批量汇款 都需要
+const canSelect = computed(() => canBatchAudit.value || canBatchRemit.value);
+
+// 批量汇款 dialog state
+const showBatchRemitDialog = ref(false);
+const batchRemitAccountId = ref("");
+const batchRemitName = ref("");
+const remitBanks = ref<any[]>([]);
+
+async function openBatchRemitDialog() {
+  if (selectedIds.value.size === 0) {
+    bizMessage.value = '请先勾选要汇款的退款记录';
+    return;
+  }
+  // 拉资金账户列表（财务账户 owner=COMPANY）
+  try {
+    const res = await apiFetch(`${API}/api/acc/banks?pageSize=200`);
+    const j = await res.json();
+    remitBanks.value = Array.isArray(j) ? j : (j.data ?? []);
+  } catch { remitBanks.value = []; }
+  batchRemitAccountId.value = remitBanks.value[0]?.id ?? '';
+  batchRemitName.value = authUser.value?.displayName ?? '';
+  showBatchRemitDialog.value = true;
+}
+
+async function doBatchRemit() {
+  if (!batchRemitAccountId.value) {
+    bizMessage.value = '请选择资金账户';
+    return;
+  }
+  const tab = accTabs.find(t => t.key === accTab.value);
+  if (!tab) return;
+  // 退款 sub-tab 走父端点
+  const apiPath = tab.api.replace(/-pending$/, '');
+  bizLoading.value = true;
+  try {
+    const ids = Array.from(selectedIds.value);
+    const res = await apiFetch(`${API}/api/acc/${apiPath}/batch-remit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids,
+        financialAccountId: batchRemitAccountId.value,
+        remitName: batchRemitName.value,
+      }),
+    });
+    const json = await res.json();
+    if (res.ok) {
+      bizMessage.value = `批量汇款完成：${json.remitted ?? 0} 条成功，${json.skipped ?? 0} 条跳过（未审核或已汇款的会跳过）`;
+      selectedIds.value.clear();
+      showBatchRemitDialog.value = false;
+      await fetchAccData();
+    } else {
+      bizMessage.value = '批量汇款失败: ' + (json.error ?? `HTTP ${res.status}`);
+    }
+  } catch (e: any) {
+    bizMessage.value = '批量汇款失败: ' + e.message;
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 6000);
+  }
+}
 const canImport = computed(() => importTabs.has(accTab.value));
 const canExport = computed(() => exportTabs.has(accTab.value));
 
@@ -2925,11 +3018,19 @@ async function doExport() {
   bizLoading.value = true;
   try {
     const params = new URLSearchParams();
+    // 用 list 端点 + 大 pageSize 拿全量数据（后端 AccPaging.MAX_PAGE_SIZE=10000）
+    params.set('page', '1');
+    params.set('pageSize', '10000');
     if (accKeyword.value) params.set('keyword', accKeyword.value);
     if (accDateFrom.value) params.set('dateFrom', accDateFrom.value);
     if (accDateTo.value) params.set('dateTo', accDateTo.value);
-    const res = await apiFetch(`${API}/api/acc/export/${tab.api}?${params}`);
-    const json = await res.json();
+    if ((tab as any).statusFilter) {
+      const paramName = (tab.api === 'profits') ? 'mode' : 'status';
+      params.set(paramName, (tab as any).statusFilter);
+    }
+    const res = await apiFetch(`${API}/api/acc/${tab.api}?${params}`);
+    const raw = await res.json();
+    const json = Array.isArray(raw) ? raw : (raw.data ?? []);
     if (Array.isArray(json) && json.length > 0) {
       const headers = Object.keys(json[0]);
       const csv = [headers.join(','), ...json.map((row: any) =>
@@ -3430,6 +3531,10 @@ async function doReloadBill(id: number) {
           <button class="secondary sm" v-if="canBatchAudit" @click="doBatchAudit" :disabled="bizLoading || selectedIds.size === 0">
             <CheckCircle :size="13" /> 批量审核({{ selectedIds.size }})
           </button>
+          <button class="secondary sm" v-if="canBatchRemit" @click="openBatchRemitDialog"
+                  :disabled="bizLoading || selectedIds.size === 0" style="color:#0ea5e9">
+            <Landmark :size="13" /> 批量汇款({{ selectedIds.size }})
+          </button>
           <button class="secondary sm" v-if="canExport" @click="doExport" :disabled="bizLoading">
             <Download :size="13" /> 导出
           </button>
@@ -3454,7 +3559,7 @@ async function doReloadBill(id: number) {
           <table class="data-table" v-if="accColumns[accTab]">
             <thead>
               <tr>
-                <th v-if="canBatchAudit" class="check-col">
+                <th v-if="canSelect" class="check-col">
                   <input type="checkbox" @change="toggleSelectAll()" :checked="selectedIds.size > 0 && selectedIds.size === accData.length" />
                 </th>
                 <th v-for="col in accColumns[accTab]" :key="col.key">{{ col.label }}</th>
@@ -3464,21 +3569,26 @@ async function doReloadBill(id: number) {
             </thead>
             <tbody>
               <tr v-if="accLoading">
-                <td :colspan="accColumns[accTab].length + 2 + (canBatchAudit ? 1 : 0)" class="loading-cell">
+                <td :colspan="accColumns[accTab].length + 2 + (canSelect ? 1 : 0)" class="loading-cell">
                   <RefreshCw :size="16" class="spinning" /> 加载中...
                 </td>
               </tr>
               <tr v-else-if="accData.length === 0">
-                <td :colspan="accColumns[accTab].length + 2 + (canBatchAudit ? 1 : 0)" class="empty-cell">暂无数据</td>
+                <td :colspan="accColumns[accTab].length + 2 + (canSelect ? 1 : 0)" class="empty-cell">暂无数据</td>
               </tr>
               <tr v-for="row in accData" :key="row.id ?? row.code ?? row.no"
                   :class="{ 'audited-row': row.auditStatus === 'AUDITED' }" v-else>
-                <td v-if="canBatchAudit" class="check-col">
+                <td v-if="canSelect" class="check-col">
                   <input type="checkbox" :checked="selectedIds.has(row.id)" @change="toggleSelect(row.id)" />
                 </td>
                 <td v-for="col in accColumns[accTab]" :key="col.key"
-                    :class="{ 'money-cell': col.fmt === 'money' }">
-                  {{ fmtCell(row[col.key], col.fmt) }}
+                    :class="{ 'money-cell': col.fmt === 'money' || col.key === 'amount' }">
+                  <!-- amount 列：如有汇率快照，渲染 ¥X -> €Y 双币种 -->
+                  <template v-if="col.key === 'amount' && row.targetCurrency && row.targetAmount != null">
+                    {{ fmtMoney(row.amount, row.currency) }}
+                    <span class="dual-currency"> → {{ fmtMoney(row.targetAmount, row.targetCurrency) }}</span>
+                  </template>
+                  <template v-else>{{ fmtCell(row[col.key], col.fmt) }}</template>
                 </td>
                 <td class="audit-status-cell">
                   <span v-if="row.auditStatus === 'AUDITED'" class="audit-badge audited" :title="`审核人: ${row.auditName ?? ''}\n审核时间: ${row.auditedAt ?? ''}`">已审核</span>
@@ -3534,6 +3644,19 @@ async function doReloadBill(id: number) {
                 </td>
               </tr>
             </tbody>
+            <!-- 合计行：后端返 aggregations 时才显示 -->
+            <tfoot v-if="accAggregations && Object.keys(accAggregations).length > 0">
+              <tr class="sum-row">
+                <td v-if="canSelect"></td>
+                <td v-for="(col, idx) in accColumns[accTab]" :key="col.key">
+                  <strong v-if="idx === 0">合计</strong>
+                  <strong v-else-if="accAggregations[col.key] != null" class="money-cell">
+                    {{ fmtMoney(accAggregations[col.key], 'CNY') }}
+                  </strong>
+                </td>
+                <td></td><td></td>
+              </tr>
+            </tfoot>
           </table>
         </div>
 
@@ -4244,6 +4367,40 @@ async function doReloadBill(id: number) {
         </div>
         <div class="modal-footer">
           <button class="secondary" @click="showAuditHistory = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量汇款对话框 -->
+    <div class="modal-backdrop" v-if="showBatchRemitDialog" @click.self="showBatchRemitDialog = false">
+      <div class="modal-dialog" style="max-width:480px">
+        <div class="modal-header">
+          <h3>批量汇款（{{ selectedIds.size }} 条）</h3>
+          <button class="modal-close" @click="showBatchRemitDialog = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row" style="margin-bottom:12px">
+            <label style="display:block;font-size:13px;margin-bottom:4px">汇出资金账户 *</label>
+            <select v-model="batchRemitAccountId" style="width:100%;padding:6px">
+              <option value="">请选择...</option>
+              <option v-for="b in remitBanks" :key="b.id" :value="b.id">
+                {{ b.name ?? b.accountName ?? b.bank_name }} - {{ b.accountNo ?? b.account_no ?? '' }}
+              </option>
+            </select>
+          </div>
+          <div class="form-row" style="margin-bottom:12px">
+            <label style="display:block;font-size:13px;margin-bottom:4px">汇款经手人</label>
+            <input v-model="batchRemitName" type="text" style="width:100%;padding:6px" />
+          </div>
+          <p style="color:#666;font-size:12px;line-height:1.5;margin:0">
+            仅已审核且未汇款的记录会被处理；未审核或已 PAID 的会跳过。
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showBatchRemitDialog = false">取消</button>
+          <button class="primary" @click="doBatchRemit" :disabled="bizLoading || !batchRemitAccountId">
+            <Landmark :size="13" /> 确认汇款
+          </button>
         </div>
       </div>
     </div>

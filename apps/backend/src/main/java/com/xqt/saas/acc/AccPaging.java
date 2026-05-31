@@ -36,4 +36,19 @@ public final class AccPaging {
         body.put("total", total);
         return body;
     }
+
+    /**
+     * 与 result() 相同，但附带按当前过滤条件计算出的列聚合（合计）。
+     * agg 推荐 shape: {"amount": "190145.33", "fee": "0.00"}（前端 footer 行渲染）。
+     */
+    public static Map<String, Object> result(List<? extends Map<String, ?>> data, long total,
+                                             Map<String, Object> agg) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("data", data);
+        body.put("total", total);
+        if (agg != null && !agg.isEmpty()) {
+            body.put("aggregations", agg);
+        }
+        return body;
+    }
 }

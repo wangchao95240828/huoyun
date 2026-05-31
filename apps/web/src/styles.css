@@ -1420,6 +1420,19 @@ input, select, textarea { font: inherit; }
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+.dual-currency {
+  color: #b91c1c;
+  font-weight: 500;
+  margin-left: 4px;
+}
+.sum-row td {
+  background: #f1f5f9;
+  font-weight: 600;
+  border-top: 2px solid #94a3b8;
+}
+.sum-row .money-cell {
+  color: #b91c1c;
+}
 .loading-cell,
 .empty-cell {
   text-align: center;

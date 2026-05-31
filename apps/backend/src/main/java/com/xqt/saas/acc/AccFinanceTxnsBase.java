@@ -100,10 +100,19 @@ abstract class AccFinanceTxnsBase {
                 "SELECT t.id::text AS id, t.txn_no, t.the_date, t.amount, t.currency,"
                 + " t.reason, t.remark, t.status, t.add_name, t.created_at,"
                 + " t.audit_status, t.audited_at, t.audit_name,"
-                + " c.name AS customer_name, p.name AS partner_name"
+                + " c.name AS customer_name, p.name AS partner_name,"
+                // 双币种快照（如有）: 用 entity_type/entity_id 关联
+                + " ers.target_currency AS target_currency, ers.target_amount AS target_amount,"
+                // 汇款信息（批量汇款后写入）
+                + " t.financial_account_id::text AS financial_account_id,"
+                + " fa.account_name AS financial_account_name,"
+                + " t.remitted_at, t.remit_name"
                 + " FROM acc_finance_txns t"
                 + " LEFT JOIN customers c ON c.id = t.customer_id"
                 + " LEFT JOIN partners  p ON p.id = t.partner_id"
+                + " LEFT JOIN exchange_rate_snapshots ers"
+                + "        ON ers.entity_type = 'acc_finance_txns' AND ers.entity_id = t.id::text"
+                + " LEFT JOIN financial_accounts fa ON fa.id = t.financial_account_id"
                 + " WHERE t.side = ? AND t.txn_type = ?"
                 + "   AND (?::text IS NULL OR t.txn_no ILIKE ? OR c.name ILIKE ? OR p.name ILIKE ?)"
                 + "   AND (?::date IS NULL OR t.the_date >= ?::date)"
@@ -112,11 +121,62 @@ abstract class AccFinanceTxnsBase {
                 + access.sql()
                 + " ORDER BY t.created_at DESC LIMIT ? OFFSET ?",
                 listParams.toArray());
+
+            // 合计行: 按当前过滤条件计算 SUM(amount)（不分页）
+            java.util.List<Object> sumParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                side(), txnType(),
+                search, search, search, search,
+                dateFrom, dateFrom, dateTo, dateTo,
+                auditStatus, auditStatus));
+            sumParams.addAll(access.params());
+            java.math.BigDecimal sumAmount = jdbc.queryForObject(
+                "SELECT coalesce(sum(t.amount), 0) FROM acc_finance_txns t"
+                + " LEFT JOIN customers c ON c.id = t.customer_id"
+                + " LEFT JOIN partners  p ON p.id = t.partner_id"
+                + " WHERE t.side = ? AND t.txn_type = ?"
+                + "   AND (?::text IS NULL OR t.txn_no ILIKE ? OR c.name ILIKE ? OR p.name ILIKE ?)"
+                + "   AND (?::date IS NULL OR t.the_date >= ?::date)"
+                + "   AND (?::date IS NULL OR t.the_date < (?::date + 1))"
+                + "   AND (?::text IS NULL OR t.audit_status = ?)"
+                + access.sql(),
+                java.math.BigDecimal.class, sumParams.toArray());
+
+            Map<String, Object> agg = new java.util.LinkedHashMap<>();
+            agg.put("amount", sumAmount == null ? java.math.BigDecimal.ZERO : sumAmount);
             return AccPaging.result(rows.stream().map(this::project).toList(),
-                total == null ? 0 : total);
+                total == null ? 0 : total, agg);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
         }
+    }
+
+    /**
+     * 批量汇款：把一批退款/调账/返利记录标记为已汇出。
+     *  - status DRAFT/PENDING/APPROVED → PAID
+     *  - 写入 financial_account_id（资金账户）、remitted_at（汇出时间）、remit_name（经手人）
+     *  - 仅 AUDITED 状态（已审核）才允许汇款；未审/已汇款的会跳过
+     */
+    protected Map<String, Object> batchRemitImpl(java.util.List<String> ids,
+                                                  String financialAccountId,
+                                                  String remitName) {
+        if (ids == null || ids.isEmpty()) {
+            return Map.of("remitted", 0, "skipped", 0);
+        }
+        int remitted = 0, skipped = 0;
+        for (String id : ids) {
+            int updated = jdbc.update(
+                "UPDATE acc_finance_txns SET"
+                + "  status = 'PAID',"
+                + "  financial_account_id = ?::uuid,"
+                + "  remitted_at = now(),"
+                + "  remit_name = ?"
+                + " WHERE id = ?::uuid AND side = ? AND txn_type = ?"
+                + "   AND audit_status = 'AUDITED'"
+                + "   AND status <> 'PAID'",
+                financialAccountId, remitName, id, side(), txnType());
+            if (updated > 0) remitted++; else skipped++;
+        }
+        return Map.of("remitted", remitted, "skipped", skipped);
     }
 
     protected Map<String, Object> rawImpl(String id) {
@@ -202,6 +262,14 @@ abstract class AccFinanceTxnsBase {
         out.put("supplierName", row.get("partner_name"));
         out.put("amount", row.get("amount"));
         out.put("currency", row.get("currency"));
+        // 双币种快照：用于前端 "¥X -> €Y" 显示
+        out.put("targetCurrency", row.get("target_currency"));
+        out.put("targetAmount", row.get("target_amount"));
+        // 汇款信息（批量汇款后回填）
+        out.put("financialAccountId", row.get("financial_account_id"));
+        out.put("financialAccountName", row.get("financial_account_name"));
+        out.put("remittedAt", json.value(row.get("remitted_at")));
+        out.put("remitName", row.get("remit_name"));
         out.put("reason", row.get("reason"));
         out.put("remark", row.get("remark"));
         out.put("status", row.get("status"));
