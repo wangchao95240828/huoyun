@@ -511,6 +511,7 @@ const accTabs = [
   { key: "published-prices", label: "公布价格", icon: WalletCards, api: "published-prices" },
   { key: "files", label: "文件管理", icon: FileText, api: "files" },
   // DWS 实物分拣 (客服中心 收货线)
+  { key: "inbound-parcels", label: "入仓预报", icon: PackageOpen, api: "inbound-parcels" },
   { key: "dws-scans", label: "DWS 扫描流水", icon: Scale, api: "dws-scans" },
   { key: "dws-discrepancies", label: "重量差异", icon: AlertTriangle, api: "dws-discrepancies" },
   // ACC 财务中心 新增 8 个 tab（往来账户 + 4 个待审 + 3 个利润视图）
@@ -601,9 +602,10 @@ const accGroupStowage = [
 // 客服中心（收货 + 异常）
 const accGroupCustomerService = [
   T("dispatches"),         // 上门揽收（收货前置）
-  T("collects"),           // 总单/留仓（收货主表）
+  T("inbound-parcels"),    // 入仓预报（收货主表，DWS 扫描的对象）
   T("dws-scans"),          // DWS 实物分拣流水
-  T("dws-discrepancies"),  // 重量差异（DWS 实测 vs 制单录入）
+  T("dws-discrepancies"),  // 重量差异（DWS 实测 vs 客户预报）
+  T("collects"),           // 总单/留仓
   T("returns"),            // 退件管理
   T("detains"),            // 扣件管理
   T("asks"),               // 问题件
@@ -1440,12 +1442,27 @@ Object.assign(accColumns, {
     { key: "shipmentNumber", label: "运单号" },
     { key: "customerName", label: "客户" },
     { key: "destinationCountry", label: "国家" },
-    { key: "accWeight", label: "制单重(kg)" },
+    { key: "zone", label: "分区" },
+    { key: "expectedWeight", label: "预报重(kg)" },
     { key: "dwsWeight", label: "DWS 实测(kg)" },
     { key: "diff", label: "差值(kg)" },
-    { key: "accChargeable", label: "制单计费重" },
-    { key: "dwsChargeable", label: "DWS 计费重" },
+    { key: "dwsChargeable", label: "计费重(kg)" },
     { key: "scannedAt", label: "扫描时间", fmt: "datetime" },
+  ],
+  "inbound-parcels": [
+    { key: "parcelNo", label: "箱号" },
+    { key: "waybillNo", label: "运单号" },
+    { key: "trackingNo", label: "客户单号" },
+    { key: "customerName", label: "客户" },
+    { key: "channelName", label: "渠道" },
+    { key: "expectedWeight", label: "预报重(kg)" },
+    { key: "actualWeight", label: "实测重(kg)" },
+    { key: "chargeableKg", label: "计费重(kg)" },
+    { key: "destinationCountry", label: "国家" },
+    { key: "zone", label: "分区" },
+    { key: "rateAmount", label: "应收(¥)", fmt: "money" },
+    { key: "status", label: "状态" },
+    { key: "receivedAt", label: "收货时间", fmt: "datetime" },
   ],
 });
 
@@ -2077,6 +2094,17 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'uploaderName', label: '上传人', type: 'text' },
     { col: 'status', label: '状态', type: 'text' },
     { col: 'remark', label: '备注', type: 'textarea' },
+  ],
+  'inbound-parcels': [
+    { col: 'parcelNo', label: '箱号', type: 'text', required: true },
+    { col: 'waybillNo', label: '运单号', type: 'text' },
+    { col: 'trackingNo', label: '客户单号', type: 'text' },
+    { col: 'customerId', label: '客户', type: 'select', ref: 'customers' },
+    { col: 'channelId', label: '渠道', type: 'select', ref: 'channels' },
+    { col: 'expectedWeight', label: '预报重量(kg)', type: 'number' },
+    { col: 'destinationCountry', label: '目的国(2字)', type: 'text' },
+    { col: 'destinationPostalCode', label: '邮编', type: 'text' },
+    { col: 'zone', label: '分区', type: 'text' },
   ],
 };
 

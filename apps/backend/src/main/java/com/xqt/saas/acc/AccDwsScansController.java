@@ -101,34 +101,34 @@ public class AccDwsScansController {
             try { thr = new java.math.BigDecimal(threshold); }
             catch (Exception e) { thr = new java.math.BigDecimal("0.5"); }
 
+            // 收货线差异：DWS 实测 vs 客户预报（expected_weight）
             Long total = jdbc.queryForObject(
-                "SELECT count(DISTINCT d.carton_id) FROM acc_dws_scans d"
-                + " JOIN cartons c ON c.id = d.carton_id"
-                + " WHERE d.status = 'OK' AND d.action IN ('pickup','update')"
-                + "   AND abs(d.weight_kg - c.actual_weight_kg) >= ?"
-                + "   AND (?::text IS NULL OR d.item_number ILIKE ? OR d.shipment_number ILIKE ?)",
+                "SELECT count(*) FROM acc_inbound_parcels p"
+                + " WHERE p.expected_weight IS NOT NULL"
+                + "   AND p.actual_weight IS NOT NULL"
+                + "   AND abs(p.actual_weight - p.expected_weight) >= ?"
+                + "   AND (?::text IS NULL OR p.parcel_no ILIKE ? OR p.waybill_no ILIKE ?)",
                 Long.class, thr, search, search, search);
 
             List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT DISTINCT ON (d.carton_id)"
-                + "       d.id::text       AS id,"
-                + "       d.item_number, d.shipment_number,"
-                + "       d.weight_kg     AS dws_weight,"
-                + "       c.actual_weight_kg AS acc_weight,"
-                + "       (d.weight_kg - c.actual_weight_kg) AS diff,"
-                + "       d.chargeable_kg AS dws_chargeable,"
-                + "       c.chargeable_weight_kg AS acc_chargeable,"
-                + "       s.shipment_no, s.destination_country,"
-                + "       cu.name AS customer_name,"
-                + "       d.scanned_at"
-                + " FROM acc_dws_scans d"
-                + " JOIN cartons c   ON c.id = d.carton_id"
-                + " JOIN shipments s ON s.id = c.shipment_id"
-                + " LEFT JOIN customers cu ON cu.id = s.customer_id"
-                + " WHERE d.status = 'OK' AND d.action IN ('pickup','update')"
-                + "   AND abs(d.weight_kg - c.actual_weight_kg) >= ?"
-                + "   AND (?::text IS NULL OR d.item_number ILIKE ? OR d.shipment_number ILIKE ?)"
-                + " ORDER BY d.carton_id, d.scanned_at DESC"
+                "SELECT p.id::text          AS id,"
+                + "       p.parcel_no       AS item_number,"
+                + "       p.waybill_no      AS shipment_number,"
+                + "       p.expected_weight AS expected_weight,"
+                + "       p.actual_weight   AS dws_weight,"
+                + "       (p.actual_weight - p.expected_weight) AS diff,"
+                + "       p.chargeable_kg   AS dws_chargeable,"
+                + "       p.destination_country,"
+                + "       p.zone,"
+                + "       cu.name           AS customer_name,"
+                + "       p.received_at     AS scanned_at"
+                + " FROM acc_inbound_parcels p"
+                + " LEFT JOIN customers cu ON cu.id = p.customer_id"
+                + " WHERE p.expected_weight IS NOT NULL"
+                + "   AND p.actual_weight IS NOT NULL"
+                + "   AND abs(p.actual_weight - p.expected_weight) >= ?"
+                + "   AND (?::text IS NULL OR p.parcel_no ILIKE ? OR p.waybill_no ILIKE ?)"
+                + " ORDER BY p.received_at DESC"
                 + " LIMIT ? OFFSET ?",
                 thr, search, search, search, limit, offset);
 
@@ -165,11 +165,11 @@ public class AccDwsScansController {
         out.put("shipmentNumber", row.get("shipment_number"));
         out.put("customerName", row.get("customer_name"));
         out.put("destinationCountry", row.get("destination_country"));
+        out.put("zone", row.get("zone"));
+        out.put("expectedWeight", row.get("expected_weight"));
         out.put("dwsWeight", row.get("dws_weight"));
-        out.put("accWeight", row.get("acc_weight"));
         out.put("diff", row.get("diff"));
         out.put("dwsChargeable", row.get("dws_chargeable"));
-        out.put("accChargeable", row.get("acc_chargeable"));
         out.put("scannedAt", json.value(row.get("scanned_at")));
         return out;
     }

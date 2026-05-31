@@ -78,30 +78,27 @@ public class AccDwsController {
         } catch (DataAccessException ignored) {}
     }
 
-    // ───── check：根据箱号 + 运单号在 cartons 里查信息 ─────
+    // ───── check：根据箱号在 acc_inbound_parcels（收货主表）里查信息 ─────
     private Map<String, Object> doCheck(Map<String, Object> body) {
         String itemNo = str(body.get("item_number"));
-        String shipmentNo = str(body.get("shipment_number"));
+        String waybillNo = str(body.get("shipment_number"));    // DWS 协议字段名，实际是 waybill_no
         if (itemNo == null || itemNo.isBlank()) return fail("item_number 必填");
 
-        Map<String, Object> meta = lookupCartonMeta(itemNo, shipmentNo);
+        Map<String, Object> meta = lookupInboundParcel(itemNo, waybillNo);
         if (meta == null) {
-            // 记一笔 NOT_FOUND 流水方便后续对账
-            insertScan(itemNo, shipmentNo, null, null, "check", null, null, null, null,
-                "NOT_FOUND", "箱号未找到", body);
+            insertScan(itemNo, waybillNo, null, null, "check", null, null, null, null,
+                "NOT_FOUND", "箱号未在收货系统登记", body);
             return fail("箱号未在系统中登记: " + itemNo);
         }
-        insertScan(itemNo, shipmentNo,
-            (String) meta.get("shipment_id"), (String) meta.get("carton_id"),
+        insertScan(itemNo, waybillNo, null, (String) meta.get("parcel_id"),
             "check", null, null, null, null, "OK", null, body);
-
         return ok("检查成功", buildOptions(meta, null, null));
     }
 
-    // ───── pickup / update：落库 acc_dws_scans 并计算计费重 ─────
+    // ───── pickup / update：落库 acc_dws_scans 并回写 acc_inbound_parcels ─────
     private Map<String, Object> doPickup(Map<String, Object> body, String action) {
         String itemNo = str(body.get("item_number"));
-        String shipmentNo = str(body.get("shipment_number"));
+        String waybillNo = str(body.get("shipment_number"));
         if (itemNo == null || itemNo.isBlank()) return fail("item_number 必填");
 
         BigDecimal weight = num(body.get("weight"));
@@ -118,75 +115,92 @@ public class AccDwsController {
             : weight;
 
         String picUrl = str(body.get("pic_url"));
-        // base64 大字段不落库（避免行膨胀），存到 raw_payload 即可
 
-        Map<String, Object> meta = lookupCartonMeta(itemNo, shipmentNo);
+        Map<String, Object> meta = lookupInboundParcel(itemNo, waybillNo);
         if (meta == null) {
-            insertScan(itemNo, shipmentNo, null, null, action,
-                weight, length, width, height, "NOT_FOUND", "箱号未登记", body);
+            insertScan(itemNo, waybillNo, null, null, action,
+                weight, length, width, height, "NOT_FOUND", "箱号未在收货系统登记", body);
             return fail("箱号未在系统中登记: " + itemNo);
         }
 
-        // 校验是否已经有 pickup 流水（防重复）
+        String parcelId = (String) meta.get("parcel_id");
+
+        // 防重复：pickup 已落库的不允许重复，update 不限制
         Long existing = jdbc.queryForObject(
             "SELECT count(*) FROM acc_dws_scans"
-            + " WHERE tenant_id = current_setting('app.current_tenant_id')::uuid"
-            + "   AND item_number = ? AND action IN ('pickup','update')",
-            Long.class, itemNo);
+            + " WHERE inbound_parcel_id = ?::uuid AND action IN ('pickup','update') AND status='OK'",
+            Long.class, parcelId);
         if ("pickup".equals(action) && existing != null && existing > 0) {
             return fail("箱号已扫过，请使用 action=update 修正");
         }
 
-        // 用计算后的 chargeable 写入流水
-        String cartonId = (String) meta.get("carton_id");
-        insertScanWithMeasure(itemNo, shipmentNo,
-            (String) meta.get("shipment_id"), cartonId,
+        // 落流水
+        insertScanWithMeasure(itemNo, waybillNo, null, parcelId,
             action, weight, length, width, height, volumeWeight, chargeable,
             picUrl, "OK", null, body);
 
-        // 回写 cartons：以 DWS 实测值覆盖制单录入值，触发后续计费重算
-        syncMeasurementToCarton(cartonId, weight, length, width, height, chargeable);
+        // 回写收货主表：实测值 + 体积重 + 计费重 + cbm + status='SCANNED'
+        syncMeasurementToInboundParcel(parcelId, weight, length, width, height,
+            volumeWeight, chargeable, picUrl);
 
-        // 当前件数 / 总箱数
-        Long currentCount = jdbc.queryForObject(
-            "SELECT count(DISTINCT item_number) FROM acc_dws_scans"
-            + " WHERE shipment_id = ?::uuid AND action IN ('pickup','update') AND status='OK'",
-            Long.class, meta.get("shipment_id"));
-        Integer totalBoxes = (Integer) meta.get("total_boxes");
-        String pieces = currentCount + "/" + (totalBoxes == null ? "?" : totalBoxes);
+        // 当前同一运单已扫件数（用 waybill_no 统计）
+        String pieces;
+        if (waybillNo != null && !waybillNo.isBlank()) {
+            Long currentCount = jdbc.queryForObject(
+                "SELECT count(*) FROM acc_inbound_parcels"
+                + " WHERE waybill_no = ? AND status IN ('SCANNED','CHARGED','SHIPPED')",
+                Long.class, waybillNo);
+            Long totalForWaybill = jdbc.queryForObject(
+                "SELECT count(*) FROM acc_inbound_parcels WHERE waybill_no = ?",
+                Long.class, waybillNo);
+            pieces = currentCount + "/" + totalForWaybill;
+        } else {
+            pieces = "1/1";
+        }
 
         Map<String, Object> resp = ok("收货成功 " + pieces, buildOptions(meta, pieces, chargeable));
         resp.put("voice_text", "收货成功 " + pieces);
-        // 全部收齐则建议停流水线
-        if (totalBoxes != null && currentCount >= totalBoxes) {
-            resp.put("action", "stop");
-            resp.put("voice_text", "运单 " + shipmentNo + " 全部收齐");
+
+        // 全部箱收齐 → 停流水线
+        if (waybillNo != null && !waybillNo.isBlank()) {
+            Long remaining = jdbc.queryForObject(
+                "SELECT count(*) FROM acc_inbound_parcels"
+                + " WHERE waybill_no = ? AND status = 'PENDING'",
+                Long.class, waybillNo);
+            if (remaining != null && remaining == 0) {
+                resp.put("action", "stop");
+                resp.put("voice_text", "运单 " + waybillNo + " 全部收齐");
+            }
         }
         return resp;
     }
 
     // ───── 私有工具 ─────
 
-    private Map<String, Object> lookupCartonMeta(String cartonNo, String shipmentNo) {
+    private Map<String, Object> lookupInboundParcel(String parcelNo, String waybillNo) {
         try {
             String sql =
-                "SELECT c.id::text       AS carton_id,"
-                + "       s.id::text     AS shipment_id,"
-                + "       s.shipment_no,"
-                + "       s.destination_country,"
-                + "       s.destination_postal_code,"
+                "SELECT p.id::text       AS parcel_id,"
+                + "       p.parcel_no,"
+                + "       p.waybill_no,"
+                + "       p.destination_country,"
+                + "       p.destination_postal_code,"
+                + "       p.zone,"
+                + "       cu.name        AS customer_name,"
                 + "       cn.name        AS channel_name,"
                 + "       cn.code        AS channel_code,"
-                + "       (SELECT count(*) FROM cartons WHERE shipment_id = s.id) AS total_boxes"
-                + " FROM cartons c"
-                + " JOIN shipments s   ON s.id = c.shipment_id"
-                + " LEFT JOIN channels cn ON cn.id = s.channel_id"
-                + " WHERE c.carton_no = ?"
-                + (shipmentNo != null && !shipmentNo.isBlank() ? " AND s.shipment_no = ?" : "")
+                + "       (SELECT count(*) FROM acc_inbound_parcels"
+                + "          WHERE waybill_no = p.waybill_no AND p.waybill_no IS NOT NULL"
+                + "       )              AS total_boxes"
+                + " FROM acc_inbound_parcels p"
+                + " LEFT JOIN customers cu ON cu.id = p.customer_id"
+                + " LEFT JOIN channels  cn ON cn.id = p.channel_id"
+                + " WHERE p.parcel_no = ?"
+                + (waybillNo != null && !waybillNo.isBlank() ? " AND p.waybill_no = ?" : "")
                 + " LIMIT 1";
-            return shipmentNo != null && !shipmentNo.isBlank()
-                ? jdbc.queryForMap(sql, cartonNo, shipmentNo)
-                : jdbc.queryForMap(sql, cartonNo);
+            return waybillNo != null && !waybillNo.isBlank()
+                ? jdbc.queryForMap(sql, parcelNo, waybillNo)
+                : jdbc.queryForMap(sql, parcelNo);
         } catch (EmptyResultDataAccessException ex) {
             return null;
         } catch (DataAccessException ex) {
@@ -203,40 +217,45 @@ public class AccDwsController {
     }
 
     /**
-     * 把 DWS 实测值回写 cartons 表，让后续核算（profits/charges）按实测值走。
-     *   - actual_weight_kg / length_cm / width_cm / height_cm 用 DWS 值覆盖
-     *   - chargeable_weight_kg 用 max(实测重, 体积重)
-     *   - cbm = LxWxH/1_000_000 (cm³ → m³)
-     *   - carrier_evidence.dws_measured = true（标记本箱已 DWS 实测）
+     * 回写收货主表 acc_inbound_parcels：实测值覆盖预报值，status → SCANNED。
+     *   - actual_weight / length_cm / width_cm / height_cm 用 DWS 值
+     *   - chargeable_kg = max(实测重, 体积重)
+     *   - cbm = LxWxH/1_000_000
+     *   - received_at 第一次扫描时设
+     *   - 注：表价计算 (rate_amount) 留给 RateEngine 异步处理，本接口只落实测
      */
-    private void syncMeasurementToCarton(String cartonId, java.math.BigDecimal weight,
-                                          java.math.BigDecimal length, java.math.BigDecimal width,
-                                          java.math.BigDecimal height, java.math.BigDecimal chargeable) {
-        if (cartonId == null) return;
+    private void syncMeasurementToInboundParcel(String parcelId, BigDecimal weight,
+                                                  BigDecimal length, BigDecimal width,
+                                                  BigDecimal height, BigDecimal volumeWeight,
+                                                  BigDecimal chargeable, String picUrl) {
+        if (parcelId == null) return;
         try {
-            java.math.BigDecimal cbm = null;
+            BigDecimal cbm = null;
             if (length != null && width != null && height != null) {
                 cbm = length.multiply(width).multiply(height)
-                    .divide(new java.math.BigDecimal("1000000"), 4, RoundingMode.HALF_UP);
+                    .divide(new BigDecimal("1000000"), 4, RoundingMode.HALF_UP);
             }
             jdbc.update(
-                "UPDATE cartons SET"
-                + "  actual_weight_kg     = coalesce(?, actual_weight_kg),"
-                + "  length_cm            = coalesce(?, length_cm),"
-                + "  width_cm             = coalesce(?, width_cm),"
-                + "  height_cm            = coalesce(?, height_cm),"
-                + "  chargeable_weight_kg = coalesce(?, chargeable_weight_kg),"
-                + "  cbm                  = coalesce(?, cbm),"
-                + "  carrier_evidence     = coalesce(carrier_evidence, '{}'::jsonb)"
-                + "                          || jsonb_build_object('dws_measured', true, 'dws_scanned_at', now())"
+                "UPDATE acc_inbound_parcels SET"
+                + "  actual_weight = coalesce(?, actual_weight),"
+                + "  length_cm     = coalesce(?, length_cm),"
+                + "  width_cm      = coalesce(?, width_cm),"
+                + "  height_cm     = coalesce(?, height_cm),"
+                + "  volume_weight = coalesce(?, volume_weight),"
+                + "  chargeable_kg = coalesce(?, chargeable_kg),"
+                + "  cbm           = coalesce(?, cbm),"
+                + "  pic_url       = coalesce(?, pic_url),"
+                + "  status        = CASE WHEN status = 'PENDING' THEN 'SCANNED' ELSE status END,"
+                + "  received_at   = coalesce(received_at, now()),"
+                + "  updated_at    = now()"
                 + " WHERE id = ?::uuid",
-                weight, length, width, height, chargeable, cbm, cartonId);
+                weight, length, width, height, volumeWeight, chargeable, cbm, picUrl, parcelId);
         } catch (DataAccessException ex) {
-            System.err.println("[AccDwsController] syncMeasurementToCarton failed: " + ex.getMessage());
+            System.err.println("[AccDwsController] syncMeasurementToInboundParcel failed: " + ex.getMessage());
         }
     }
 
-    private void insertScanWithMeasure(String itemNo, String shipNo, String shipId, String cartonId,
+    private void insertScanWithMeasure(String itemNo, String shipNo, String shipId, String parcelId,
                                         String action, BigDecimal weight, BigDecimal length,
                                         BigDecimal width, BigDecimal height,
                                         BigDecimal volumeWeight, BigDecimal chargeable,
@@ -245,7 +264,7 @@ public class AccDwsController {
         try {
             jdbc.update(
                 "INSERT INTO acc_dws_scans ("
-                + " tenant_id, item_number, shipment_number, shipment_id, carton_id,"
+                + " tenant_id, item_number, shipment_number, shipment_id, inbound_parcel_id,"
                 + " action, weight_kg, length_cm, width_cm, height_cm,"
                 + " volume_weight, chargeable_kg, pic_url, raw_payload, status, info"
                 + ") VALUES ("
@@ -253,12 +272,11 @@ public class AccDwsController {
                 + " ?, ?, ?::uuid, ?::uuid,"
                 + " ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?"
                 + ")",
-                itemNo, shipNo, shipId, cartonId,
+                itemNo, shipNo, shipId, parcelId,
                 action, weight, length, width, height,
                 volumeWeight, chargeable, picUrl, json.toJson(raw == null ? Map.of() : raw),
                 status, info);
         } catch (DataAccessException ex) {
-            // 流水落库失败不影响主响应 - 但记到 stderr 方便排查
             System.err.println("[AccDwsController] insertScan failed: " + ex.getMessage());
         }
     }
@@ -293,11 +311,14 @@ public class AccDwsController {
                                                             String pieces, BigDecimal chargeable) {
         List<Map<String, Object>> opts = new ArrayList<>();
         if (pieces != null) opts.add(opt("件数", pieces));
-        Object shipNo = meta.get("shipment_no");
-        Integer totalBoxes = (Integer) meta.get("total_boxes");
-        opts.add(opt("箱号", meta.getOrDefault("carton_id", "")));
-        if (totalBoxes != null) opts.add(opt("总箱数", totalBoxes));
-        if (shipNo != null) opts.add(opt("运单号", shipNo));
+        Object parcelNo = meta.get("parcel_no");
+        Object waybillNo = meta.get("waybill_no");
+        Long totalBoxes = meta.get("total_boxes") instanceof Number n ? n.longValue() : null;
+        if (parcelNo != null) opts.add(opt("箱号", parcelNo));
+        if (totalBoxes != null && totalBoxes > 0) opts.add(opt("总箱数", totalBoxes));
+        if (waybillNo != null) opts.add(opt("运单号", waybillNo));
+        Object customerName = meta.get("customer_name");
+        if (customerName != null) opts.add(opt("客户", customerName));
         Object channelName = meta.get("channel_name");
         Object channelCode = meta.get("channel_code");
         if (channelName != null) opts.add(opt("服务", channelName));
@@ -306,6 +327,8 @@ public class AccDwsController {
         if (country != null) opts.add(opt("国家", country));
         Object zip = meta.get("destination_postal_code");
         if (zip != null) opts.add(opt("邮编", zip));
+        Object zone = meta.get("zone");
+        if (zone != null) opts.add(opt("分区", zone));
         if (chargeable != null) opts.add(opt("计费重(kg)", chargeable));
         return opts;
     }
