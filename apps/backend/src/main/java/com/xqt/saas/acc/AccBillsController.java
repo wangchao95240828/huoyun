@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -38,14 +39,18 @@ public class AccBillsController {
     private final FieldGate fieldGate;
     private final com.xqt.saas.documentcharges.DocumentChargeService docService;
 
-    public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
+        private final BranchAccessFilter branchAccess;
+
+public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
                               CascadeChecker cascadeChecker, FieldGate fieldGate,
-                              com.xqt.saas.documentcharges.DocumentChargeService docService) {
+                              com.xqt.saas.documentcharges.DocumentChargeService docService,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.docService = docService;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -61,12 +66,17 @@ public class AccBillsController {
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
 
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM customer_invoices i
-                WHERE (?::text IS NULL OR i.invoice_no ILIKE ?)
-                  AND (?::date IS NULL OR i.issued_at >= ?::date)
-                  AND (?::date IS NULL OR i.issued_at < (?::date + 1))
-                """, Long.class, search, search, dateFrom, dateFrom, dateTo, dateTo);
+            var access = branchAccess.forCurrent("i");
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, dateFrom, dateFrom, dateTo, dateTo));
+            countParams.addAll(access.params());
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM customer_invoices i"
+                + " WHERE (?::text IS NULL OR i.invoice_no ILIKE ?)"
+                + "   AND (?::date IS NULL OR i.issued_at >= ?::date)"
+                + "   AND (?::date IS NULL OR i.issued_at < (?::date + 1))"
+                + access.sql(),
+                Long.class, countParams.toArray());
 
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT
@@ -93,12 +103,14 @@ public class AccBillsController {
                 FROM customer_invoices i
                 LEFT JOIN customers c ON c.id = i.customer_id
                 LEFT JOIN users u ON u.id = c.salesman_user_id
-                WHERE (?::text IS NULL OR i.invoice_no ILIKE ?)
-                  AND (?::date IS NULL OR i.issued_at >= ?::date)
-                  AND (?::date IS NULL OR i.issued_at < (?::date + 1))
-                ORDER BY i.issued_at DESC NULLS LAST, i.invoice_no
-                LIMIT ? OFFSET ?
-                """, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+                WHERE 1=1
+                """
+                + " AND (?::text IS NULL OR i.invoice_no ILIKE ?)"
+                + " AND (?::date IS NULL OR i.issued_at >= ?::date)"
+                + " AND (?::date IS NULL OR i.issued_at < (?::date + 1))"
+                + access.sql()
+                + " ORDER BY i.issued_at DESC NULLS LAST, i.invoice_no LIMIT ? OFFSET ?",
+                buildBillsListParams(search, dateFrom, dateTo, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -267,6 +279,17 @@ public class AccBillsController {
             throw com.xqt.saas.common.ApiException.unauthorized("authentication required");
         }
         return p;
+    }
+
+    private static Object[] buildBillsListParams(String search, String dateFrom, String dateTo,
+                                                   BranchAccessFilter.AccessClause access,
+                                                   int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

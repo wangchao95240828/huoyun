@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -30,12 +31,16 @@ public class AccForecastsController {
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
 
-    public AccForecastsController(JdbcTemplate jdbc, JsonSupport json,
-                                   CascadeChecker cascadeChecker, FieldGate fieldGate) {
+        private final BranchAccessFilter branchAccess;
+
+public AccForecastsController(JdbcTemplate jdbc, JsonSupport json,
+                                   CascadeChecker cascadeChecker, FieldGate fieldGate,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -48,7 +53,6 @@ public class AccForecastsController {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-
             long total = json.value(jdbc.queryForObject(
                 "SELECT count(*) FROM acc_forecasts WHERE ?::text IS NULL OR forecast_no ILIKE ?",
                 Long.class, search, search)) instanceof Number n ? n.longValue() : 0;

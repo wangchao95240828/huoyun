@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -37,14 +38,18 @@ public class AccShipmentsController {
     private final FieldGate fieldGate;
     private final com.xqt.saas.tracking.TrackingAggregator trackingAggregator;
 
-    public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
+        private final BranchAccessFilter branchAccess;
+
+public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
                                   CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                  com.xqt.saas.tracking.TrackingAggregator trackingAggregator) {
+                                  com.xqt.saas.tracking.TrackingAggregator trackingAggregator,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.trackingAggregator = trackingAggregator;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -60,12 +65,17 @@ public class AccShipmentsController {
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
 
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM shipments s
-                WHERE (?::text IS NULL OR (s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?))
-                  AND (?::date IS NULL OR s.created_at >= ?::date)
-                  AND (?::date IS NULL OR s.created_at < (?::date + 1))
-                """, Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+            var access = branchAccess.forCurrent("s");
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+            countParams.addAll(access.params());
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM shipments s"
+                + " WHERE (?::text IS NULL OR (s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?))"
+                + "   AND (?::date IS NULL OR s.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR s.created_at < (?::date + 1))"
+                + access.sql(),
+                Long.class, countParams.toArray());
 
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT
@@ -104,12 +114,15 @@ public class AccShipmentsController {
                   ) AS total_cost
                 FROM shipments s
                 LEFT JOIN channels ch ON ch.id = s.channel_id
-                WHERE (?::text IS NULL OR (s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?))
-                  AND (?::date IS NULL OR s.created_at >= ?::date)
-                  AND (?::date IS NULL OR s.created_at < (?::date + 1))
-                ORDER BY s.created_at DESC
-                LIMIT ? OFFSET ?
-                """, search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+                WHERE 1=1
+                """
+                + " AND (?::text IS NULL OR (s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?))"
+                + " AND (?::date IS NULL OR s.created_at >= ?::date)"
+                + " AND (?::date IS NULL OR s.created_at < (?::date + 1))"
+                + access.sql()
+                + " ORDER BY s.created_at DESC"
+                + " LIMIT ? OFFSET ?",
+                buildListParams(search, dateFrom, dateTo, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -265,6 +278,17 @@ public class AccShipmentsController {
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM shipments WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    private static Object[] buildListParams(String search, String dateFrom, String dateTo,
+                                             BranchAccessFilter.AccessClause access,
+                                             int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

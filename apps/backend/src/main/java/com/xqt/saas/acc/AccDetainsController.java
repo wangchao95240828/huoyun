@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -30,12 +31,16 @@ public class AccDetainsController {
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
 
-    public AccDetainsController(JdbcTemplate jdbc, JsonSupport json,
-                                CascadeChecker cascadeChecker, FieldGate fieldGate) {
+        private final BranchAccessFilter branchAccess;
+
+public AccDetainsController(JdbcTemplate jdbc, JsonSupport json,
+                                CascadeChecker cascadeChecker, FieldGate fieldGate,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping

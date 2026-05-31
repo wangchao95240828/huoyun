@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -35,12 +36,16 @@ public class AccCustomersController {
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
 
-    public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
-                                  CascadeChecker cascadeChecker, FieldGate fieldGate) {
+        private final BranchAccessFilter branchAccess;
+
+public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
+                                  CascadeChecker cascadeChecker, FieldGate fieldGate,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -54,9 +59,14 @@ public class AccCustomersController {
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
 
+            var access = branchAccess.forCustomers("c");
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(search, search, search));
+            countParams.addAll(access.params());
             long total = json.value(jdbc.queryForObject(
-                "SELECT count(*) FROM customers WHERE ?::text IS NULL OR (code ILIKE ? OR name ILIKE ?)",
-                Long.class, search, search, search)) instanceof Number n ? n.longValue() : 0;
+                "SELECT count(*) FROM customers c"
+                + " WHERE (?::text IS NULL OR (c.code ILIKE ? OR c.name ILIKE ?))"
+                + access.sql(),
+                Long.class, countParams.toArray())) instanceof Number n ? n.longValue() : 0;
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT c.id::text AS id, c.code, c.name, c.default_currency, c.account_mode,
                        c.credit_limit, c.created_at,
@@ -94,10 +104,12 @@ public class AccCustomersController {
                 LEFT JOIN organizations org ON org.id = c.branch_id
                 LEFT JOIN customer_groups grp ON grp.id = c.customer_group_id
                 LEFT JOIN users u ON u.id = c.salesman_user_id
-                WHERE ?::text IS NULL OR (c.code ILIKE ? OR c.name ILIKE ?)
-                ORDER BY c.code
-                LIMIT ? OFFSET ?
-                """, search, search, search, limit, offset);
+                WHERE 1=1
+                """
+                + " AND (?::text IS NULL OR (c.code ILIKE ? OR c.name ILIKE ?))"
+                + access.sql()
+                + " ORDER BY c.code LIMIT ? OFFSET ?",
+                buildCustomersListParams(search, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(), total);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
@@ -152,6 +164,16 @@ public class AccCustomersController {
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM customers WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    private static Object[] buildCustomersListParams(String search,
+                                                       BranchAccessFilter.AccessClause access,
+                                                       int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(search, search, search));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

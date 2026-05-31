@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,9 +27,13 @@ public class AccProfitsController {
     private final JdbcTemplate jdbc;
     private final JsonSupport json;
 
-    public AccProfitsController(JdbcTemplate jdbc, JsonSupport json) {
+        private final BranchAccessFilter branchAccess;
+
+public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -45,13 +50,18 @@ public class AccProfitsController {
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
 
             // 每个 shipment 一行：AR/AP sum + 客户/渠道/国家。计费重/渠道重都来自 cartons。
-            Long total = jdbc.queryForObject("""
-                SELECT count(DISTINCT s.id) FROM shipments s
-                WHERE (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)
-                  AND (?::date IS NULL OR s.created_at >= ?::date)
-                  AND (?::date IS NULL OR s.created_at < (?::date + 1))
-                  AND EXISTS (SELECT 1 FROM charges ch WHERE ch.shipment_id = s.id)
-                """, Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+            var access = branchAccess.forCurrent("s");
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+            countParams.addAll(access.params());
+            Long total = jdbc.queryForObject(
+                "SELECT count(DISTINCT s.id) FROM shipments s"
+                + " WHERE (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
+                + "   AND (?::date IS NULL OR s.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR s.created_at < (?::date + 1))"
+                + "   AND EXISTS (SELECT 1 FROM charges ch WHERE ch.shipment_id = s.id)"
+                + access.sql(),
+                Long.class, countParams.toArray());
 
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT
@@ -86,13 +96,15 @@ public class AccProfitsController {
                 FROM shipments s
                 LEFT JOIN customers cu ON cu.id = s.customer_id
                 LEFT JOIN channels cn  ON cn.id = s.channel_id
-                WHERE (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)
-                  AND (?::date IS NULL OR s.created_at >= ?::date)
-                  AND (?::date IS NULL OR s.created_at < (?::date + 1))
-                  AND EXISTS (SELECT 1 FROM charges ch WHERE ch.shipment_id = s.id)
-                ORDER BY s.created_at DESC
-                LIMIT ? OFFSET ?
-                """, search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+                WHERE 1=1
+                """
+                + " AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
+                + " AND (?::date IS NULL OR s.created_at >= ?::date)"
+                + " AND (?::date IS NULL OR s.created_at < (?::date + 1))"
+                + " AND EXISTS (SELECT 1 FROM charges ch WHERE ch.shipment_id = s.id)"
+                + access.sql()
+                + " ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
+                buildProfitsListParams(search, dateFrom, dateTo, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -245,6 +257,17 @@ public class AccProfitsController {
         } catch (DataAccessException ignored) {
             // 表缺失或 SQL 失败不影响主 summary 返回
         }
+    }
+
+    private static Object[] buildProfitsListParams(String search, String dateFrom, String dateTo,
+                                                    BranchAccessFilter.AccessClause access,
+                                                    int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

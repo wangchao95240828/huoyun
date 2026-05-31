@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -31,14 +32,18 @@ public class AccDispatchesController {
     private final FieldGate fieldGate;
     private final com.xqt.saas.stowage.StowageStateMachine stateMachine;
 
-    public AccDispatchesController(JdbcTemplate jdbc, JsonSupport json,
+        private final BranchAccessFilter branchAccess;
+
+public AccDispatchesController(JdbcTemplate jdbc, JsonSupport json,
                                     CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                    com.xqt.saas.stowage.StowageStateMachine stateMachine) {
+                                    com.xqt.saas.stowage.StowageStateMachine stateMachine,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.stateMachine = stateMachine;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -51,7 +56,6 @@ public class AccDispatchesController {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-
             long total = json.value(jdbc.queryForObject(
                 "SELECT count(*) FROM acc_dispatches WHERE ?::text IS NULL OR dispatch_no ILIKE ?",
                 Long.class, search, search)) instanceof Number n ? n.longValue() : 0;

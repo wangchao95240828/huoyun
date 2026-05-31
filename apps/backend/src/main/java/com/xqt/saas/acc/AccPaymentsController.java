@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -37,14 +38,18 @@ public class AccPaymentsController {
     private final FieldGate fieldGate;
     private final MoneySnapshotService moneySnapshotService;
 
-    public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
+        private final BranchAccessFilter branchAccess;
+
+public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
                                  CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                 MoneySnapshotService moneySnapshotService) {
+                                 MoneySnapshotService moneySnapshotService,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.moneySnapshotService = moneySnapshotService;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -59,7 +64,6 @@ public class AccPaymentsController {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-
             Long total = jdbc.queryForObject("""
                 SELECT count(*) FROM partner_payments p
                 WHERE (?::text IS NULL OR p.payment_no ILIKE ?)

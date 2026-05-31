@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -38,16 +39,20 @@ public class AccReceivedsController {
     private final MoneySnapshotService moneySnapshotService;
     private final com.xqt.saas.documentcharges.DocumentChargeService docService;
 
-    public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
+        private final BranchAccessFilter branchAccess;
+
+public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
                                   CascadeChecker cascadeChecker, FieldGate fieldGate,
                                   MoneySnapshotService moneySnapshotService,
-                                  com.xqt.saas.documentcharges.DocumentChargeService docService) {
+                                  com.xqt.saas.documentcharges.DocumentChargeService docService,
+                                  BranchAccessFilter branchAccess) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.moneySnapshotService = moneySnapshotService;
         this.docService = docService;
+            this.branchAccess = branchAccess;
     }
 
     @GetMapping
@@ -62,7 +67,6 @@ public class AccReceivedsController {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-
             Long total = jdbc.queryForObject("""
                 SELECT count(*) FROM payments p
                 WHERE (?::text IS NULL OR p.reference_no ILIKE ?)

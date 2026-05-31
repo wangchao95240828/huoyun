@@ -2,6 +2,7 @@ package com.xqt.saas.acc;
 
 import java.util.Map;
 
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -20,10 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/acc/customer-refunds")
 public class AccCustomerRefundsController extends AccFinanceTxnsBase {
-    public AccCustomerRefundsController(JdbcTemplate jdbc, JsonSupport json,
+        private final BranchAccessFilter branchAccess;
+
+public AccCustomerRefundsController(JdbcTemplate jdbc, JsonSupport json,
                                         CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                        MoneySnapshotService moneySnapshotService) {
+                                        MoneySnapshotService moneySnapshotService,
+                                  BranchAccessFilter branchAccess) {
         super(jdbc, json, cascadeChecker, fieldGate, moneySnapshotService);
+            this.branchAccess = branchAccess;
     }
     @Override protected String side()    { return "CUSTOMER"; }
     @Override protected String txnType() { return "REFUND"; }

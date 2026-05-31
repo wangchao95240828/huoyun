@@ -2,6 +2,7 @@ package com.xqt.saas.acc;
 
 import java.util.Map;
 
+import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
@@ -22,10 +23,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/acc/customer-fines")
 public class AccCustomerFinesController extends AccFinesBase {
 
-    public AccCustomerFinesController(JdbcTemplate jdbc, JsonSupport json,
+        private final BranchAccessFilter branchAccess;
+
+public AccCustomerFinesController(JdbcTemplate jdbc, JsonSupport json,
                                       CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                      MoneySnapshotService moneySnapshotService) {
+                                      MoneySnapshotService moneySnapshotService,
+                                  BranchAccessFilter branchAccess) {
         super(jdbc, json, cascadeChecker, fieldGate, moneySnapshotService);
+            this.branchAccess = branchAccess;
     }
 
     @Override
