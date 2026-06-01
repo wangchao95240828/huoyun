@@ -56,12 +56,13 @@ public class AccBanksController {
                 """, Long.class, search, search, search);
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id::text AS id, account_name, bank_name, bank_account_no,
+                       bank_address, swift_code, is_default,
                        currency, balance, status, last_update, is_show,
                        audit_status, audited_at, audit_name
                 FROM financial_accounts
                 WHERE account_type = 'BANK'
                   AND (?::text IS NULL OR account_name ILIKE ? OR bank_name ILIKE ?)
-                ORDER BY account_name
+                ORDER BY is_default DESC, account_name
                 LIMIT ? OFFSET ?
                 """, search, search, search, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(), total == null ? 0 : total);
@@ -142,6 +143,9 @@ public class AccBanksController {
         out.put("name", row.get("account_name"));
         out.put("bankName", row.get("bank_name"));
         out.put("accountNo", row.get("bank_account_no"));
+        out.put("bankAddress", row.get("bank_address"));
+        out.put("swiftCode", row.get("swift_code"));
+        out.put("isDefault", row.get("is_default"));
         out.put("currency", row.get("currency"));
         out.put("deposit", row.get("balance"));
         out.put("remark", "");

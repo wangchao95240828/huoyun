@@ -62,6 +62,7 @@ public class AccTransfersController {
                 """, Long.class, search, search, dateFrom, dateFrom, dateTo, dateTo);
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT t.id::text AS id, t.transfer_no, t.the_date, t.amount, t.currency,
+                       t.fee, t.transfer_in_amount, t.transfer_out_amount,
                        t.remark, t.add_name, t.created_at,
                        t.audit_status, t.audited_at, t.audit_name,
                        f1.account_name AS from_bank,
@@ -151,6 +152,9 @@ public class AccTransfersController {
         out.put("toBank", row.get("to_bank"));
         out.put("amount", row.get("amount"));
         out.put("currency", row.get("currency"));
+        out.put("fee", row.get("fee"));
+        out.put("transferInAmount", row.get("transfer_in_amount"));
+        out.put("transferOutAmount", row.get("transfer_out_amount"));
         out.put("theDate", json.value(row.get("the_date")));
         out.put("remark", row.get("remark"));
         out.put("addName", row.get("add_name"));

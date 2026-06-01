@@ -109,8 +109,21 @@ public class AccCostsController {
                 ORDER BY ch.created_at DESC
                 LIMIT ? OFFSET ?
                 """, search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+
+            // 应付合计
+            java.math.BigDecimal sumAmount = jdbc.queryForObject(
+                "SELECT coalesce(sum(ch.amount), 0) FROM charges ch"
+                + " LEFT JOIN shipments s ON s.id = ch.shipment_id"
+                + " WHERE ch.side = 'AP'"
+                + "   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
+                + "   AND (?::date IS NULL OR ch.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))",
+                java.math.BigDecimal.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+            java.util.Map<String, Object> agg = new java.util.LinkedHashMap<>();
+            agg.put("amount", sumAmount == null ? java.math.BigDecimal.ZERO : sumAmount);
+
             return AccPaging.result(rows.stream().map(this::project).toList(),
-                total == null ? 0 : total);
+                total == null ? 0 : total, agg);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
         }

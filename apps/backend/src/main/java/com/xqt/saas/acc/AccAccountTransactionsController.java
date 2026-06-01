@@ -33,7 +33,8 @@ public class AccAccountTransactionsController {
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) Integer transactionType   // ACC: 按表头类型查询
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
@@ -43,8 +44,9 @@ public class AccAccountTransactionsController {
                 "SELECT count(*) FROM finance_account_transaction"
                 + " WHERE (?::text IS NULL OR transaction_no ILIKE ? OR remark ILIKE ?)"
                 + "   AND (?::date IS NULL OR payment_time >= ?::date)"
-                + "   AND (?::date IS NULL OR payment_time < (?::date + 1))",
-                Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+                + "   AND (?::date IS NULL OR payment_time < (?::date + 1))"
+                + "   AND (?::int IS NULL OR transaction_type = ?)",
+                Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo, transactionType, transactionType);
             List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT id, transaction_no, account_id, customer_id, transaction_type,"
                 + "       currency, amount, fee, credit_amount, remark,"
@@ -53,9 +55,10 @@ public class AccAccountTransactionsController {
                 + " WHERE (?::text IS NULL OR transaction_no ILIKE ? OR remark ILIKE ?)"
                 + "   AND (?::date IS NULL OR payment_time >= ?::date)"
                 + "   AND (?::date IS NULL OR payment_time < (?::date + 1))"
+                + "   AND (?::int IS NULL OR transaction_type = ?)"
                 + " ORDER BY payment_time DESC NULLS LAST, create_time DESC"
                 + " LIMIT ? OFFSET ?",
-                search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo, transactionType, transactionType, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {

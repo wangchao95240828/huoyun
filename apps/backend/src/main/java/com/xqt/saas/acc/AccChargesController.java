@@ -121,8 +121,25 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                 + access.sql()
                 + " ORDER BY ch.created_at DESC LIMIT ? OFFSET ?",
                 buildChargesListParams(search, dateFrom, dateTo, access, limit, offset));
+
+            // 应收合计（ACC 应收应付模块）
+            java.util.List<Object> sumParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+            sumParams.addAll(access.params());
+            java.math.BigDecimal sumAmount = jdbc.queryForObject(
+                "SELECT coalesce(sum(ch.amount), 0) FROM charges ch"
+                + " LEFT JOIN shipments s ON s.id = ch.shipment_id"
+                + " WHERE ch.side = 'AR'"
+                + "   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
+                + "   AND (?::date IS NULL OR ch.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
+                + access.sql(),
+                java.math.BigDecimal.class, sumParams.toArray());
+            java.util.Map<String, Object> agg = new java.util.LinkedHashMap<>();
+            agg.put("amount", sumAmount == null ? java.math.BigDecimal.ZERO : sumAmount);
+
             return AccPaging.result(rows.stream().map(this::project).toList(),
-                total == null ? 0 : total);
+                total == null ? 0 : total, agg);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
         }

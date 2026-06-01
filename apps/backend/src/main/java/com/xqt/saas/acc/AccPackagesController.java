@@ -98,6 +98,10 @@ public class AccPackagesController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         // 包裹只是 shipments 的视图，新增等价于建 shipments
         String shipmentNo = (String) body.getOrDefault("no", body.get("shipment_no"));
+        // ACC 装箱单号自动生成: PKG-YYYYMMDD-NNN
+        if (shipmentNo == null || shipmentNo.isBlank()) {
+            shipmentNo = generatePackageNo();
+        }
         Object customerId = body.get("customer_id");
         BigDecimal declaredValue = body.get("declared_value") instanceof Number n
             ? new BigDecimal(n.toString()) : null;
@@ -108,6 +112,20 @@ public class AccPackagesController {
             """, String.class,
             customerId == null ? null : customerId.toString(), shipmentNo, declaredValue);
         return Map.of("id", id, "no", shipmentNo);
+    }
+
+    /** ACC 装箱单号格式: PKG-YYYYMMDD-NNN (NNN 是当天序号) */
+    private String generatePackageNo() {
+        String prefix = "PKG-" + java.time.LocalDate.now().format(
+            java.time.format.DateTimeFormatter.BASIC_ISO_DATE) + "-";
+        try {
+            Long seq = jdbc.queryForObject(
+                "SELECT count(*) + 1 FROM shipments WHERE shipment_no LIKE ?",
+                Long.class, prefix + "%");
+            return prefix + String.format("%03d", seq == null ? 1 : seq);
+        } catch (DataAccessException ex) {
+            return prefix + "001";
+        }
     }
 
     @PutMapping("/{id}")

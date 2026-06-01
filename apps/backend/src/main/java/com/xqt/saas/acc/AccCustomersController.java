@@ -70,6 +70,7 @@ public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT c.id::text AS id, c.code, c.name, c.default_currency, c.account_mode,
                        c.credit_limit, c.created_at,
+                       c.login_no, c.api_key,
                        c.audit_status, c.audited_at, c.audit_name,
                        org.name AS branch_name,
                        grp.name AS group_name,
@@ -192,6 +193,8 @@ public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
         out.put("branch", row.get("branch_name") == null ? "" : row.get("branch_name"));
         out.put("group", row.get("group_name") == null ? "" : row.get("group_name"));
         out.put("salesman", row.get("salesman_name") == null ? "" : row.get("salesman_name"));
+        out.put("loginNo", row.get("login_no"));
+        out.put("apiKey", row.get("api_key"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));
