@@ -31,7 +31,6 @@ public class AccDwsScansController {
     }
 
     @GetMapping("/api/acc/dws-scans")
-    @RequestMapping("/api/acc/dws-scans")
     public Map<String, Object> listScans(
         @RequestParam(required = false) Integer page,
         @RequestParam(required = false) Integer pageSize,
@@ -86,7 +85,6 @@ public class AccDwsScansController {
     }
 
     @GetMapping("/api/acc/dws-discrepancies")
-    @RequestMapping("/api/acc/dws-discrepancies")
     public Map<String, Object> listDiscrepancies(
         @RequestParam(required = false) Integer page,
         @RequestParam(required = false) Integer pageSize,

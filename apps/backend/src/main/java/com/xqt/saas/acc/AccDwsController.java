@@ -384,7 +384,7 @@ public class AccDwsController {
                 + "  (SELECT id FROM tenants WHERE code='xqt' LIMIT 1),"
                 + "  ?::uuid, 'AR', 'DRAFT', ?,"
                 + "  ?, ?, ?, '{}'::jsonb,"
-                + "  jsonb_build_object('inbound_parcel_id', ?::text, 'tag', ?::text), 'DWS_AUTO'"
+                + "  jsonb_build_object('inbound_parcel_id', ?::text, 'tag', ?::text, 'origin', 'DWS_AUTO'), 'LOCAL'"
                 + ") RETURNING id::text",
                 String.class,
                 chargeItemId, currency,

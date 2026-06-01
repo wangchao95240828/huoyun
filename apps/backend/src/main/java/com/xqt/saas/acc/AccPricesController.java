@@ -31,7 +31,6 @@ public class AccPricesController {
     }
 
     @GetMapping("/api/acc/sales-prices")
-    @RequestMapping("/api/acc/sales-prices")
     public Map<String, Object> salesPrices(
         @RequestParam(required = false) Integer page,
         @RequestParam(required = false) Integer pageSize,
@@ -41,7 +40,6 @@ public class AccPricesController {
     }
 
     @GetMapping("/api/acc/customer-prices")
-    @RequestMapping("/api/acc/customer-prices")
     public Map<String, Object> customerPrices(
         @RequestParam(required = false) Integer page,
         @RequestParam(required = false) Integer pageSize,
@@ -51,7 +49,6 @@ public class AccPricesController {
     }
 
     @GetMapping("/api/acc/published-prices")
-    @RequestMapping("/api/acc/published-prices")
     public Map<String, Object> publishedPrices(
         @RequestParam(required = false) Integer page,
         @RequestParam(required = false) Integer pageSize,
