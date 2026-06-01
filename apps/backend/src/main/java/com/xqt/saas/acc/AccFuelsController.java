@@ -61,6 +61,7 @@ public class AccFuelsController {
                 """, Long.class, search, search, search);
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT fs.id::text AS id, fs.year_month, fs.rate, fs.source,
+                       fs.fuel_type, fs.remark,
                        fs.audit_status, fs.audited_at, fs.audit_name,
                        cn.name AS channel_name
                 FROM fuel_surcharge_rates fs
@@ -138,6 +139,8 @@ public class AccFuelsController {
         out.put("id", row.get("id"));
         out.put("name", row.get("channel_name") + " " + yearMonth);
         out.put("rate", row.get("rate"));
+        out.put("fuelType", row.get("fuel_type"));
+        out.put("remark", row.get("remark"));
         out.put("startDate", yearMonth == null ? null : yearMonth + "-01");
         out.put("endDate", yearMonth == null ? null : yearMonth + "-31");
         out.put("source", row.get("source"));

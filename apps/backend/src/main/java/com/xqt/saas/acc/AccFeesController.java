@@ -54,10 +54,10 @@ public class AccFeesController {
                 """, Long.class, search, search, search);
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id::text AS id, code, name, remark, item_count, linked_products,
-                       audit_status, audited_at, audit_name
+                       sort_order, audit_status, audited_at, audit_name
                 FROM acc_fees
                 WHERE (?::text IS NULL OR code ILIKE ? OR name ILIKE ?)
-                ORDER BY name
+                ORDER BY sort_order, name
                 LIMIT ? OFFSET ?
                 """, search, search, search, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(), total == null ? 0 : total);
@@ -127,6 +127,7 @@ public class AccFeesController {
         out.put("name", row.get("name"));
         out.put("itemCount", row.get("item_count"));
         out.put("linkedProducts", row.get("linked_products"));
+        out.put("sortOrder", row.get("sort_order"));
         out.put("remark", row.get("remark"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));

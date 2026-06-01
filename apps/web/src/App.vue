@@ -429,9 +429,11 @@ const accTabs = [
   { key: "asks", label: "问题件", icon: HelpCircle, api: "asks" },
   { key: "reparations", label: "赔偿管理", icon: Gavel, api: "reparations" },
   { key: "quick-orders", label: "快速下单", icon: ClipboardList, api: "quick-orders" },
-  { key: "void-orders", label: "订单作废", icon: MinusCircle, api: "void-orders" },
   // 物流出货
   { key: "shipments", label: "出货管理", icon: Truck, api: "shipments" },
+  // ACC「配载中心」拆分快件查询 / 今日快件 (沿用 shipments 数据源 + 不同过滤)
+  { key: "shipments-query", label: "快件查询", icon: Search, api: "shipments" },
+  { key: "shipments-today", label: "今日快件", icon: CalendarClock, api: "shipments", statusFilter: "TODAY" },
   { key: "stowages", label: "配载管理", icon: Plane, api: "stowages" },
   { key: "packages", label: "装箱单", icon: PackageOpen, api: "packages" },
   { key: "transits", label: "转运管理", icon: Ship, api: "transits" },
@@ -578,10 +580,9 @@ const accFinanceTabs = [
   accTabs.find(t => t.key === "supplier-refunds")!,       // 退款记录
   accTabs.find(t => t.key === "supplier-refunds-pending")!, // 待审退款
   // 利润列表 (5)
-  accTabs.find(t => t.key === "profits")!,                // 利润查询
+  accTabs.find(t => t.key === "profits")!,                // 利润查询（含快件利润）
   accTabs.find(t => t.key === "profits-unfinished")!,     // 未完结快件
   accTabs.find(t => t.key === "profits-overdue")!,        // 逾期未结
-  accTabs.find(t => t.key === "profits")!,                // 快件利润（同利润查询）
   accTabs.find(t => t.key === "profits-lowprofit")!,      // 低利快件
 ];
 
@@ -591,11 +592,14 @@ const T = (k: string) => accTabs.find(t => t.key === k)!;
 // 制单中心
 const accGroupOrder = [
   T("orders"), T("orders-draft"), T("orders-history"), T("orders-cancelled"),
-  T("quick-orders"), T("void-orders"),
+  T("quick-orders"),
 ];
 // 配载中心
 const accGroupStowage = [
-  T("shipments"), T("stowages"), T("packages"), T("transits"),
+  T("shipments"),
+  T("shipments-query"),                     // ACC 配载中心「快件查询」
+  T("shipments-today"),                     // ACC 配载中心「今日快件」
+  T("stowages"), T("packages"), T("transits"),
   T("ports"), T("warehouses"), T("stowage-categories"), T("stowage-steps"),
   T("forecasts"), T("tracks"),
 ];
@@ -917,9 +921,11 @@ Object.assign(accColumns, {
   ],
   fuels: [
     { key: "name", label: "名称" },
+    { key: "fuelType", label: "类型" },
     { key: "rate", label: "费率(%)" },
     { key: "startDate", label: "开始日期" },
     { key: "endDate", label: "结束日期" },
+    { key: "remark", label: "备注" },
   ],
   hscodes: [
     { key: "code", label: "HS编码" },
@@ -1013,6 +1019,7 @@ Object.assign(accColumns, {
     { key: "name", label: "套餐名称" },
     { key: "itemCount", label: "收费项" },
     { key: "linkedProducts", label: "关联价格" },
+    { key: "sortOrder", label: "排序" },
     { key: "remark", label: "备注" },
   ],
   "fee-types": [
