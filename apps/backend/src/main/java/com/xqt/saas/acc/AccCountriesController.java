@@ -53,11 +53,12 @@ public class AccCountriesController {
                 WHERE (?::text IS NULL OR code ILIKE ? OR en_name ILIKE ? OR cn_name ILIKE ?)
                 """, Long.class, search, search, search, search);
             List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT id::text AS id, code, code3, cn_name, en_name, is_open,
+                SELECT id::text AS id, code, code3, cn_name, en_name, name_tw, name_hk,
+                       phone, sort_order, parent_id::text AS parent_id, is_open,
                        audit_status, audited_at, audit_name
                 FROM countries
                 WHERE (?::text IS NULL OR code ILIKE ? OR en_name ILIKE ? OR cn_name ILIKE ?)
-                ORDER BY code
+                ORDER BY sort_order, code
                 LIMIT ? OFFSET ?
                 """, search, search, search, search, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(), total == null ? 0 : total);
@@ -132,6 +133,11 @@ public class AccCountriesController {
         out.put("name", row.get("en_name"));
         out.put("code", row.get("code"));
         out.put("code3", row.get("code3"));
+        out.put("tw", row.get("name_tw"));
+        out.put("hk", row.get("name_hk"));
+        out.put("phone", row.get("phone"));
+        out.put("sortOrder", row.get("sort_order"));
+        out.put("parentId", row.get("parent_id"));
         out.put("isOpen", row.get("is_open"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));

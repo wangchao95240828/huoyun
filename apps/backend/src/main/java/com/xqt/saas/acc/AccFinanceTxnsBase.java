@@ -98,6 +98,7 @@ abstract class AccFinanceTxnsBase {
             listParams.add(offset);
             List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT t.id::text AS id, t.txn_no, t.the_date, t.amount, t.currency,"
+                + " t.poundage, t.fx_rate, t.pay_currency, t.bank_id::text AS bank_id,"
                 + " t.reason, t.remark, t.status, t.add_name, t.created_at,"
                 + " t.audit_status, t.audited_at, t.audit_name,"
                 + " c.name AS customer_name, p.name AS partner_name,"
@@ -262,6 +263,10 @@ abstract class AccFinanceTxnsBase {
         out.put("supplierName", row.get("partner_name"));
         out.put("amount", row.get("amount"));
         out.put("currency", row.get("currency"));
+        out.put("poundage", row.get("poundage"));
+        out.put("fxRate", row.get("fx_rate"));
+        out.put("payCurrency", row.get("pay_currency"));
+        out.put("bankId", row.get("bank_id"));
         // 双币种快照：用于前端 "¥X -> €Y" 显示
         out.put("targetCurrency", row.get("target_currency"));
         out.put("targetAmount", row.get("target_amount"));

@@ -59,6 +59,7 @@ public class AccRemotesController {
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT rz.id::text AS id, rz.postal_code_pattern, rz.country_code,
                        rz.level::text AS level, rz.version, rz.effective_from,
+                       rz.logistics_type, rz.zip_low, rz.zip_high,
                        rz.audit_status, rz.audited_at, rz.audit_name,
                        cn.name AS channel_name
                 FROM remote_zones rz
@@ -145,6 +146,9 @@ public class AccRemotesController {
         out.put("type", row.get("level"));
         out.put("version", row.get("version"));
         out.put("effectiveFrom", json.value(row.get("effective_from")));
+        out.put("logisticsType", row.get("logistics_type"));
+        out.put("zipLow", row.get("zip_low"));
+        out.put("zipHigh", row.get("zip_high"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));

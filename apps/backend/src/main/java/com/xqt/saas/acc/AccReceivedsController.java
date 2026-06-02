@@ -88,6 +88,8 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
                 + "  p.reference_no,"
                 + "  p.currency,"
                 + "  p.amount,"
+                + "  p.poundage,"
+                + "  p.fx_rate,"
                 + "  p.received_at,"
                 + "  p.remark,"
                 + "  p.audit_status,"
@@ -250,6 +252,8 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
         out.put("customerName", row.get("customer_name"));
         out.put("bankName", row.get("bank_name") == null ? "" : row.get("bank_name"));
         out.put("amount", row.get("amount"));
+        out.put("poundage", row.get("poundage"));
+        out.put("fxRate", row.get("fx_rate"));
         out.put("theDate", json.value(row.get("received_at")));
         out.put("remark", row.get("remark") == null ? "" : row.get("remark"));
         out.put("currency", row.get("currency"));

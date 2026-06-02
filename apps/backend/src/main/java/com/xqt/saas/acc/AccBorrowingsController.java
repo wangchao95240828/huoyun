@@ -63,6 +63,8 @@ public class AccBorrowingsController {
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id::text AS id, borrower_name, the_date, borrowing_type, amount, currency,
                        rate, due_date, repayment_status, repaid_amount,
+                       employee_id::text AS employee_id, start_date, end_date,
+                       cycle, mode, pay_date, remaining, forward, repayment, fixed_amount,
                        remark, add_name, created_at,
                        audit_status, audited_at, audit_name
                 FROM acc_borrowings
@@ -147,6 +149,17 @@ public class AccBorrowingsController {
         out.put("dueDate", json.value(row.get("due_date")));
         out.put("repaymentStatus", row.get("repayment_status"));
         out.put("repaidAmount", row.get("repaid_amount"));
+        // ACC Borrowing 完整 10 字段
+        out.put("employeeId", row.get("employee_id"));
+        out.put("startDate", json.value(row.get("start_date")));
+        out.put("endDate", json.value(row.get("end_date")));
+        out.put("cycle", row.get("cycle"));
+        out.put("mode", row.get("mode"));
+        out.put("payDate", json.value(row.get("pay_date")));
+        out.put("remaining", row.get("remaining"));
+        out.put("forward", row.get("forward"));
+        out.put("repayment", row.get("repayment"));
+        out.put("fixedAmount", row.get("fixed_amount"));
         out.put("remark", row.get("remark"));
         out.put("addName", row.get("add_name"));
         out.put("addTime", json.value(row.get("created_at")));

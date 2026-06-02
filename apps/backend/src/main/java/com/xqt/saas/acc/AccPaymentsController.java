@@ -80,6 +80,9 @@ public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
                 + "  p.payment_no,"
                 + "  p.currency,"
                 + "  p.amount,"
+                + "  p.poundage,"
+                + "  p.fx_rate,"
+                + "  p.pay_currency,"
                 + "  p.payment_type,"
                 + "  p.reference_no,"
                 + "  p.status,"
@@ -175,6 +178,9 @@ public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
         // bankName 优先取关联的资金账户名；没绑定账户时回退到 payment_type
         out.put("bankName", row.get("bank_name") != null ? row.get("bank_name") : row.get("payment_type"));
         out.put("amount", row.get("amount"));
+        out.put("poundage", row.get("poundage"));
+        out.put("fxRate", row.get("fx_rate"));
+        out.put("payCurrency", row.get("pay_currency"));
         out.put("theDate", json.value(row.get("paid_at") != null ? row.get("paid_at") : row.get("created_at")));
         out.put("remark", row.get("reference_no"));
         out.put("currency", row.get("currency"));

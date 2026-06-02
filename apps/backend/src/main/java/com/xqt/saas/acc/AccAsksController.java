@@ -72,7 +72,7 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
                 Long.class, countParams.toArray());
             List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT a.id::text AS id, a.customer_ref, a.content, a.source, a.ask_type, a.status,"
-                + "       a.add_name, a.created_at,"
+                + "       a.add_name, a.created_at, a.is_show,"
                 + "       a.audit_status, a.audited_at, a.audit_name,"
                 + "       s.shipment_no"
                 + " FROM acc_asks a"
@@ -185,6 +185,7 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
         out.put("source", row.get("source"));
         out.put("type", row.get("ask_type"));
         out.put("status", row.get("status"));
+        out.put("isShow", row.get("is_show"));
         out.put("addName", row.get("add_name"));
         out.put("addTime", json.value(row.get("created_at")));
         out.put("auditStatus", row.get("audit_status"));
