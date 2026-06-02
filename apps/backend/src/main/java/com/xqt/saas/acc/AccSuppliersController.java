@@ -63,6 +63,10 @@ public class AccSuppliersController {
                        p.audit_status, p.audited_at, p.audit_name,
                        p.contact_name, p.contact_mobile, p.contact_phone,
                        p.invoice_title, p.invoice_tax_no, p.bank_info_text,
+                       p.contacts, p.mobile, p.fax, p.email, p.qq,
+                       p.main_product, p.address, p.grade, p.credits,
+                       p.settlement_type, p.date_type, p.formula_date, p.formula_bill, p.formula_type,
+                       p.amount_1, p.amount_2, p.amount_3, p.amount_4, p.amount_5, p.amount_6, p.amount_7,
                        -- 关联渠道名（拼接 string_agg），从 channel_cost_policies 找承运
                        (
                          SELECT string_agg(distinct ch.name, ', ')
@@ -175,6 +179,28 @@ public class AccSuppliersController {
         out.put("invoiceTitle", row.get("invoice_title"));
         out.put("invoiceTaxNo", row.get("invoice_tax_no"));
         out.put("bankInfo", row.get("bank_info_text"));
+        // ACC 通用 + 物流商 credits
+        out.put("contacts", row.get("contacts"));
+        out.put("companyMobile", row.get("mobile"));
+        out.put("fax", row.get("fax"));
+        out.put("email", row.get("email"));
+        out.put("qq", row.get("qq"));
+        out.put("mainProduct", row.get("main_product"));
+        out.put("companyAddress", row.get("address"));
+        out.put("grade", row.get("grade"));
+        out.put("credits", row.get("credits"));
+        out.put("settlementType", row.get("settlement_type"));
+        out.put("dateType", row.get("date_type"));
+        out.put("formulaDate", row.get("formula_date"));
+        out.put("formulaBill", row.get("formula_bill"));
+        out.put("formulaType", row.get("formula_type"));
+        out.put("amount1", row.get("amount_1"));
+        out.put("amount2", row.get("amount_2"));
+        out.put("amount3", row.get("amount_3"));
+        out.put("amount4", row.get("amount_4"));
+        out.put("amount5", row.get("amount_5"));
+        out.put("amount6", row.get("amount_6"));
+        out.put("amount7", row.get("amount_7"));
         out.put("status", row.get("status"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));

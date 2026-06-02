@@ -72,6 +72,10 @@ public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
                        c.credit_limit, c.created_at,
                        c.login_no, c.api_key,
                        c.invoice_title, c.invoice_tax_no, c.invoice_address,
+                       c.contacts, c.mobile, c.phone, c.fax, c.email, c.qq,
+                       c.main_product, c.address, c.grade,
+                       c.settlement_type, c.date_type, c.formula_date, c.formula_bill, c.formula_type,
+                       c.amount_1, c.amount_2, c.amount_3, c.amount_4, c.amount_5, c.amount_6, c.amount_7,
                        c.audit_status, c.audited_at, c.audit_name,
                        org.name AS branch_name,
                        grp.name AS group_name,
@@ -199,6 +203,28 @@ public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
         out.put("invoiceTitle", row.get("invoice_title"));
         out.put("invoiceTaxNo", row.get("invoice_tax_no"));
         out.put("invoiceAddress", row.get("invoice_address"));
+        // ACC 通用字段
+        out.put("contacts", row.get("contacts"));
+        out.put("companyMobile", row.get("mobile"));
+        out.put("companyPhone", row.get("phone"));
+        out.put("fax", row.get("fax"));
+        out.put("email", row.get("email"));
+        out.put("qq", row.get("qq"));
+        out.put("mainProduct", row.get("main_product"));
+        out.put("companyAddress", row.get("address"));
+        out.put("grade", row.get("grade"));
+        out.put("settlementType", row.get("settlement_type"));
+        out.put("dateType", row.get("date_type"));
+        out.put("formulaDate", row.get("formula_date"));
+        out.put("formulaBill", row.get("formula_bill"));
+        out.put("formulaType", row.get("formula_type"));
+        out.put("amount1", row.get("amount_1"));
+        out.put("amount2", row.get("amount_2"));
+        out.put("amount3", row.get("amount_3"));
+        out.put("amount4", row.get("amount_4"));
+        out.put("amount5", row.get("amount_5"));
+        out.put("amount6", row.get("amount_6"));
+        out.put("amount7", row.get("amount_7"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));

@@ -58,6 +58,12 @@ public class AccChannelsController {
                 Long.class, search, search, search);
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id::text AS id, code, name, lane, last_mile_method, active,
+                       primary_uom, dim_factor, fuel_required, has_fuel,
+                       volume_modulus, weight_modulus,
+                       limit_declare, limit_weight, limit_volume,
+                       min_weight_total, max_weight_warn, max_length_warn,
+                       limit_item_weight, min_item_weight, weight_ceil_unit,
+                       split_ratio, min_split, weight_method, allow_types, is_shipping,
                        audit_status, audited_at, audit_name
                 FROM channels
                 WHERE ?::text IS NULL OR (code ILIKE ? OR name ILIKE ?)
@@ -135,6 +141,27 @@ public class AccChannelsController {
         out.put("isOpen", row.get("active"));
         out.put("isDebug", false);
         out.put("remark", row.get("lane"));
+        // ACC 产品配置 (Product.php?act=Add)
+        out.put("primaryUom", row.get("primary_uom"));
+        out.put("dimFactor", row.get("dim_factor"));
+        out.put("fuelRequired", row.get("fuel_required"));
+        out.put("hasFuel", row.get("has_fuel"));
+        out.put("volumeModulus", row.get("volume_modulus"));
+        out.put("weightModulus", row.get("weight_modulus"));
+        out.put("limitDeclare", row.get("limit_declare"));
+        out.put("limitWeight", row.get("limit_weight"));
+        out.put("limitVolume", row.get("limit_volume"));
+        out.put("minWeightTotal", row.get("min_weight_total"));
+        out.put("maxWeightWarn", row.get("max_weight_warn"));
+        out.put("maxLengthWarn", row.get("max_length_warn"));
+        out.put("limitItemWeight", row.get("limit_item_weight"));
+        out.put("minItemWeight", row.get("min_item_weight"));
+        out.put("weightCeilUnit", row.get("weight_ceil_unit"));
+        out.put("splitRatio", row.get("split_ratio"));
+        out.put("minSplit", row.get("min_split"));
+        out.put("weightMethod", row.get("weight_method"));
+        out.put("allowTypes", row.get("allow_types"));
+        out.put("isShipping", row.get("is_shipping"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));

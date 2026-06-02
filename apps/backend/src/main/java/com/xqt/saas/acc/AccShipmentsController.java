@@ -89,11 +89,23 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
                   s.customer_ref,
                   s.status::text   AS status,
                   s.destination_country,
+                  s.destination_postal_code,
                   s.created_at,
                   s.audit_status,
                   s.audited_at,
                   s.audit_name,
                   ch.name          AS channel_name,
+                  s.materials_en, s.materials_cn,
+                  s.battery_code, s.label_type, s.services,
+                  s.recipient_company, s.recipient_consignee, s.recipient_phone,
+                  s.recipient_province, s.recipient_city, s.recipient_tax_no,
+                  s.recipient_address, s.recipient_house_no, s.recipient_area_code,
+                  s.shipper_company, s.shipper_consignee, s.shipper_phone,
+                  s.shipper_province, s.shipper_postcode, s.shipper_city,
+                  s.shipper_tax_no, s.shipper_address,
+                  s.sold_to_company, s.sold_to_consignee, s.sold_to_phone,
+                  s.sold_to_province, s.sold_to_postcode, s.sold_to_city,
+                  s.sold_to_tax_no, s.sold_to_address,
                   -- 物流商：从最新生效的 channel_cost_policies 拿 carrier 名
                   (
                     SELECT car.name FROM channel_cost_policies ccp
@@ -321,10 +333,45 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
         out.put("channelName", row.get("channel_name"));
         out.put("supplierName", row.get("supplier_name") == null ? "" : row.get("supplier_name"));
         out.put("country", row.get("destination_country"));
+        out.put("postcode", row.get("destination_postal_code"));
         out.put("totalPiece", row.get("piece_count"));
         out.put("totalWeight", row.get("total_weight"));
         out.put("totalCharge", row.get("total_charge"));
         out.put("totalCost", row.get("total_cost"));
+        // ACC 制单货物/标签信息
+        out.put("materialsEn", row.get("materials_en"));
+        out.put("materialsCn", row.get("materials_cn"));
+        out.put("batteryCode", row.get("battery_code"));
+        out.put("labelType", row.get("label_type"));
+        out.put("services", row.get("services"));
+        // 收件人
+        out.put("recipientCompany", row.get("recipient_company"));
+        out.put("recipientConsignee", row.get("recipient_consignee"));
+        out.put("recipientPhone", row.get("recipient_phone"));
+        out.put("recipientProvince", row.get("recipient_province"));
+        out.put("recipientCity", row.get("recipient_city"));
+        out.put("recipientTaxNo", row.get("recipient_tax_no"));
+        out.put("recipientAddress", row.get("recipient_address"));
+        out.put("recipientHouseNo", row.get("recipient_house_no"));
+        out.put("recipientAreaCode", row.get("recipient_area_code"));
+        // 发件人
+        out.put("shipperCompany", row.get("shipper_company"));
+        out.put("shipperConsignee", row.get("shipper_consignee"));
+        out.put("shipperPhone", row.get("shipper_phone"));
+        out.put("shipperProvince", row.get("shipper_province"));
+        out.put("shipperPostcode", row.get("shipper_postcode"));
+        out.put("shipperCity", row.get("shipper_city"));
+        out.put("shipperTaxNo", row.get("shipper_tax_no"));
+        out.put("shipperAddress", row.get("shipper_address"));
+        // 进口商
+        out.put("soldToCompany", row.get("sold_to_company"));
+        out.put("soldToConsignee", row.get("sold_to_consignee"));
+        out.put("soldToPhone", row.get("sold_to_phone"));
+        out.put("soldToProvince", row.get("sold_to_province"));
+        out.put("soldToPostcode", row.get("sold_to_postcode"));
+        out.put("soldToCity", row.get("sold_to_city"));
+        out.put("soldToTaxNo", row.get("sold_to_tax_no"));
+        out.put("soldToAddress", row.get("sold_to_address"));
         out.put("addTime", json.value(row.get("created_at")));
         out.put("status", row.get("status"));
         out.put("auditStatus", row.get("audit_status"));
