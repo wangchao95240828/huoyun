@@ -58,12 +58,64 @@ public class AccOrdersController {
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
         @RequestParam(required = false) String dateTo,
-        @RequestParam(required = false) String status
+        @RequestParam(required = false) String status,
+        // ACC 高级搜索字段（22 个）
+        @RequestParam(required = false) String trackingNo,
+        @RequestParam(required = false) String customerName,
+        @RequestParam(required = false) String country,
+        @RequestParam(required = false) String postcode,
+        @RequestParam(required = false) String recipientName,
+        @RequestParam(required = false) String recipientPhone,
+        @RequestParam(required = false) String province,
+        @RequestParam(required = false) String city,
+        @RequestParam(required = false) String channelCode,
+        @RequestParam(required = false) java.math.BigDecimal weightFrom,
+        @RequestParam(required = false) java.math.BigDecimal weightTo,
+        @RequestParam(required = false) java.math.BigDecimal declaredValueFrom,
+        @RequestParam(required = false) java.math.BigDecimal declaredValueTo
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+            String trackPat = trackingNo == null || trackingNo.isBlank() ? null : "%" + trackingNo + "%";
+            String custNamePat = customerName == null || customerName.isBlank() ? null : "%" + customerName + "%";
+            String recipientNamePat = recipientName == null || recipientName.isBlank() ? null : "%" + recipientName + "%";
+            String recipientPhonePat = recipientPhone == null || recipientPhone.isBlank() ? null : "%" + recipientPhone + "%";
+            String provincePat = province == null || province.isBlank() ? null : "%" + province + "%";
+            String cityPat = city == null || city.isBlank() ? null : "%" + city + "%";
+
+            // 高级过滤 EXISTS shipment 条件
+            StringBuilder advFilter = new StringBuilder();
+            java.util.List<Object> advParams = new java.util.ArrayList<>();
+            if (trackPat != null || country != null || postcode != null || recipientNamePat != null
+                || recipientPhonePat != null || provincePat != null || cityPat != null
+                || channelCode != null || weightFrom != null || weightTo != null
+                || declaredValueFrom != null || declaredValueTo != null) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _s"
+                    + " LEFT JOIN cartons _ct ON _ct.shipment_id = _s.id"
+                    + " LEFT JOIN channels _cn ON _cn.id = _s.channel_id"
+                    + " WHERE _s.tenant_id = o.tenant_id AND _s.customer_ref = o.customer_ref");
+                if (trackPat != null)        { advFilter.append(" AND _ct.tracking_no ILIKE ?"); advParams.add(trackPat); }
+                if (country != null)         { advFilter.append(" AND _s.destination_country = ?"); advParams.add(country); }
+                if (postcode != null)        { advFilter.append(" AND _s.destination_postal_code ILIKE ?"); advParams.add("%" + postcode + "%"); }
+                if (recipientNamePat != null){ advFilter.append(" AND _s.recipient_consignee ILIKE ?"); advParams.add(recipientNamePat); }
+                if (recipientPhonePat != null){advFilter.append(" AND _s.recipient_phone ILIKE ?"); advParams.add(recipientPhonePat); }
+                if (provincePat != null)     { advFilter.append(" AND _s.recipient_province ILIKE ?"); advParams.add(provincePat); }
+                if (cityPat != null)         { advFilter.append(" AND _s.recipient_city ILIKE ?"); advParams.add(cityPat); }
+                if (channelCode != null)     { advFilter.append(" AND _cn.code = ?"); advParams.add(channelCode); }
+                if (weightFrom != null)      { advFilter.append(" AND _ct.actual_weight_kg >= ?"); advParams.add(weightFrom); }
+                if (weightTo != null)        { advFilter.append(" AND _ct.actual_weight_kg <= ?"); advParams.add(weightTo); }
+                if (declaredValueFrom != null){advFilter.append(" AND _s.declared_value >= ?"); advParams.add(declaredValueFrom); }
+                if (declaredValueTo != null) { advFilter.append(" AND _s.declared_value <= ?"); advParams.add(declaredValueTo); }
+                advFilter.append(")");
+            }
+            // 客户名过滤
+            if (custNamePat != null) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM customers _c WHERE _c.id = o.customer_id AND _c.name ILIKE ?)");
+                advParams.add(custNamePat);
+            }
+            String advFilterSql = advFilter.toString();
 
             // status 过滤模式：DRAFT/CANCELLED/HISTORY/具体值
             String statusMode = status == null || status.isBlank() ? null : status.toUpperCase();
@@ -73,6 +125,7 @@ public class AccOrdersController {
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
                 search, search, search, dateFrom, dateFrom, dateTo, dateTo,
                 statusMode, statusMode, statusMode));
+            countParams.addAll(advParams);
             countParams.addAll(access.params());
             Long total = jdbc.queryForObject(
                 "SELECT count(*) FROM orders o"
@@ -84,6 +137,7 @@ public class AccOrdersController {
                 + "     OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))"
                 + "     OR o.status = ?::text"
                 + "   )"
+                + advFilterSql
                 + access.sql(),
                 Long.class, countParams.toArray());
 
@@ -148,10 +202,11 @@ public class AccOrdersController {
                 + "   OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))"
                 + "   OR o.status = ?::text"
                 + " )"
+                + advFilterSql
                 + access.sql()
                 + " ORDER BY o.created_at DESC"
                 + " LIMIT ? OFFSET ?",
-                buildListParams(search, dateFrom, dateTo, statusMode, access, limit, offset));
+                buildListParams(search, dateFrom, dateTo, statusMode, advParams, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -264,12 +319,14 @@ public class AccOrdersController {
      */
     private static Object[] buildListParams(String search, String dateFrom, String dateTo,
                                              String statusMode,
+                                             java.util.List<Object> advParams,
                                              BranchAccessFilter.AccessClause access,
                                              int limit, int offset) {
         java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
             search, search, search,
             dateFrom, dateFrom, dateTo, dateTo,
             statusMode, statusMode, statusMode));
+        params.addAll(advParams);
         params.addAll(access.params());
         params.add(limit);
         params.add(offset);

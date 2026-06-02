@@ -3200,8 +3200,207 @@ const batchRemitTabs = new Set([
 ]);
 const canBatchRemit = computed(() => batchRemitTabs.has(accTab.value));
 
-// 行复选框：批量审核 OR 批量汇款 都需要
-const canSelect = computed(() => canBatchAudit.value || canBatchRemit.value);
+// 制单中心订单批量操作可用 tab
+const ordersTabSet = new Set(['orders', 'orders-draft', 'orders-history', 'orders-cancelled']);
+const canOrdersBatch = computed(() => ordersTabSet.has(accTab.value));
+
+// ACC 5 个批量操作 sub-tab，需要专用面板
+const batchPageSet = new Set([
+  'orders-change-customer', 'orders-update-tracking', 'orders-update-weight',
+  'orders-batch-charge', 'orders-batch-op',
+]);
+const batchPagePanel = computed(() => batchPageSet.has(accTab.value));
+
+// 批量变更客户 state
+const batchTargetCustomerId = ref('');
+async function doChangeCustomer() {
+  if (!batchTargetCustomerId.value || selectedIds.value.size === 0) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/batch-change-customer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ids: Array.from(selectedIds.value),
+        customerId: batchTargetCustomerId.value,
+      }),
+    });
+    const j = await res.json();
+    bizMessage.value = `客户变更完成: ${j.updated ?? 0}/${j.total ?? 0}`;
+    selectedIds.value.clear();
+    batchTargetCustomerId.value = '';
+    await fetchAccData();
+  } catch (e: any) {
+    bizMessage.value = '失败: ' + e.message;
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 6000);
+  }
+}
+
+// 批量更新转单号 / 计费重 — 用 prompt 收集每行新值（简化交互）
+async function doUpdateTrackingRows() {
+  if (selectedIds.value.size === 0) return;
+  const ids = Array.from(selectedIds.value);
+  const lines: string[] = [];
+  for (const id of ids) {
+    const row = accData.value.find((r: any) => r.id === id);
+    const v = prompt(`订单 ${row?.orderNo ?? id}: 新转单号？`, row?.trackNo ?? '');
+    if (v == null) return;
+    lines.push(JSON.stringify({ id, trackingNo: v }));
+  }
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/batch-update-tracking`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: lines.map(s => JSON.parse(s)) }),
+    });
+    const j = await res.json();
+    bizMessage.value = `转单号更新: ${j.updated ?? 0}/${j.total ?? 0}`;
+    selectedIds.value.clear();
+    await fetchAccData();
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 6000);
+  }
+}
+
+async function doUpdateWeightRows() {
+  if (selectedIds.value.size === 0) return;
+  const ids = Array.from(selectedIds.value);
+  const lines: any[] = [];
+  for (const id of ids) {
+    const row = accData.value.find((r: any) => r.id === id);
+    const v = prompt(`订单 ${row?.orderNo ?? id}: 新计费重 kg？`, '');
+    if (v == null) return;
+    const n = Number(v);
+    if (!Number.isFinite(n)) continue;
+    lines.push({ id, chargeableKg: n });
+  }
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/batch-update-weight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rows: lines }),
+    });
+    const j = await res.json();
+    bizMessage.value = `计费重更新: ${j.updated ?? 0}/${j.total ?? 0}`;
+    selectedIds.value.clear();
+    await fetchAccData();
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 6000);
+  }
+}
+
+// 行复选框：批量审核 OR 批量汇款 OR 订单批量操作 OR 批量页面
+const canSelect = computed(() => canBatchAudit.value || canBatchRemit.value || canOrdersBatch.value || batchPageSet.has(accTab.value));
+
+// ═══ 制单中心批量按钮 ═══
+async function callOrdersBatch(endpoint: string, extra: Record<string, any> = {}) {
+  if (selectedIds.value.size === 0) {
+    bizMessage.value = '请先勾选订单';
+    return;
+  }
+  bizLoading.value = true;
+  try {
+    const ids = Array.from(selectedIds.value);
+    const res = await apiFetch(`${API}/api/acc/orders/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, ...extra }),
+    });
+    const j = await res.json();
+    if (res.ok) {
+      bizMessage.value = `${endpoint} 完成: ${JSON.stringify(j).slice(0, 200)}`;
+      selectedIds.value.clear();
+      await fetchAccData();
+    } else {
+      bizMessage.value = `${endpoint} 失败: ${j.error ?? res.status}`;
+    }
+  } catch (e: any) {
+    bizMessage.value = `${endpoint} 异常: ${e.message}`;
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 6000);
+  }
+}
+
+const doOrdersBatchSubmit = () => callOrdersBatch('batch-submit');
+const doOrdersBatchQuery  = () => callOrdersBatch('batch-query');
+const doOrdersBatchVoid   = () => callOrdersBatch('batch-void', { reason: '批量作废' });
+const doOrdersBatchRecharge = () => callOrdersBatch('batch-recharge');
+const doOrdersBatchMerge  = () => callOrdersBatch('batch-merge');
+
+// 打印类按钮（弹一个新窗口预览）
+async function doOrdersPrint(kind: string) {
+  if (selectedIds.value.size === 0) {
+    bizMessage.value = '请先勾选订单';
+    return;
+  }
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/print-${kind}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selectedIds.value) }),
+    });
+    const j = await res.json();
+    if (res.ok) {
+      const w = window.open('', '_blank');
+      if (w) {
+        w.document.write(`<html><head><title>${kind}</title></head><body><pre>${JSON.stringify(j, null, 2)}</pre></body></html>`);
+      }
+      bizMessage.value = `${kind} 准备 ${j.count ?? 0} 份`;
+    }
+  } catch (e: any) {
+    bizMessage.value = `打印失败: ${e.message}`;
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 6000);
+  }
+}
+
+// 导入快件
+const showImportDialog = ref(false);
+async function doDownloadImportTemplate() {
+  const res = await apiFetch(`${API}/api/acc/orders/import-template`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'order-import-template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+async function doImportExcel(event: Event) {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+  const fd = new FormData();
+  fd.append('file', file);
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/import-excel`, {
+      method: 'POST',
+      body: fd,
+    });
+    const j = await res.json();
+    bizMessage.value = `导入完成: 成功 ${j.created ?? 0} / 失败 ${j.failed ?? 0}`;
+    if ((j.errors ?? []).length > 0) {
+      console.log('导入错误:', j.errors);
+    }
+    await fetchAccData();
+  } catch (e: any) {
+    bizMessage.value = `导入失败: ${e.message}`;
+  } finally {
+    bizLoading.value = false;
+    target.value = '';
+    setTimeout(() => { bizMessage.value = ''; }, 10000);
+  }
+}
 
 // 批量汇款 dialog state
 const showBatchRemitDialog = ref(false);
@@ -4026,6 +4225,56 @@ async function doReloadBill(id: number) {
                   :disabled="bizLoading || selectedIds.size === 0" style="color:#0ea5e9">
             <Landmark :size="13" /> 批量汇款({{ selectedIds.size }})
           </button>
+          <!-- ACC 制单中心 13 个工具栏按钮 -->
+          <template v-if="canOrdersBatch">
+            <button class="secondary sm" @click="doOrdersBatchSubmit" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 批量提交({{ selectedIds.size }})
+            </button>
+            <button class="secondary sm" @click="doOrdersBatchQuery" :disabled="bizLoading || selectedIds.size === 0">
+              <Search :size="13" /> 批量查询
+            </button>
+            <button class="secondary sm" @click="doOrdersBatchVoid" :disabled="bizLoading || selectedIds.size === 0" style="color:#dc2626">
+              <MinusCircle :size="13" /> 批量作废
+            </button>
+            <button class="secondary sm" @click="doOrdersBatchRecharge" :disabled="bizLoading || selectedIds.size === 0">
+              <Calculator :size="13" /> 批量计费
+            </button>
+            <button class="secondary sm" @click="doOrdersBatchMerge" :disabled="bizLoading || selectedIds.size < 2">
+              <PackageOpen :size="13" /> 合并制单
+            </button>
+            <button class="secondary sm" @click="doOrdersPrint('label')" :disabled="bizLoading || selectedIds.size === 0">
+              <FileText :size="13" /> 打印标签
+            </button>
+            <button class="secondary sm" @click="doOrdersPrint('invoice')" :disabled="bizLoading || selectedIds.size === 0">
+              <Receipt :size="13" /> 打印发票
+            </button>
+            <button class="secondary sm" @click="doOrdersPrint('battery-letter')" :disabled="bizLoading || selectedIds.size === 0">
+              <FileText :size="13" /> 电池信
+            </button>
+            <button class="secondary sm" @click="doOrdersPrint('handover')" :disabled="bizLoading || selectedIds.size === 0">
+              <FileText :size="13" /> 交接清单
+            </button>
+            <button class="secondary sm" @click="doOrdersPrint('a4-all')" :disabled="bizLoading || selectedIds.size === 0">
+              <FileText :size="13" /> A4 全套
+            </button>
+            <button class="secondary sm" @click="doOrdersPrint('simple-label')" :disabled="bizLoading || selectedIds.size === 0">
+              <Tag :size="13" /> 简易标签
+            </button>
+            <button class="secondary sm" @click="doOrdersPrint('master-label')" :disabled="bizLoading || selectedIds.size === 0">
+              <Tag :size="13" /> 多主单标签
+            </button>
+          </template>
+          <!-- 导入快件 (在 orders-import tab 显示) -->
+          <template v-if="accTab === 'orders-import'">
+            <button class="secondary sm" @click="doDownloadImportTemplate" :disabled="bizLoading">
+              <Download :size="13" /> 下载模板
+            </button>
+            <label class="secondary sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px">
+              <Upload :size="13" />
+              <span>导入 Excel/CSV</span>
+              <input type="file" accept=".csv,.xlsx,.xls" @change="doImportExcel" style="display:none" />
+            </label>
+          </template>
           <button class="secondary sm" v-if="canExport" @click="doExport" :disabled="bizLoading">
             <Download :size="13" /> 导出
           </button>
@@ -4043,6 +4292,46 @@ async function doReloadBill(id: number) {
           </button>
           <span class="result-count" v-if="!accLoading">共 {{ accTotal }} 条</span>
           <span class="biz-message" v-if="bizMessage">{{ bizMessage }}</span>
+        </div>
+
+        <!-- ACC 5 个批量操作页面的专用面板（在表格上方） -->
+        <div v-if="batchPagePanel" class="batch-panel" style="margin:8px 0;padding:12px;background:#f8fafc;border:1px dashed #94a3b8;border-radius:6px">
+          <template v-if="accTab === 'orders-change-customer'">
+            <strong>批量变更客户：</strong>
+            勾选订单 + 选目标客户：
+            <select v-model="batchTargetCustomerId" style="margin:0 8px">
+              <option value="">请选择新客户</option>
+              <option v-for="opt in (selectOptions['customers'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+            </select>
+            <button class="primary sm" @click="doChangeCustomer" :disabled="!batchTargetCustomerId || selectedIds.size===0">
+              应用到 {{ selectedIds.size }} 单
+            </button>
+          </template>
+          <template v-if="accTab === 'orders-update-tracking'">
+            <strong>批量更新转单号：</strong>勾订单后，每行单独填新转单号，再点提交：
+            <button class="primary sm" @click="doUpdateTrackingRows" :disabled="selectedIds.size===0">
+              提交 {{ selectedIds.size }} 行
+            </button>
+            <p style="font-size:12px;color:#64748b">支持: 在表格 ↗右侧粘贴 trackingNo 后回车，或在弹窗里逐行填</p>
+          </template>
+          <template v-if="accTab === 'orders-update-weight'">
+            <strong>批量更新计费重：</strong>勾订单后，每行单独填新重量，再点提交：
+            <button class="primary sm" @click="doUpdateWeightRows" :disabled="selectedIds.size===0">
+              提交 {{ selectedIds.size }} 行
+            </button>
+          </template>
+          <template v-if="accTab === 'orders-batch-charge'">
+            <strong>批量计费：</strong>勾选订单 → 重新跑费率引擎 (charges 标 DRAFT 等下次 Submit 重新计费)：
+            <button class="primary sm" @click="doOrdersBatchRecharge" :disabled="selectedIds.size===0">
+              重算 {{ selectedIds.size }} 单
+            </button>
+          </template>
+          <template v-if="accTab === 'orders-batch-op'">
+            <strong>批量操作 (替换转单号)：</strong>勾订单 + 每行填新转单号：
+            <button class="primary sm" @click="doUpdateTrackingRows" :disabled="selectedIds.size===0">
+              替换 {{ selectedIds.size }} 单的转单号
+            </button>
+          </template>
         </div>
 
         <!-- Data table -->
