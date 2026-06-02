@@ -2829,12 +2829,13 @@ async function fetchAccData() {
     params.set("page", String(accPage.value));
     params.set("pageSize", String(accPageSize.value));
   }
-  // orders 类 tab 使用搜索字段下拉，把值映射到对应 param 名
+  // 按 tab 搜索字段下拉，映射到对应 param
   if (accKeyword.value) {
-    if (ordersTabSet.has(accTab.value) && ordersSearchField.value !== 'keyword') {
-      const opt = ordersSearchFieldOpts.find(o => o.v === ordersSearchField.value);
+    const fields = currentTabSearchFields.value;
+    const fieldKey = currentSearchField.value;
+    if (fields && fieldKey !== 'keyword') {
+      const opt = fields.find(o => o.v === fieldKey);
       const v = accKeyword.value.trim();
-      // 数值/日期类支持 "from-to" 区间
       if (opt && (opt.v.endsWith('From') || ['weight','declaredValue','chargeWeight','fee'].includes(opt.v))) {
         const [from, to] = v.split('-').map(s => s.trim());
         const paramFrom = opt.param;
@@ -2908,8 +2909,8 @@ watch(accTab, () => {
   if (accTab.value === 'orders-change-customer') {
     loadSelectOptions([{ type: 'select', ref: 'customers' } as any]);
   }
-  // 批量页面不需要拉列表数据
-  if (!batchPageSet.has(accTab.value)) {
+  // 批量页面 / 批量打印页不需要拉列表数据
+  if (!batchPageSet.has(accTab.value) && accTab.value !== 'orders-batch-print') {
     fetchAccData();
   }
 });
@@ -3229,11 +3230,64 @@ const canOrdersBatch = computed(() => ordersTabSet.has(accTab.value));
 // 作废订单 tab 用不同的工具栏 + 取消订单只有 彻底删除 一个按钮
 const isVoidAuditTab = computed(() => accTab.value === 'orders-void');
 const isCancelTab = computed(() => accTab.value === 'orders-cancelled');
-const showFullOrdersToolbar = computed(() => canOrdersBatch.value && !isVoidAuditTab.value && !isCancelTab.value);
+// ACC: 14 按钮 ONLY 在 未提交 + 历史制单
+const fullToolbarTabs = new Set(['orders-draft', 'orders-history']);
+const showFullOrdersToolbar = computed(() => fullToolbarTabs.has(accTab.value));
+
+// ACC 风格通用搜索字段配置（按 tab）
+type SearchFieldOpt = { v: string; l: string; param: string; placeholder?: string };
+const tabSearchConfig: Record<string, SearchFieldOpt[]> = {
+  customers: [
+    { v: 'keyword',     l: '关键词',  param: 'keyword' },
+    { v: 'code',        l: '编码',    param: 'code' },
+    { v: 'name',        l: '名称',    param: 'customerName' },
+    { v: 'contact',     l: '联系人',  param: 'contact' },
+    { v: 'mobile',      l: '手机',    param: 'mobile' },
+    { v: 'email',       l: '邮箱',    param: 'email' },
+    { v: 'loginNo',     l: '登陆号',  param: 'loginNo' },
+    { v: 'invoiceTaxNo',l: '税号',    param: 'invoiceTaxNo' },
+  ],
+  suppliers: [
+    { v: 'keyword',     l: '关键词',  param: 'keyword' },
+    { v: 'code',        l: '编码',    param: 'code' },
+    { v: 'name',        l: '名称',    param: 'supplierName' },
+    { v: 'contact',     l: '联系人',  param: 'contact' },
+    { v: 'mobile',      l: '手机',    param: 'mobile' },
+    { v: 'product',     l: '主营产品',param: 'mainProduct' },
+  ],
+  channels: [
+    { v: 'keyword',     l: '关键词',  param: 'keyword' },
+    { v: 'name',        l: '名称',    param: 'channelName' },
+    { v: 'code',        l: '编号',    param: 'channelCode' },
+  ],
+  charges: [
+    { v: 'keyword',     l: '关键词',  param: 'keyword' },
+    { v: 'shipmentNo',  l: '运单号',  param: 'shipmentNo' },
+    { v: 'customer',    l: '客户',    param: 'customerName' },
+    { v: 'country',     l: '国家',    param: 'country' },
+  ],
+  costs: [
+    { v: 'keyword',     l: '关键词',  param: 'keyword' },
+    { v: 'shipmentNo',  l: '运单号',  param: 'shipmentNo' },
+    { v: 'supplier',    l: '物流商',  param: 'supplierName' },
+  ],
+  bills: [
+    { v: 'keyword',   l: '账单号', param: 'keyword' },
+    { v: 'customer',  l: '客户',   param: 'customerName' },
+  ],
+  payments: [
+    { v: 'keyword',  l: '付款单号', param: 'keyword' },
+    { v: 'supplier', l: '物流商',   param: 'supplierName' },
+  ],
+  receiveds: [
+    { v: 'keyword',  l: '收款单号', param: 'keyword' },
+    { v: 'customer', l: '客户',     param: 'customerName' },
+  ],
+};
 
 // ACC 订单列表搜索字段下拉（对应 ACC Online.php 搜索索引 22 项）
 const ordersSearchField = ref('keyword');
-const ordersSearchFieldOpts: Array<{ v: string; l: string; param: string; placeholder?: string }> = [
+const ordersSearchFieldOpts: SearchFieldOpt[] = [
   { v: 'keyword',           l: '单号',          param: 'keyword',           placeholder: '运单号 / 客户单号' },
   { v: 'trackingNo',        l: '转单号',        param: 'trackingNo',        placeholder: '渠道转单号' },
   { v: 'customerName',      l: '客户',          param: 'customerName',      placeholder: '客户名称' },
@@ -3262,12 +3316,117 @@ const ordersSearchPlaceholder = computed(() => {
   return opt?.placeholder ?? `输入 ${opt?.l ?? ''}`;
 });
 
+// 当前 tab 的搜索字段定义（覆盖 tabSearchConfig + ordersTabSet）
+const currentTabSearchFields = computed<SearchFieldOpt[] | null>(() => {
+  if (ordersTabSet.has(accTab.value)) return ordersSearchFieldOpts;
+  return tabSearchConfig[accTab.value] ?? null;
+});
+const genericSearchField = ref('keyword');
+watch(accTab, () => {
+  genericSearchField.value = 'keyword';
+  ordersSearchField.value = 'keyword';
+});
+const currentSearchField = computed({
+  get: () => ordersTabSet.has(accTab.value) ? ordersSearchField.value : genericSearchField.value,
+  set: (v: string) => {
+    if (ordersTabSet.has(accTab.value)) ordersSearchField.value = v;
+    else genericSearchField.value = v;
+  },
+});
+const currentSearchPlaceholder = computed(() => {
+  const fields = currentTabSearchFields.value;
+  if (!fields) return '搜索关键词...';
+  const opt = fields.find(o => o.v === currentSearchField.value);
+  return opt?.placeholder ?? `输入 ${opt?.l ?? ''}`;
+});
+
 // ACC 5 个批量操作 sub-tab，需要独立专用页面（对照 ExpressBatch.php 截图）
 const batchPageSet = new Set([
   'orders-change-customer', 'orders-update-tracking', 'orders-update-weight',
   'orders-batch-charge', 'orders-batch-track',
 ]);
 const batchPagePanel = computed(() => batchPageSet.has(accTab.value));
+// 批量打印独立扫描页
+const isBatchPrintPage = computed(() => accTab.value === 'orders-batch-print');
+// 批量打印状态
+const printScanInput = ref('');
+const printScanRows = ref<any[]>([]);
+const printScanCount = ref(0);
+const printScanSuccess = ref(0);
+async function doScanLookup() {
+  if (!printScanInput.value.trim()) return;
+  const no = printScanInput.value.trim();
+  printScanCount.value += 1;
+  bizLoading.value = true;
+  try {
+    // 用 batch-preview 单条查找
+    const res = await apiFetch(`${API}/api/acc/orders/batch-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'track', text: no }),
+    });
+    const j = await res.json();
+    if ((j.rows ?? []).length > 0) {
+      const r = j.rows[0];
+      const existing = printScanRows.value.find((x: any) => x.id === r.id);
+      if (!existing) {
+        printScanRows.value.unshift({
+          ...r,
+          scanNo: no,
+          masterNo: r.trackNo,
+          pageNo: 1,
+        });
+        printScanSuccess.value += 1;
+        bizMessage.value = `扫描成功: ${r.orderNo}`;
+      } else {
+        bizMessage.value = `重复扫描: ${no}`;
+      }
+    } else {
+      bizMessage.value = `未找到: ${no}`;
+    }
+    printScanInput.value = '';
+  } catch (e: any) {
+    bizMessage.value = '查询失败: ' + e.message;
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 4000);
+  }
+}
+function clearScanList() {
+  printScanRows.value = [];
+  printScanCount.value = 0;
+  printScanSuccess.value = 0;
+}
+async function printScanList(kind: string) {
+  if (printScanRows.value.length === 0) { bizMessage.value = '请先扫描快件'; return; }
+  bizLoading.value = true;
+  try {
+    const ids = printScanRows.value.map((r: any) => r.id);
+    const res = await apiFetch(`${API}/api/acc/orders/print-${kind}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const j = await res.json();
+    if (res.ok) {
+      const w = window.open('', '_blank');
+      if (w) {
+        w.document.write(`<html><head><title>${kind}</title></head><body><pre>${JSON.stringify(j, null, 2)}</pre></body></html>`);
+      }
+      bizMessage.value = `${kind} 准备 ${j.count ?? 0} 份`;
+    }
+  } catch (e: any) {
+    bizMessage.value = '打印失败: ' + e.message;
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 4000);
+  }
+}
+watch(() => accTab.value, () => {
+  if (accTab.value === 'orders-batch-print') {
+    clearScanList();
+  }
+});
 
 // ACC 批量页面统一状态
 const batchInputText = ref('');
@@ -4382,15 +4541,15 @@ async function doReloadBill(id: number) {
           <strong>{{ accTabs.find(t => t.key === accTab)?.label ?? '快件订单' }}</strong>
         </div>
 
-        <!-- Search bar (批量页面隐藏) -->
-        <div class="acc-search-bar" v-if="!batchPagePanel">
-          <!-- ACC 风格：搜索字段下拉 + 输入框，仅 orders 类 tab -->
-          <template v-if="canOrdersBatch">
+        <!-- Search bar (批量页面/打印页隐藏) -->
+        <div class="acc-search-bar" v-if="!batchPagePanel && !isBatchPrintPage">
+          <!-- ACC 风格：搜索字段下拉 + 输入框 -->
+          <template v-if="currentTabSearchFields">
             <span style="font-size:13px;margin-right:4px">搜索:</span>
-            <select v-model="ordersSearchField" style="padding:4px;font-size:13px;margin-right:4px">
-              <option v-for="opt in ordersSearchFieldOpts" :key="opt.v" :value="opt.v">{{ opt.l }}</option>
+            <select v-model="currentSearchField" style="padding:4px;font-size:13px;margin-right:4px">
+              <option v-for="opt in currentTabSearchFields" :key="opt.v" :value="opt.v">{{ opt.l }}</option>
             </select>
-            <input type="text" v-model="accKeyword" :placeholder="ordersSearchPlaceholder" @keyup.enter="accSearch" style="min-width:240px" />
+            <input type="text" v-model="accKeyword" :placeholder="currentSearchPlaceholder" @keyup.enter="accSearch" style="min-width:240px" />
           </template>
           <div v-else class="search-group">
             <Search :size="14" class="search-icon" />
@@ -4517,6 +4676,74 @@ async function doReloadBill(id: number) {
         </div>
 
         <!-- ACC 5 个批量操作页面的专用面板（在表格上方） -->
+        <!-- ACC 批量打印页面（扫描式 UI） -->
+        <div v-if="isBatchPrintPage" class="acc-batch-print" style="background:#fff;border:1px solid #cbd5e1;border-radius:4px;margin-top:8px">
+          <!-- 顶部扫描区 -->
+          <div style="padding:14px 16px;background:#f8fafc;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;gap:12px">
+            <strong style="font-size:14px">扫描快件：</strong>
+            <input type="text" v-model="printScanInput" @keyup.enter="doScanLookup"
+                   placeholder="输入单号后回车（条码枪自动回车）" autofocus
+                   style="flex:1;max-width:380px;padding:6px 10px;border:1px solid #93c5fd;border-radius:3px;font-size:14px" />
+            <button class="primary sm" @click="doScanLookup" :disabled="bizLoading || !printScanInput">检索快件</button>
+            <span style="margin-left:auto;font-size:13px">
+              <strong>扫描数量：</strong>
+              扫描:<span style="color:#2563eb">【{{ printScanCount }}】</span> 个 /
+              成功:<span style="color:#059669">【{{ printScanSuccess }}】</span> 个
+            </span>
+          </div>
+          <!-- 打印按钮组 -->
+          <div style="padding:8px 16px;border-bottom:1px solid #e2e8f0;display:flex;gap:6px;flex-wrap:wrap">
+            <button class="secondary sm" @click="printScanList('a4-all')" :disabled="!printScanRows.length">A4所有文档</button>
+            <button class="secondary sm" @click="printScanList('label')" :disabled="!printScanRows.length">打印标签</button>
+            <button class="secondary sm" @click="printScanList('invoice')" :disabled="!printScanRows.length">打印发票</button>
+            <button class="secondary sm" @click="printScanList('battery-letter')" :disabled="!printScanRows.length">打印电池信</button>
+            <button class="secondary sm" @click="printScanList('master-label')" :disabled="!printScanRows.length">多主单标签</button>
+            <button class="secondary sm" @click="printScanList('invoice2-battery2')" :disabled="!printScanRows.length">2发票和2电池信</button>
+            <button class="secondary sm" @click="printScanList('simple-label')" :disabled="!printScanRows.length">简易标签</button>
+            <button class="secondary sm" @click="printScanList('handover')" :disabled="!printScanRows.length">交接清单</button>
+            <button class="secondary sm" @click="clearScanList" :disabled="!printScanRows.length" style="margin-left:auto;color:#dc2626">清空列表</button>
+          </div>
+          <!-- 打印清单 -->
+          <div style="background:#e0f2fe;border-bottom:1px solid #93c5fd;padding:6px 16px;font-weight:bold;text-align:center;font-size:13px">
+            打印清单
+          </div>
+          <table class="data-table" style="width:100%;font-size:13px">
+            <thead>
+              <tr>
+                <th style="width:50px">序号</th>
+                <th>扫描单号</th>
+                <th>运单号</th>
+                <th>主单号</th>
+                <th style="width:50px">选页</th>
+                <th>客户</th>
+                <th>重量</th>
+                <th>件数</th>
+                <th>目的地</th>
+                <th>发货渠道</th>
+                <th>参数</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="printScanRows.length === 0">
+                <td colspan="11" class="empty-cell">扫描或输入单号后回车开始</td>
+              </tr>
+              <tr v-for="(row, i) in printScanRows" :key="row.id">
+                <td>{{ i + 1 }}</td>
+                <td>{{ row.scanNo }}</td>
+                <td>{{ row.orderNo }}</td>
+                <td>{{ row.masterNo }}</td>
+                <td><input type="number" v-model.number="row.pageNo" min="1" style="width:50px" /></td>
+                <td>{{ row.customerName }}</td>
+                <td>{{ row.weight }}</td>
+                <td>{{ row.pieces ?? '-' }}</td>
+                <td>{{ row.country }}</td>
+                <td>{{ row.product }}</td>
+                <td>{{ row.status }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
         <!-- ACC 批量操作页面（textarea 粘贴 + 预览 + 确认两步） -->
         <div v-if="batchPagePanel" class="acc-batch-page" style="background:#fff;border:1px solid #cbd5e1;border-radius:4px;margin-top:8px">
           <div style="background:#e0f2fe;border-bottom:1px solid #93c5fd;padding:10px 16px;font-weight:bold;text-align:center">
@@ -4656,8 +4883,8 @@ async function doReloadBill(id: number) {
           </div>
         </div>
 
-        <!-- Data table (非批量页才显示) -->
-        <div class="acc-table-wrap" v-if="!batchPagePanel">
+        <!-- Data table (非批量页/打印页才显示) -->
+        <div class="acc-table-wrap" v-if="!batchPagePanel && !isBatchPrintPage">
           <table class="data-table" v-if="accColumns[accTab]">
             <thead>
               <tr>
@@ -4763,7 +4990,7 @@ async function doReloadBill(id: number) {
         </div>
 
         <!-- Pagination -->
-        <div class="pagination" v-if="!noPaginationTabs.has(accTab) && accTotal > 0 && !batchPagePanel">
+        <div class="pagination" v-if="!noPaginationTabs.has(accTab) && accTotal > 0 && !batchPagePanel && !isBatchPrintPage">
           <button @click="accPrev" :disabled="accPage <= 1">
             <ChevronLeft :size="14" /> 上一页
           </button>
