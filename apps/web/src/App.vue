@@ -449,7 +449,6 @@ const accTabs = [
   { key: "orders-update-weight", label: "更新计费重", icon: RefreshCw, api: "orders" },
   { key: "orders-change-customer", label: "变更客户", icon: ArrowLeftRight, api: "orders" },
   { key: "orders-batch-charge", label: "批量计费", icon: Calculator, api: "orders" },
-  { key: "orders-track", label: "追踪快递", icon: MapPin, api: "orders" },
   // 物流出货
   { key: "shipments", label: "出货管理", icon: Truck, api: "shipments" },
   // ACC「配载中心」拆分快件查询 / 今日快件 (沿用 shipments 数据源 + 不同过滤)
@@ -641,12 +640,12 @@ const accGroupOrder = [
   T("orders-queue"),                    // 制单队列
   T("orders-import"),                   // 导入快件
   T("orders-batch-print"),              // 批量打印
-  T("orders-batch-track"),                 // 批量操作
+  // 批量操作子组：5 个独立批量页面（ACC ExpressBatch.php）
   T("orders-update-tracking"),          // 更新转单号
   T("orders-update-weight"),            // 更新计费重
   T("orders-change-customer"),          // 变更客户
   T("orders-batch-charge"),             // 批量计费
-  T("orders-track"),                    // 追踪快递
+  T("orders-batch-track"),              // 追踪快递
 ];
 // 配载中心
 const accGroupStowage = [
@@ -798,7 +797,6 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'orders-update-weight': 'orders',
       'orders-change-customer': 'orders',
       'orders-batch-charge': 'orders',
-      'orders-track': 'orders',
       // 核算中心 view tabs (复用 charges/costs 列)
       'charges-history': 'charges',
       'charges-pending': 'charges',
@@ -861,7 +859,6 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'orders-update-weight': 'orders',
       'orders-change-customer': 'orders',
       'orders-batch-charge': 'orders',
-      'orders-track': 'orders',
       // 核算中心 view tabs (复用 charges/costs 列)
       'charges-history': 'charges',
       'charges-pending': 'charges',
@@ -1749,7 +1746,7 @@ const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'custome
   'shipments-channel-stats', 'stowages-exception',
   // 制单工具类多为只读视图
   'orders-queue', 'orders-batch-print', 'orders-update-tracking', 'orders-update-weight',
-  'orders-change-customer', 'orders-batch-charge', 'orders-track',
+  'orders-change-customer', 'orders-batch-charge',
   // 核算 view 子页只读
   'charges-history', 'charges-pending', 'charges-pending-return', 'charges-pending-reparation',
   'costs-pending', 'costs-estimate', 'costs-recent', 'costs-history',
