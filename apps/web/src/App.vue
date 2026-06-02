@@ -507,6 +507,7 @@ const accTabs = [
   { key: "logistics-interfaces", label: "物流接口", icon: Layers, api: "logistics-interfaces" },
   { key: "tasks", label: "定时任务", icon: ListChecks, api: "tasks" },
   { key: "templates", label: "消息模板", icon: FileText, api: "templates" },
+  { key: "importer-templates", label: "进口商模板", icon: FileText, api: "importer-templates" },
   // ACC 基础信息 → 运费管理 新增 4 个 tab
   { key: "sales-prices", label: "销售价格", icon: WalletCards, api: "sales-prices" },
   { key: "customer-prices", label: "客户价格", icon: WalletCards, api: "customer-prices" },
@@ -644,6 +645,7 @@ const accGroupSystem = [
   T("fuels"), T("hscodes"),
   T("zones"), T("bank-names"),
   T("logistics-interfaces"), T("tasks"), T("templates"),
+  T("importer-templates"),                  // 制单进口商预设
 ];
 
 const accMenuGroups = [
@@ -851,6 +853,8 @@ Object.assign(accColumns, {
     { key: "name", label: "名称" },
     { key: "loginNo", label: "登陆号" },
     { key: "apiKey", label: "API Key" },
+    { key: "invoiceTitle", label: "开票抬头" },
+    { key: "invoiceTaxNo", label: "税号" },
     { key: "contact", label: "联系人" },
     { key: "mobile", label: "手机" },
     { key: "balance", label: "余额", fmt: "money" },
@@ -868,6 +872,9 @@ Object.assign(accColumns, {
     { key: "product", label: "主营产品" },
     { key: "balance", label: "结余", fmt: "money" },
     { key: "settlement", label: "结算方式" },
+    { key: "invoiceTitle", label: "开票抬头" },
+    { key: "invoiceTaxNo", label: "税号" },
+    { key: "bankInfo", label: "银行信息" },
   ],
   channels: [
     { key: "name", label: "渠道名称" },
@@ -1137,7 +1144,11 @@ Object.assign(accColumns, {
     { key: "theDate", label: "日期" },
     { key: "type", label: "类型" },
     { key: "amount", label: "金额", fmt: "money" },
+    { key: "currency", label: "币种" },
     { key: "rate", label: "利率(%)" },
+    { key: "dueDate", label: "到期日" },
+    { key: "repaymentStatus", label: "还款状态" },
+    { key: "repaidAmount", label: "已还", fmt: "money" },
     { key: "remark", label: "备注" },
     { key: "addName", label: "操作人" },
   ],
@@ -1467,6 +1478,16 @@ Object.assign(accColumns, {
     { key: "diff", label: "差值(kg)" },
     { key: "dwsChargeable", label: "计费重(kg)" },
     { key: "scannedAt", label: "扫描时间", fmt: "datetime" },
+  ],
+  "importer-templates": [
+    { key: "name", label: "模板名称" },
+    { key: "country", label: "国家" },
+    { key: "taxId", label: "税号" },
+    { key: "address", label: "地址" },
+    { key: "contactName", label: "联系人" },
+    { key: "contactPhone", label: "电话" },
+    { key: "customerName", label: "绑定客户" },
+    { key: "createdAt", label: "创建时间", fmt: "datetime" },
   ],
   "inbound-parcels": [
     { key: "parcelNo", label: "箱号" },

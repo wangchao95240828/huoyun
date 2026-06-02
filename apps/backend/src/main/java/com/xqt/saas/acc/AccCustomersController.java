@@ -71,6 +71,7 @@ public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
                 SELECT c.id::text AS id, c.code, c.name, c.default_currency, c.account_mode,
                        c.credit_limit, c.created_at,
                        c.login_no, c.api_key,
+                       c.invoice_title, c.invoice_tax_no, c.invoice_address,
                        c.audit_status, c.audited_at, c.audit_name,
                        org.name AS branch_name,
                        grp.name AS group_name,
@@ -195,6 +196,9 @@ public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
         out.put("salesman", row.get("salesman_name") == null ? "" : row.get("salesman_name"));
         out.put("loginNo", row.get("login_no"));
         out.put("apiKey", row.get("api_key"));
+        out.put("invoiceTitle", row.get("invoice_title"));
+        out.put("invoiceTaxNo", row.get("invoice_tax_no"));
+        out.put("invoiceAddress", row.get("invoice_address"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));

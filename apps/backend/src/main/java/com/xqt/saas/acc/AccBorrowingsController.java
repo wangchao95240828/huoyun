@@ -62,7 +62,8 @@ public class AccBorrowingsController {
                 """, Long.class, search, search, dateFrom, dateFrom, dateTo, dateTo);
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT id::text AS id, borrower_name, the_date, borrowing_type, amount, currency,
-                       rate, remark, add_name, created_at,
+                       rate, due_date, repayment_status, repaid_amount,
+                       remark, add_name, created_at,
                        audit_status, audited_at, audit_name
                 FROM acc_borrowings
                 WHERE (?::text IS NULL OR borrower_name ILIKE ?)
@@ -143,6 +144,9 @@ public class AccBorrowingsController {
         out.put("amount", row.get("amount"));
         out.put("currency", row.get("currency"));
         out.put("rate", row.get("rate"));
+        out.put("dueDate", json.value(row.get("due_date")));
+        out.put("repaymentStatus", row.get("repayment_status"));
+        out.put("repaidAmount", row.get("repaid_amount"));
         out.put("remark", row.get("remark"));
         out.put("addName", row.get("add_name"));
         out.put("addTime", json.value(row.get("created_at")));

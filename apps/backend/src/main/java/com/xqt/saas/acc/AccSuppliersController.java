@@ -62,6 +62,7 @@ public class AccSuppliersController {
                 SELECT p.id::text AS id, p.code, p.name, p.settlement_currency, p.status,
                        p.audit_status, p.audited_at, p.audit_name,
                        p.contact_name, p.contact_mobile, p.contact_phone,
+                       p.invoice_title, p.invoice_tax_no, p.bank_info_text,
                        -- 关联渠道名（拼接 string_agg），从 channel_cost_policies 找承运
                        (
                          SELECT string_agg(distinct ch.name, ', ')
@@ -171,6 +172,9 @@ public class AccSuppliersController {
         out.put("product", row.get("product_names") == null ? "" : row.get("product_names"));
         out.put("balance", row.get("unpaid_balance"));
         out.put("settlement", row.get("settlement_currency"));
+        out.put("invoiceTitle", row.get("invoice_title"));
+        out.put("invoiceTaxNo", row.get("invoice_tax_no"));
+        out.put("bankInfo", row.get("bank_info_text"));
         out.put("status", row.get("status"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
