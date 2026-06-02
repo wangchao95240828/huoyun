@@ -259,6 +259,7 @@ public class AccOrdersController {
                 + " AND ("
                 + "   ?::text IS NULL"
                 + "   OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))"
+                + "   OR (?::text = 'VOID_AUDIT' AND (o.metadata->'void_request' IS NOT NULL))"
                 + "   OR o.status = ?::text"
                 + " )"
                 + advFilterSql
