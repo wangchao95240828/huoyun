@@ -219,11 +219,10 @@ public class AccOrderBatchController {
         String reason = (String) body.getOrDefault("reason", "批量作废");
         int voided = 0, skipped = 0;
         for (String id : ids) {
-            // 把 metadata.void_request 标上, 等审核通过再实际作废
             int n = jdbc.update(
                 "UPDATE orders SET"
                 + "  metadata = coalesce(metadata,'{}'::jsonb) || jsonb_build_object("
-                + "    'void_request', jsonb_build_object('reason', ?::text, 'requested_at', now())),"
+                + "    'void_request', jsonb_build_object('reason', ?::text, 'requested_at', now()::text)),"
                 + "  audit_status = 'UNAUDITED',"
                 + "  updated_at = now()"
                 + " WHERE id = ?::uuid AND status NOT IN ('CANCELLED','COMPLETED')",
@@ -231,6 +230,74 @@ public class AccOrderBatchController {
             if (n > 0) voided++; else skipped++;
         }
         return Map.of("voided", voided, "skipped", skipped, "total", ids.size());
+    }
+
+    /** 作废订单 → 批量审核（通过则真的把 orders.status 改 CANCELLED） */
+    @PostMapping("/batch-audit-void")
+    @SuppressWarnings("unchecked")
+    @Transactional
+    public Map<String, Object> batchAuditVoid(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
+        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        int approved = 0, skipped = 0;
+        for (String id : ids) {
+            int n = jdbc.update(
+                "UPDATE orders SET"
+                + "  status = 'CANCELLED',"
+                + "  audit_status = 'AUDITED',"
+                + "  audited_at = now(),"
+                + "  audit_name = current_setting('app.user_name', true),"
+                + "  metadata = coalesce(metadata,'{}'::jsonb) || jsonb_build_object("
+                + "    'void_approved_at', now()::text),"
+                + "  updated_at = now()"
+                + " WHERE id = ?::uuid AND metadata->'void_request' IS NOT NULL"
+                + "   AND audit_status <> 'AUDITED'",
+                id);
+            if (n > 0) approved++; else skipped++;
+        }
+        return Map.of("approved", approved, "skipped", skipped, "total", ids.size());
+    }
+
+    /** 作废订单 → 批量恢复（撤销作废申请；如已审核则把 CANCELLED 改回 DRAFT/SUBMITTED） */
+    @PostMapping("/batch-restore")
+    @SuppressWarnings("unchecked")
+    @Transactional
+    public Map<String, Object> batchRestore(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
+        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        int restored = 0, skipped = 0;
+        for (String id : ids) {
+            int n = jdbc.update(
+                "UPDATE orders SET"
+                + "  status = CASE WHEN status = 'CANCELLED' THEN"
+                + "    coalesce((metadata->>'status_before_void'), 'DRAFT')"
+                + "  ELSE status END,"
+                + "  audit_status = 'PENDING',"
+                + "  metadata = (coalesce(metadata,'{}'::jsonb) - 'void_request') - 'void_approved_at',"
+                + "  updated_at = now()"
+                + " WHERE id = ?::uuid"
+                + "   AND (metadata->'void_request' IS NOT NULL OR status = 'CANCELLED')",
+                id);
+            if (n > 0) restored++; else skipped++;
+        }
+        return Map.of("restored", restored, "skipped", skipped, "total", ids.size());
+    }
+
+    /** 彻底删除（取消订单 + 作废订单页都用，物理删 DRAFT/CANCELLED 状态） */
+    @PostMapping("/batch-hard-delete")
+    @SuppressWarnings("unchecked")
+    @Transactional
+    public Map<String, Object> batchHardDelete(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
+        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        int deleted = 0, skipped = 0;
+        for (String id : ids) {
+            int n = jdbc.update(
+                "DELETE FROM orders WHERE id = ?::uuid"
+                + " AND status IN ('DRAFT','CANCELLED','VOID')", id);
+            if (n > 0) deleted++; else skipped++;
+        }
+        return Map.of("deleted", deleted, "skipped", skipped, "total", ids.size());
     }
 
     @PostMapping("/batch-recharge")

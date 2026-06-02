@@ -182,7 +182,7 @@ public class AccOrdersController {
 
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
                 search, search, search, dateFrom, dateFrom, dateTo, dateTo,
-                statusMode, statusMode, statusMode));
+                statusMode, statusMode, statusMode, statusMode));
             countParams.addAll(advParams);
             countParams.addAll(access.params());
             Long total = jdbc.queryForObject(
@@ -193,6 +193,7 @@ public class AccOrdersController {
                 + "   AND ("
                 + "     ?::text IS NULL"
                 + "     OR (?::text = 'HISTORY' AND o.status NOT IN ('DRAFT', 'CANCELLED', 'CANCELED', 'VOID'))"
+                + "     OR (?::text = 'VOID_AUDIT' AND (o.metadata->'void_request' IS NOT NULL))"
                 + "     OR o.status = ?::text"
                 + "   )"
                 + advFilterSql
@@ -383,7 +384,7 @@ public class AccOrdersController {
         java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
             search, search, search,
             dateFrom, dateFrom, dateTo, dateTo,
-            statusMode, statusMode, statusMode));
+            statusMode, statusMode, statusMode, statusMode));
         params.addAll(advParams);
         params.addAll(access.params());
         params.add(limit);

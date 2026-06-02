@@ -422,7 +422,8 @@ const accTabs = [
   { key: "orders", label: "快件订单", icon: FileText, api: "orders" },
   { key: "orders-draft", label: "未提交", icon: FileText, api: "orders", statusFilter: "DRAFT" },
   { key: "orders-history", label: "历史制单", icon: FileText, api: "orders", statusFilter: "HISTORY" },
-  { key: "orders-cancelled", label: "作废订单", icon: FileText, api: "orders", statusFilter: "CANCELLED" },
+  { key: "orders-cancelled", label: "取消订单", icon: FileText, api: "orders", statusFilter: "CANCELLED" },
+  { key: "orders-void", label: "作废订单", icon: FileText, api: "orders", statusFilter: "VOID_AUDIT" },
   { key: "collects", label: "总单/留仓", icon: ClipboardList, api: "collects" },
   { key: "returns", label: "退件管理", icon: CornerDownLeft, api: "returns" },
   { key: "detains", label: "扣件管理", icon: Lock, api: "detains" },
@@ -635,7 +636,7 @@ const T = (k: string) => accTabs.find(t => t.key === k)!;
 
 // 制单中心
 const accGroupOrder = [
-  T("orders"), T("orders-draft"), T("orders-history"), T("orders-cancelled"),
+  T("orders"), T("orders-draft"), T("orders-history"), T("orders-cancelled"), T("orders-void"),
   T("quick-orders"),
   T("orders-queue"),                    // 制单队列
   T("orders-import"),                   // 导入快件
@@ -766,7 +767,7 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
   get(target, key: string) {
     // 4 个订单状态分类 sub-tab 共用 orders 列定义
     if (key === 'orders-draft' || key === 'orders-history'
-        || key === 'orders-cancelled') {
+        || key === 'orders-cancelled' || key === 'orders-void') {
       return target['orders'];
     }
     // 财务中心 sub-tab 复用父 tab 的列定义
@@ -829,7 +830,7 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
   set(target, key: string, value: any) { target[key] = value; return true; },
   has(target, key: string) {
     if (key === 'orders-draft' || key === 'orders-history'
-        || key === 'orders-cancelled') {
+        || key === 'orders-cancelled' || key === 'orders-void') {
       return 'orders' in target;
     }
     const subTabMap: Record<string, string> = {
@@ -3223,8 +3224,12 @@ const batchRemitTabs = new Set([
 const canBatchRemit = computed(() => batchRemitTabs.has(accTab.value));
 
 // 制单中心订单批量操作可用 tab
-const ordersTabSet = new Set(['orders', 'orders-draft', 'orders-history', 'orders-cancelled']);
+const ordersTabSet = new Set(['orders', 'orders-draft', 'orders-history', 'orders-cancelled', 'orders-void']);
 const canOrdersBatch = computed(() => ordersTabSet.has(accTab.value));
+// 作废订单 tab 用不同的工具栏 + 取消订单只有 彻底删除 一个按钮
+const isVoidAuditTab = computed(() => accTab.value === 'orders-void');
+const isCancelTab = computed(() => accTab.value === 'orders-cancelled');
+const showFullOrdersToolbar = computed(() => canOrdersBatch.value && !isVoidAuditTab.value && !isCancelTab.value);
 
 // ACC 订单列表搜索字段下拉（对应 ACC Online.php 搜索索引 22 项）
 const ordersSearchField = ref('keyword');
@@ -3463,6 +3468,30 @@ const doOrdersBatchQuery  = () => callOrdersBatch('batch-query');
 const doOrdersBatchVoid   = () => callOrdersBatch('batch-void', { reason: '批量作废' });
 const doOrdersBatchRecharge = () => callOrdersBatch('batch-recharge');
 const doOrdersBatchMerge  = () => callOrdersBatch('batch-merge');
+
+// 取消订单 + 作废订单 专属操作
+async function doOrdersHardDelete() {
+  if (!confirm(`确定彻底删除 ${selectedIds.value.size} 个订单？操作不可恢复`)) return;
+  await callOrdersBatch('batch-hard-delete');
+}
+async function doBatchAuditVoid() {
+  if (!confirm(`确定审核通过 ${selectedIds.value.size} 个作废申请？`)) return;
+  await callOrdersBatch('batch-audit-void');
+}
+async function doBatchRestore() {
+  if (!confirm(`确定恢复 ${selectedIds.value.size} 个订单？`)) return;
+  await callOrdersBatch('batch-restore');
+}
+// 「待核订单」按钮：本地过滤显示 audit_status 不为 AUDITED 的行
+function filterVoidPending() {
+  accKeyword.value = '';
+  accDateFrom.value = '';
+  accDateTo.value = '';
+  // 添加一个临时过滤标记
+  accData.value = accData.value.filter((r: any) => r.auditStatus !== 'AUDITED');
+  bizMessage.value = `已过滤显示 ${accData.value.length} 条待核订单`;
+  setTimeout(() => { bizMessage.value = ''; }, 4000);
+}
 
 // 导出选中（仅勾选的 ids，前端基于 accData 子集渲染 CSV）
 async function doExportSelected() {
@@ -4388,8 +4417,32 @@ async function doReloadBill(id: number) {
                   :disabled="bizLoading || selectedIds.size === 0" style="color:#0ea5e9">
             <Landmark :size="13" /> 批量汇款({{ selectedIds.size }})
           </button>
+          <!-- ACC 取消订单：仅 1 个按钮 彻底删除 -->
+          <template v-if="isCancelTab">
+            <button class="secondary sm" @click="doOrdersHardDelete" :disabled="bizLoading || selectedIds.size === 0" style="color:#dc2626">
+              <Trash2 :size="13" /> 彻底删除
+            </button>
+          </template>
+          <!-- ACC 作废订单：5 按钮 彻底删除/待核订单/批量审核/批量恢复/导出结果 -->
+          <template v-if="isVoidAuditTab">
+            <button class="secondary sm" @click="doOrdersHardDelete" :disabled="bizLoading || selectedIds.size === 0" style="color:#dc2626">
+              <Trash2 :size="13" /> 彻底删除
+            </button>
+            <button class="secondary sm" @click="filterVoidPending" :disabled="bizLoading">
+              <Clock :size="13" /> 待核订单
+            </button>
+            <button class="secondary sm" @click="doBatchAuditVoid" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 批量审核
+            </button>
+            <button class="secondary sm" @click="doBatchRestore" :disabled="bizLoading || selectedIds.size === 0" style="color:#059669">
+              <Undo2 :size="13" /> 批量恢复
+            </button>
+            <button class="secondary sm" @click="doExport" :disabled="bizLoading">
+              <Download :size="13" /> 导出结果
+            </button>
+          </template>
           <!-- ACC 制单中心 14 个工具栏按钮（按 ACC PHP 顺序） -->
-          <template v-if="canOrdersBatch">
+          <template v-if="showFullOrdersToolbar">
             <button class="secondary sm" @click="doOrdersPrint('a4-all')" :disabled="bizLoading || selectedIds.size === 0" title="A4所有文档">
               <FileText :size="13" /> A4所有文档
             </button>
