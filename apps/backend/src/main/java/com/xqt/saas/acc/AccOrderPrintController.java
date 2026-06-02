@@ -73,25 +73,32 @@ public class AccOrderPrintController {
     private Map<String, Object> buildPrintPayload(Map<String, Object> body, String docType) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
         if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
-        // 查订单 + receiver + shipment + cartons 信息构造打印数据
-        List<Map<String, Object>> docs = ids.stream().map(id -> {
-            Map<String, Object> order = jdbc.queryForMap(
-                "SELECT o.id::text AS id, o.order_no, o.customer_ref,"
-                + "       o.metadata, c.name AS customer_name,"
-                + "       c.code AS customer_code,"
-                + "       (SELECT s.id::text FROM shipment_order_links sol"
-                + "          JOIN shipments s ON s.id = sol.shipment_id"
-                + "          WHERE sol.order_id = o.id LIMIT 1) AS shipment_id"
-                + " FROM orders o"
-                + " LEFT JOIN customers c ON c.id = o.customer_id"
-                + " WHERE o.id = ?::uuid", id);
-            return order;
-        }).toList();
-        return Map.of(
-            "docType", docType,
-            "documents", docs,
-            "printedAt", java.time.OffsetDateTime.now().toString(),
-            "count", docs.size()
-        );
+        List<Map<String, Object>> docs = new java.util.ArrayList<>();
+        List<String> notFound = new java.util.ArrayList<>();
+        for (String id : ids) {
+            try {
+                List<Map<String, Object>> rows = jdbc.queryForList(
+                    "SELECT o.id::text AS id, o.order_no, o.customer_ref,"
+                    + "       o.metadata, c.name AS customer_name,"
+                    + "       c.code AS customer_code,"
+                    + "       (SELECT s.id::text FROM shipment_order_links sol"
+                    + "          JOIN shipments s ON s.id = sol.shipment_id"
+                    + "          WHERE sol.order_id = o.id LIMIT 1) AS shipment_id"
+                    + " FROM orders o"
+                    + " LEFT JOIN customers c ON c.id = o.customer_id"
+                    + " WHERE o.id = ?::uuid", id);
+                if (rows.isEmpty()) { notFound.add(id); continue; }
+                docs.add(rows.get(0));
+            } catch (org.springframework.dao.DataAccessException ex) {
+                notFound.add(id);
+            }
+        }
+        Map<String, Object> resp = new java.util.LinkedHashMap<>();
+        resp.put("docType", docType);
+        resp.put("documents", docs);
+        resp.put("printedAt", java.time.OffsetDateTime.now().toString());
+        resp.put("count", docs.size());
+        if (!notFound.isEmpty()) resp.put("notFound", notFound);
+        return resp;
     }
 }
