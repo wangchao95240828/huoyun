@@ -61,7 +61,12 @@ class AccOrdersListProjectionTest {
         when(jdbc.queryForList(contains("sell_charge"), any(Object[].class)))
             .thenReturn(List.of(row));
         Map<String, Object> result = c.list(1, 20, keyword, null, null, null,
-            null, null, null, null, null, null, null, null, null, null, null, null, null);
+            // 28 advanced search params
+            null, null, null, null, null, null, null, null, null,    // trackingNo..channelCode (9)
+            null, null, null, null,                                  // weightFrom..declaredValueTo (4)
+            null, null, null, null,                                  // chargeWeight + fee (4)
+            null, null, null, null,                                  // address/house/remark/deliveryArea (4)
+            null, null, null, null, null, null, null);               // submitted/addName/created/updated (7)
         return (List<Map<String, Object>>) result.get("data");
     }
 

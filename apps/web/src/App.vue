@@ -2828,7 +2828,25 @@ async function fetchAccData() {
     params.set("page", String(accPage.value));
     params.set("pageSize", String(accPageSize.value));
   }
-  if (accKeyword.value) params.set("keyword", accKeyword.value);
+  // orders 类 tab 使用搜索字段下拉，把值映射到对应 param 名
+  if (accKeyword.value) {
+    if (ordersTabSet.has(accTab.value) && ordersSearchField.value !== 'keyword') {
+      const opt = ordersSearchFieldOpts.find(o => o.v === ordersSearchField.value);
+      const v = accKeyword.value.trim();
+      // 数值/日期类支持 "from-to" 区间
+      if (opt && (opt.v.endsWith('From') || ['weight','declaredValue','chargeWeight','fee'].includes(opt.v))) {
+        const [from, to] = v.split('-').map(s => s.trim());
+        const paramFrom = opt.param;
+        const paramTo = opt.param.replace('From', 'To');
+        if (from) params.set(paramFrom, from);
+        if (to) params.set(paramTo, to);
+      } else if (opt) {
+        params.set(opt.param, v);
+      }
+    } else {
+      params.set("keyword", accKeyword.value);
+    }
+  }
   if (accDateFrom.value && !noDateTabs.has(accTab.value)) params.set("dateFrom", accDateFrom.value);
   if (accDateTo.value && !noDateTabs.has(accTab.value)) params.set("dateTo", accDateTo.value);
   // 状态 sub-tab → status 参数；profits-* sub-tab → mode 参数（后端不同）
@@ -3208,6 +3226,37 @@ const canBatchRemit = computed(() => batchRemitTabs.has(accTab.value));
 const ordersTabSet = new Set(['orders', 'orders-draft', 'orders-history', 'orders-cancelled']);
 const canOrdersBatch = computed(() => ordersTabSet.has(accTab.value));
 
+// ACC 订单列表搜索字段下拉（对应 ACC Online.php 搜索索引 22 项）
+const ordersSearchField = ref('keyword');
+const ordersSearchFieldOpts: Array<{ v: string; l: string; param: string; placeholder?: string }> = [
+  { v: 'keyword',           l: '单号',          param: 'keyword',           placeholder: '运单号 / 客户单号' },
+  { v: 'trackingNo',        l: '转单号',        param: 'trackingNo',        placeholder: '渠道转单号' },
+  { v: 'customerName',      l: '客户',          param: 'customerName',      placeholder: '客户名称' },
+  { v: 'weight',            l: '重量',          param: 'weightFrom',        placeholder: '重量(kg)，单值或区间 1-10' },
+  { v: 'channelCode',       l: '渠道',          param: 'channelCode',       placeholder: '渠道代码 如 EU-AIR-UPS' },
+  { v: 'declaredValue',     l: '申报价值',      param: 'declaredValueFrom', placeholder: '价值或区间 100-500' },
+  { v: 'chargeWeight',      l: '收费重量',      param: 'chargeWeightFrom',  placeholder: '计费重(kg) 或区间' },
+  { v: 'fee',               l: '费用',          param: 'feeFrom',           placeholder: '应收金额或区间' },
+  { v: 'postcode',          l: '邮编',          param: 'postcode',          placeholder: '收件邮编' },
+  { v: 'recipientName',     l: '收件人',        param: 'recipientName' },
+  { v: 'country',           l: '国家',          param: 'country',           placeholder: '国家代码 如 US' },
+  { v: 'province',          l: '省/洲',         param: 'province' },
+  { v: 'city',              l: '城市',          param: 'city' },
+  { v: 'recipientAddress',  l: '收件地址',      param: 'recipientAddress' },
+  { v: 'recipientHouseNo',  l: '门牌号',        param: 'recipientHouseNo' },
+  { v: 'recipientPhone',    l: '联系电话',      param: 'recipientPhone' },
+  { v: 'remark',            l: '备注',          param: 'remark' },
+  { v: 'deliveryArea',      l: '快件到达地区',  param: 'deliveryArea' },
+  { v: 'submittedFrom',     l: '提交日期',      param: 'submittedFrom',     placeholder: 'YYYY-MM-DD 或区间' },
+  { v: 'addName',           l: '添加人',        param: 'addName' },
+  { v: 'createdFrom',       l: '添加时间',      param: 'createdFrom',       placeholder: 'YYYY-MM-DD 或区间' },
+  { v: 'updatedFrom',       l: '修改时间',      param: 'updatedFrom',       placeholder: 'YYYY-MM-DD 或区间' },
+];
+const ordersSearchPlaceholder = computed(() => {
+  const opt = ordersSearchFieldOpts.find(o => o.v === ordersSearchField.value);
+  return opt?.placeholder ?? `输入 ${opt?.l ?? ''}`;
+});
+
 // ACC 5 个批量操作 sub-tab，需要独立专用页面（对照 ExpressBatch.php 截图）
 const batchPageSet = new Set([
   'orders-change-customer', 'orders-update-tracking', 'orders-update-weight',
@@ -3414,6 +3463,31 @@ const doOrdersBatchQuery  = () => callOrdersBatch('batch-query');
 const doOrdersBatchVoid   = () => callOrdersBatch('batch-void', { reason: '批量作废' });
 const doOrdersBatchRecharge = () => callOrdersBatch('batch-recharge');
 const doOrdersBatchMerge  = () => callOrdersBatch('batch-merge');
+
+// 导出选中（仅勾选的 ids，前端基于 accData 子集渲染 CSV）
+async function doExportSelected() {
+  if (selectedIds.value.size === 0) { bizMessage.value = '请先勾选'; return; }
+  const tab = accTabs.find(t => t.key === accTab.value);
+  if (!tab) return;
+  const cols = accColumns[accTab.value];
+  if (!cols || !cols.length) return;
+  const selected = accData.value.filter((r: any) => selectedIds.value.has(r.id));
+  if (!selected.length) { bizMessage.value = '当前页未含勾选行'; return; }
+  const headers = cols.map(c => c.label);
+  const csv = ['﻿' + headers.join(',')];
+  for (const r of selected) {
+    csv.push(cols.map(c => `"${String((r as any)[c.key] ?? '').replace(/"/g, '""')}"`).join(','));
+  }
+  const blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${tab.label}_选中_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  bizMessage.value = `导出 ${selected.length} 条`;
+  setTimeout(() => { bizMessage.value = ''; }, 4000);
+}
 
 // 打印类按钮（弹一个新窗口预览）
 async function doOrdersPrint(kind: string) {
@@ -4281,7 +4355,15 @@ async function doReloadBill(id: number) {
 
         <!-- Search bar (批量页面隐藏) -->
         <div class="acc-search-bar" v-if="!batchPagePanel">
-          <div class="search-group">
+          <!-- ACC 风格：搜索字段下拉 + 输入框，仅 orders 类 tab -->
+          <template v-if="canOrdersBatch">
+            <span style="font-size:13px;margin-right:4px">搜索:</span>
+            <select v-model="ordersSearchField" style="padding:4px;font-size:13px;margin-right:4px">
+              <option v-for="opt in ordersSearchFieldOpts" :key="opt.v" :value="opt.v">{{ opt.l }}</option>
+            </select>
+            <input type="text" v-model="accKeyword" :placeholder="ordersSearchPlaceholder" @keyup.enter="accSearch" style="min-width:240px" />
+          </template>
+          <div v-else class="search-group">
             <Search :size="14" class="search-icon" />
             <input type="text" v-model="accKeyword" placeholder="搜索关键词..." @keyup.enter="accSearch" />
           </div>
@@ -4306,22 +4388,10 @@ async function doReloadBill(id: number) {
                   :disabled="bizLoading || selectedIds.size === 0" style="color:#0ea5e9">
             <Landmark :size="13" /> 批量汇款({{ selectedIds.size }})
           </button>
-          <!-- ACC 制单中心 13 个工具栏按钮 -->
+          <!-- ACC 制单中心 14 个工具栏按钮（按 ACC PHP 顺序） -->
           <template v-if="canOrdersBatch">
-            <button class="secondary sm" @click="doOrdersBatchSubmit" :disabled="bizLoading || selectedIds.size === 0">
-              <CheckCircle :size="13" /> 批量提交({{ selectedIds.size }})
-            </button>
-            <button class="secondary sm" @click="doOrdersBatchQuery" :disabled="bizLoading || selectedIds.size === 0">
-              <Search :size="13" /> 批量查询
-            </button>
-            <button class="secondary sm" @click="doOrdersBatchVoid" :disabled="bizLoading || selectedIds.size === 0" style="color:#dc2626">
-              <MinusCircle :size="13" /> 批量作废
-            </button>
-            <button class="secondary sm" @click="doOrdersBatchRecharge" :disabled="bizLoading || selectedIds.size === 0">
-              <Calculator :size="13" /> 批量计费
-            </button>
-            <button class="secondary sm" @click="doOrdersBatchMerge" :disabled="bizLoading || selectedIds.size < 2">
-              <PackageOpen :size="13" /> 合并制单
+            <button class="secondary sm" @click="doOrdersPrint('a4-all')" :disabled="bizLoading || selectedIds.size === 0" title="A4所有文档">
+              <FileText :size="13" /> A4所有文档
             </button>
             <button class="secondary sm" @click="doOrdersPrint('label')" :disabled="bizLoading || selectedIds.size === 0">
               <FileText :size="13" /> 打印标签
@@ -4330,19 +4400,37 @@ async function doReloadBill(id: number) {
               <Receipt :size="13" /> 打印发票
             </button>
             <button class="secondary sm" @click="doOrdersPrint('battery-letter')" :disabled="bizLoading || selectedIds.size === 0">
-              <FileText :size="13" /> 电池信
+              <FileText :size="13" /> 打印电池信
             </button>
-            <button class="secondary sm" @click="doOrdersPrint('handover')" :disabled="bizLoading || selectedIds.size === 0">
-              <FileText :size="13" /> 交接清单
+            <button class="secondary sm" @click="doOrdersPrint('master-label')" :disabled="bizLoading || selectedIds.size === 0">
+              <Tag :size="13" /> 多主单标签
             </button>
-            <button class="secondary sm" @click="doOrdersPrint('a4-all')" :disabled="bizLoading || selectedIds.size === 0">
-              <FileText :size="13" /> A4 全套
+            <button class="secondary sm" @click="doOrdersPrint('invoice2-battery2')" :disabled="bizLoading || selectedIds.size === 0">
+              <FileText :size="13" /> 2发票和2电池信
             </button>
             <button class="secondary sm" @click="doOrdersPrint('simple-label')" :disabled="bizLoading || selectedIds.size === 0">
               <Tag :size="13" /> 简易标签
             </button>
-            <button class="secondary sm" @click="doOrdersPrint('master-label')" :disabled="bizLoading || selectedIds.size === 0">
-              <Tag :size="13" /> 多主单标签
+            <button class="secondary sm" @click="doOrdersPrint('handover')" :disabled="bizLoading || selectedIds.size === 0">
+              <FileText :size="13" /> 交接清单
+            </button>
+            <button class="secondary sm" @click="doOrdersBatchMerge" :disabled="bizLoading || selectedIds.size < 2">
+              <PackageOpen :size="13" /> 合并制单
+            </button>
+            <button class="secondary sm" @click="doOrdersBatchSubmit" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 批量提交
+            </button>
+            <button class="secondary sm" @click="doOrdersBatchQuery" :disabled="bizLoading || selectedIds.size === 0">
+              <Search :size="13" /> 批量查询
+            </button>
+            <button class="secondary sm" @click="doOrdersBatchVoid" :disabled="bizLoading || selectedIds.size === 0" style="color:#dc2626">
+              <MinusCircle :size="13" /> 批量作废
+            </button>
+            <button class="secondary sm" @click="doExport" :disabled="bizLoading">
+              <Download :size="13" /> 导出结果
+            </button>
+            <button class="secondary sm" @click="doExportSelected" :disabled="bizLoading || selectedIds.size === 0">
+              <Download :size="13" /> 导出选中({{ selectedIds.size }})
             </button>
           </template>
           <!-- 导入快件 (在 orders-import tab 显示) -->
@@ -4356,7 +4444,7 @@ async function doReloadBill(id: number) {
               <input type="file" accept=".csv,.xlsx,.xls" @change="doImportExcel" style="display:none" />
             </label>
           </template>
-          <button class="secondary sm" v-if="canExport" @click="doExport" :disabled="bizLoading">
+          <button class="secondary sm" v-if="canExport && !canOrdersBatch" @click="doExport" :disabled="bizLoading">
             <Download :size="13" /> 导出
           </button>
           <button class="secondary sm" v-if="accTab === 'bills'" @click="openBizDialog('generate-bill')">

@@ -69,6 +69,12 @@ public class AccOrderPrintController {
         return buildPrintPayload(body, "MASTER_LABEL");
     }
 
+    /** 2发票和2电池信（ACC 工具栏专项: 2 张商业发票 + 2 张电池信合并 PDF）. */
+    @PostMapping("/print-invoice2-battery2")
+    public Map<String, Object> printInvoice2Battery2(@RequestBody Map<String, Object> body) {
+        return buildPrintPayload(body, "INVOICE_2_BATTERY_2");
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, Object> buildPrintPayload(Map<String, Object> body, String docType) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());

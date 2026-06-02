@@ -59,7 +59,7 @@ public class AccOrdersController {
         @RequestParam(required = false) String dateFrom,
         @RequestParam(required = false) String dateTo,
         @RequestParam(required = false) String status,
-        // ACC 高级搜索字段（22 个）
+        // ACC 高级搜索字段（22 个，对应 Online.php 搜索下拉）
         @RequestParam(required = false) String trackingNo,
         @RequestParam(required = false) String customerName,
         @RequestParam(required = false) String country,
@@ -72,7 +72,23 @@ public class AccOrdersController {
         @RequestParam(required = false) java.math.BigDecimal weightFrom,
         @RequestParam(required = false) java.math.BigDecimal weightTo,
         @RequestParam(required = false) java.math.BigDecimal declaredValueFrom,
-        @RequestParam(required = false) java.math.BigDecimal declaredValueTo
+        @RequestParam(required = false) java.math.BigDecimal declaredValueTo,
+        // 补充 10 个 ACC 搜索字段
+        @RequestParam(required = false) java.math.BigDecimal chargeWeightFrom,
+        @RequestParam(required = false) java.math.BigDecimal chargeWeightTo,
+        @RequestParam(required = false) java.math.BigDecimal feeFrom,
+        @RequestParam(required = false) java.math.BigDecimal feeTo,
+        @RequestParam(required = false) String recipientAddress,
+        @RequestParam(required = false) String recipientHouseNo,
+        @RequestParam(required = false) String remark,
+        @RequestParam(required = false) String deliveryArea,    // 快件到达地区
+        @RequestParam(required = false) String submittedFrom,
+        @RequestParam(required = false) String submittedTo,
+        @RequestParam(required = false) String addName,
+        @RequestParam(required = false) String createdFrom,
+        @RequestParam(required = false) String createdTo,
+        @RequestParam(required = false) String updatedFrom,
+        @RequestParam(required = false) String updatedTo
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
@@ -84,14 +100,20 @@ public class AccOrdersController {
             String recipientPhonePat = recipientPhone == null || recipientPhone.isBlank() ? null : "%" + recipientPhone + "%";
             String provincePat = province == null || province.isBlank() ? null : "%" + province + "%";
             String cityPat = city == null || city.isBlank() ? null : "%" + city + "%";
+            String recipientAddressPat = recipientAddress == null || recipientAddress.isBlank() ? null : "%" + recipientAddress + "%";
+            String recipientHouseNoPat = recipientHouseNo == null || recipientHouseNo.isBlank() ? null : "%" + recipientHouseNo + "%";
+            String deliveryAreaPat = deliveryArea == null || deliveryArea.isBlank() ? null : "%" + deliveryArea + "%";
 
             // 高级过滤 EXISTS shipment 条件
             StringBuilder advFilter = new StringBuilder();
             java.util.List<Object> advParams = new java.util.ArrayList<>();
-            if (trackPat != null || country != null || postcode != null || recipientNamePat != null
-                || recipientPhonePat != null || provincePat != null || cityPat != null
-                || channelCode != null || weightFrom != null || weightTo != null
-                || declaredValueFrom != null || declaredValueTo != null) {
+            boolean needShipmentJoin = trackPat != null || country != null || postcode != null
+                || recipientNamePat != null || recipientPhonePat != null || provincePat != null
+                || cityPat != null || channelCode != null || weightFrom != null || weightTo != null
+                || declaredValueFrom != null || declaredValueTo != null
+                || chargeWeightFrom != null || chargeWeightTo != null
+                || recipientAddressPat != null || recipientHouseNoPat != null || deliveryAreaPat != null;
+            if (needShipmentJoin) {
                 advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _s"
                     + " LEFT JOIN cartons _ct ON _ct.shipment_id = _s.id"
                     + " LEFT JOIN channels _cn ON _cn.id = _s.channel_id"
@@ -103,11 +125,16 @@ public class AccOrdersController {
                 if (recipientPhonePat != null){advFilter.append(" AND _s.recipient_phone ILIKE ?"); advParams.add(recipientPhonePat); }
                 if (provincePat != null)     { advFilter.append(" AND _s.recipient_province ILIKE ?"); advParams.add(provincePat); }
                 if (cityPat != null)         { advFilter.append(" AND _s.recipient_city ILIKE ?"); advParams.add(cityPat); }
+                if (recipientAddressPat != null){advFilter.append(" AND _s.recipient_address ILIKE ?"); advParams.add(recipientAddressPat); }
+                if (recipientHouseNoPat != null){advFilter.append(" AND _s.recipient_house_no ILIKE ?"); advParams.add(recipientHouseNoPat); }
                 if (channelCode != null)     { advFilter.append(" AND _cn.code = ?"); advParams.add(channelCode); }
                 if (weightFrom != null)      { advFilter.append(" AND _ct.actual_weight_kg >= ?"); advParams.add(weightFrom); }
                 if (weightTo != null)        { advFilter.append(" AND _ct.actual_weight_kg <= ?"); advParams.add(weightTo); }
+                if (chargeWeightFrom != null){ advFilter.append(" AND _ct.chargeable_weight_kg >= ?"); advParams.add(chargeWeightFrom); }
+                if (chargeWeightTo != null)  { advFilter.append(" AND _ct.chargeable_weight_kg <= ?"); advParams.add(chargeWeightTo); }
                 if (declaredValueFrom != null){advFilter.append(" AND _s.declared_value >= ?"); advParams.add(declaredValueFrom); }
                 if (declaredValueTo != null) { advFilter.append(" AND _s.declared_value <= ?"); advParams.add(declaredValueTo); }
+                if (deliveryAreaPat != null) { advFilter.append(" AND _s.recipient_area_code ILIKE ?"); advParams.add(deliveryAreaPat); }
                 advFilter.append(")");
             }
             // 客户名过滤
@@ -115,6 +142,37 @@ public class AccOrdersController {
                 advFilter.append(" AND EXISTS (SELECT 1 FROM customers _c WHERE _c.id = o.customer_id AND _c.name ILIKE ?)");
                 advParams.add(custNamePat);
             }
+            // 费用 EXISTS charges
+            if (feeFrom != null || feeTo != null) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM charges _ch JOIN shipments _s2 ON _s2.id = _ch.shipment_id"
+                    + " WHERE _s2.tenant_id = o.tenant_id AND _s2.customer_ref = o.customer_ref AND _ch.side='AR'");
+                if (feeFrom != null) { advFilter.append(" AND _ch.amount >= ?"); advParams.add(feeFrom); }
+                if (feeTo != null)   { advFilter.append(" AND _ch.amount <= ?"); advParams.add(feeTo); }
+                advFilter.append(")");
+            }
+            // 备注模糊
+            if (remark != null && !remark.isBlank()) {
+                advFilter.append(" AND (o.metadata->>'remark' ILIKE ? OR o.metadata->'acc_compat'->>'remark' ILIKE ?)");
+                advParams.add("%" + remark + "%"); advParams.add("%" + remark + "%");
+            }
+            // 提交时间
+            if (submittedFrom != null && !submittedFrom.isBlank()) {
+                advFilter.append(" AND o.submitted_at >= ?::date"); advParams.add(submittedFrom);
+            }
+            if (submittedTo != null && !submittedTo.isBlank()) {
+                advFilter.append(" AND o.submitted_at < (?::date + 1)"); advParams.add(submittedTo);
+            }
+            // 添加人
+            if (addName != null && !addName.isBlank()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM users _u WHERE _u.id = o.created_by AND _u.display_name ILIKE ?)");
+                advParams.add("%" + addName + "%");
+            }
+            // 添加时间 / 修改时间
+            if (createdFrom != null && !createdFrom.isBlank()) { advFilter.append(" AND o.created_at >= ?::date"); advParams.add(createdFrom); }
+            if (createdTo != null && !createdTo.isBlank())     { advFilter.append(" AND o.created_at < (?::date + 1)"); advParams.add(createdTo); }
+            if (updatedFrom != null && !updatedFrom.isBlank()) { advFilter.append(" AND o.updated_at >= ?::date"); advParams.add(updatedFrom); }
+            if (updatedTo != null && !updatedTo.isBlank())     { advFilter.append(" AND o.updated_at < (?::date + 1)"); advParams.add(updatedTo); }
+
             String advFilterSql = advFilter.toString();
 
             // status 过滤模式：DRAFT/CANCELLED/HISTORY/具体值
