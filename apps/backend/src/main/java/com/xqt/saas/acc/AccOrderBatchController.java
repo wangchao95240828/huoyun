@@ -18,13 +18,15 @@ import org.springframework.web.bind.annotation.RestController;
  * ACC 制单中心批量操作 (对应 ACC Online.php 工具栏 + ExpressBatch.php 5 页面)
  *
  *  POST /api/acc/orders/batch-submit         批量提交（DRAFT→SUBMITTED）
- *  POST /api/acc/orders/batch-query          批量查询轨迹（占位返回 stub）
- *  POST /api/acc/orders/batch-void           批量作废（写 audit_events VOID 申请）
- *  POST /api/acc/orders/batch-recharge       批量计费 / 重算（再跑 RateEngine）
- *  POST /api/acc/orders/batch-merge          合并制单（多单合一）
+ *  POST /api/acc/orders/batch-query          批量查询轨迹
+ *  POST /api/acc/orders/batch-void           批量作废
+ *  POST /api/acc/orders/batch-recharge       批量计费 / 重算
+ *  POST /api/acc/orders/batch-merge          合并制单
  *  POST /api/acc/orders/batch-change-customer  批量变更客户
  *  POST /api/acc/orders/batch-update-tracking  批量更新转单号
  *  POST /api/acc/orders/batch-update-weight    批量更新计费重
+ *  POST /api/acc/orders/batch-preview        预览（按 text 粘贴解析 → 返回匹配订单）
+ *  POST /api/acc/orders/batch-track          批量追踪快递（含轨迹）
  */
 @RestController
 @RequestMapping("/api/acc/orders")
@@ -36,6 +38,135 @@ public class AccOrderBatchController {
     public AccOrderBatchController(JdbcTemplate jdbc, JsonSupport json) {
         this.jdbc = jdbc;
         this.json = json;
+    }
+
+    /**
+     * 预览：解析 textarea 输入，按 mode 返回匹配的订单。
+     *   mode = update-tracking   → 每行 "运单号 空格 新转单号"
+     *   mode = update-weight     → 每行 "运单号 空格 新计费重"
+     *   mode = change-customer   → 每行 "运单号"
+     *   mode = recharge          → 每行 "运单号"
+     *   mode = track             → 每行 "运单号 或 转单号"
+     *
+     * 返回字段: id / orderNo / weight / country / product / status / trackNo / newValue
+     */
+    @PostMapping("/batch-preview")
+    public Map<String, Object> batchPreview(@RequestBody Map<String, Object> body) {
+        String mode = (String) body.getOrDefault("mode", "");
+        String text = (String) body.getOrDefault("text", "");
+        if (text.isBlank()) throw ApiException.badRequest("text 必填");
+
+        java.util.List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        int parsed = 0, matched = 0, missing = 0;
+        java.util.List<String> notFound = new java.util.ArrayList<>();
+
+        for (String line : text.split("\\r?\\n")) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+            parsed++;
+            // 第 1 列总是单号；第 2 列是新值（如有）
+            String[] parts = line.split("\\s+", 2);
+            String orderNoOrTrack = parts[0];
+            String newValue = parts.length > 1 ? parts[1].trim() : null;
+
+            Map<String, Object> row = lookupOrder(orderNoOrTrack);
+            if (row == null) {
+                missing++;
+                notFound.add(orderNoOrTrack);
+                continue;
+            }
+            matched++;
+            row.put("newValue", newValue);
+            row.put("mode", mode);
+            rows.add(row);
+        }
+
+        Map<String, Object> resp = new LinkedHashMap<>();
+        resp.put("rows", rows);
+        resp.put("parsed", parsed);
+        resp.put("matched", matched);
+        resp.put("missing", missing);
+        if (!notFound.isEmpty()) resp.put("notFound", notFound);
+        return resp;
+    }
+
+    /** 单号或转单号 → orders 单行（用于预览表）。 */
+    private Map<String, Object> lookupOrder(String key) {
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT o.id::text AS id, o.order_no, o.customer_ref AS track_no,"
+                + "       o.status::text AS status, o.customer_id::text AS customer_id,"
+                + "       c.name AS customer_name,"
+                + "       (SELECT s.destination_country FROM shipments s"
+                + "          WHERE s.tenant_id = o.tenant_id AND s.customer_ref = o.customer_ref"
+                + "          LIMIT 1) AS country,"
+                + "       (SELECT cn.name FROM shipments s"
+                + "          JOIN channels cn ON cn.id = s.channel_id"
+                + "          WHERE s.tenant_id = o.tenant_id AND s.customer_ref = o.customer_ref"
+                + "          LIMIT 1) AS product,"
+                + "       (SELECT coalesce(sum(ct.actual_weight_kg), 0) FROM cartons ct"
+                + "          JOIN shipments s ON s.id = ct.shipment_id"
+                + "          WHERE s.tenant_id = o.tenant_id AND s.customer_ref = o.customer_ref) AS weight"
+                + " FROM orders o"
+                + " LEFT JOIN customers c ON c.id = o.customer_id"
+                + " WHERE o.order_no = ? OR o.customer_ref = ?"
+                + " LIMIT 1", key, key);
+            if (rows.isEmpty()) return null;
+            Map<String, Object> r = rows.get(0);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("id", r.get("id"));
+            out.put("orderNo", r.get("order_no"));
+            out.put("trackNo", r.get("track_no"));
+            out.put("status", r.get("status"));
+            out.put("customerId", r.get("customer_id"));
+            out.put("customerName", r.get("customer_name"));
+            out.put("country", r.get("country"));
+            out.put("product", r.get("product"));
+            out.put("weight", r.get("weight"));
+            return out;
+        } catch (DataAccessException ex) {
+            return null;
+        }
+    }
+
+    /** 批量追踪：返回多笔订单的轨迹聚合（ACC 追踪快递页用）。 */
+    @PostMapping("/batch-track")
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> batchTrack(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
+        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (String id : ids) {
+            Map<String, Object> base = lookupOrder(id);
+            if (base == null) {
+                // 也许是 order_no 不是 uuid，再查一遍
+                try {
+                    String realId = jdbc.queryForObject(
+                        "SELECT id::text FROM orders WHERE order_no = ? OR customer_ref = ? LIMIT 1",
+                        String.class, id, id);
+                    if (realId != null) base = lookupOrder(realId);
+                } catch (DataAccessException ignored) {}
+            }
+            if (base == null) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("id", id);
+                r.put("notFound", true);
+                rows.add(r);
+                continue;
+            }
+            // 拉最近 5 条轨迹
+            List<Map<String, Object>> events = jdbc.queryForList(
+                "SELECT event_code, event_time, location, description"
+                + " FROM tracking_events"
+                + " WHERE order_id = ?::uuid OR shipment_id IN ("
+                + "   SELECT shipment_id FROM shipment_order_links WHERE order_id = ?::uuid"
+                + " )"
+                + " ORDER BY event_time DESC LIMIT 5",
+                base.get("id"), base.get("id"));
+            base.put("events", events);
+            rows.add(base);
+        }
+        return Map.of("rows", rows, "total", rows.size());
     }
 
     @PostMapping("/batch-submit")
@@ -108,21 +239,32 @@ public class AccOrderBatchController {
     public Map<String, Object> batchRecharge(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
         if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        boolean applyCurrentTime = Boolean.TRUE.equals(body.get("applyCurrentTime"));
+        boolean overrideAudited = Boolean.TRUE.equals(body.get("overrideAudited"));
         int rerated = 0, skipped = 0;
         for (String id : ids) {
-            // 简化：标记需要重新计费，下次 Submit 时引擎会重新跑
             int n = jdbc.update(
                 "UPDATE orders SET"
                 + "  metadata = coalesce(metadata,'{}'::jsonb) || jsonb_build_object("
-                + "    'recharge_requested_at', now()::text),"
+                + "    'recharge_requested_at', now()::text,"
+                + "    'recharge_apply_current_time', ?::boolean,"
+                + "    'recharge_override_audited', ?::boolean),"
                 + "  updated_at = now()"
-                + " WHERE id = ?::uuid", id);
-            // 同时把 charges 标 DRAFT 等重算
-            jdbc.update(
-                "UPDATE charges SET status='DRAFT'"
-                + " WHERE shipment_id IN ("
-                + "   SELECT shipment_id FROM shipment_order_links WHERE order_id = ?::uuid"
-                + " )", id);
+                + " WHERE id = ?::uuid", applyCurrentTime, overrideAudited, id);
+            // 把 charges 标 DRAFT 等重算; overrideAudited=true 时连已审的也重算
+            if (overrideAudited) {
+                jdbc.update(
+                    "UPDATE charges SET status='DRAFT', audit_status='UNAUDITED'"
+                    + " WHERE shipment_id IN ("
+                    + "   SELECT shipment_id FROM shipment_order_links WHERE order_id = ?::uuid"
+                    + " )", id);
+            } else {
+                jdbc.update(
+                    "UPDATE charges SET status='DRAFT'"
+                    + " WHERE shipment_id IN ("
+                    + "   SELECT shipment_id FROM shipment_order_links WHERE order_id = ?::uuid"
+                    + " ) AND audit_status <> 'AUDITED'", id);
+            }
             if (n > 0) rerated++; else skipped++;
         }
         return Map.of("rerated", rerated, "skipped", skipped, "total", ids.size());

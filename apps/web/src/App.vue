@@ -444,7 +444,7 @@ const accTabs = [
   { key: "orders-queue", label: "制单队列", icon: ClipboardList, api: "orders", statusFilter: "QUEUE" },
   { key: "orders-import", label: "导入快件", icon: Upload, api: "orders" },
   { key: "orders-batch-print", label: "批量打印", icon: FileText, api: "orders" },
-  { key: "orders-batch-op", label: "批量操作", icon: ListChecks, api: "orders" },
+  { key: "orders-batch-track", label: "追踪快递", icon: MapPin, api: "orders" },
   { key: "orders-update-tracking", label: "更新转单号", icon: RefreshCw, api: "orders" },
   { key: "orders-update-weight", label: "更新计费重", icon: RefreshCw, api: "orders" },
   { key: "orders-change-customer", label: "变更客户", icon: ArrowLeftRight, api: "orders" },
@@ -641,7 +641,7 @@ const accGroupOrder = [
   T("orders-queue"),                    // 制单队列
   T("orders-import"),                   // 导入快件
   T("orders-batch-print"),              // 批量打印
-  T("orders-batch-op"),                 // 批量操作
+  T("orders-batch-track"),                 // 批量操作
   T("orders-update-tracking"),          // 更新转单号
   T("orders-update-weight"),            // 更新计费重
   T("orders-change-customer"),          // 变更客户
@@ -793,7 +793,7 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'orders-queue': 'orders',
       'orders-import': 'orders',
       'orders-batch-print': 'orders',
-      'orders-batch-op': 'orders',
+      'orders-batch-track': 'orders',
       'orders-update-tracking': 'orders',
       'orders-update-weight': 'orders',
       'orders-change-customer': 'orders',
@@ -856,7 +856,7 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'orders-queue': 'orders',
       'orders-import': 'orders',
       'orders-batch-print': 'orders',
-      'orders-batch-op': 'orders',
+      'orders-batch-track': 'orders',
       'orders-update-tracking': 'orders',
       'orders-update-weight': 'orders',
       'orders-change-customer': 'orders',
@@ -2888,7 +2888,14 @@ watch(accTab, () => {
   accKeyword.value = "";
   accDateFrom.value = "";
   accDateTo.value = "";
-  fetchAccData();
+  // 批量页面预加载客户下拉
+  if (accTab.value === 'orders-change-customer') {
+    loadSelectOptions([{ type: 'select', ref: 'customers' } as any]);
+  }
+  // 批量页面不需要拉列表数据
+  if (!batchPageSet.has(accTab.value)) {
+    fetchAccData();
+  }
 });
 
 watch(currentNav, (nav) => {
@@ -3204,94 +3211,171 @@ const canBatchRemit = computed(() => batchRemitTabs.has(accTab.value));
 const ordersTabSet = new Set(['orders', 'orders-draft', 'orders-history', 'orders-cancelled']);
 const canOrdersBatch = computed(() => ordersTabSet.has(accTab.value));
 
-// ACC 5 个批量操作 sub-tab，需要专用面板
+// ACC 5 个批量操作 sub-tab，需要独立专用页面（对照 ExpressBatch.php 截图）
 const batchPageSet = new Set([
   'orders-change-customer', 'orders-update-tracking', 'orders-update-weight',
-  'orders-batch-charge', 'orders-batch-op',
+  'orders-batch-charge', 'orders-batch-track',
 ]);
 const batchPagePanel = computed(() => batchPageSet.has(accTab.value));
 
-// 批量变更客户 state
+// ACC 批量页面统一状态
+const batchInputText = ref('');
+const batchPreviewRows = ref<any[]>([]);
+const batchPreviewSelected = ref<Set<string>>(new Set());
+const batchApplyCurrentTime = ref(false);
+const batchOverrideAudited = ref(false);
 const batchTargetCustomerId = ref('');
-async function doChangeCustomer() {
-  if (!batchTargetCustomerId.value || selectedIds.value.size === 0) return;
-  bizLoading.value = true;
-  try {
-    const res = await apiFetch(`${API}/api/acc/orders/batch-change-customer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ids: Array.from(selectedIds.value),
-        customerId: batchTargetCustomerId.value,
-      }),
-    });
-    const j = await res.json();
-    bizMessage.value = `客户变更完成: ${j.updated ?? 0}/${j.total ?? 0}`;
-    selectedIds.value.clear();
+
+watch(() => accTab.value, () => {
+  if (batchPageSet.has(accTab.value)) {
+    batchInputText.value = '';
+    batchPreviewRows.value = [];
+    batchPreviewSelected.value = new Set();
+    batchApplyCurrentTime.value = false;
+    batchOverrideAudited.value = false;
     batchTargetCustomerId.value = '';
-    await fetchAccData();
+  }
+});
+
+const batchPageConfig: Record<string, { title: string; placeholder: string; hint?: string; needCustomer?: boolean; showApplyCurrent?: boolean; showOverride?: boolean; confirmLabel?: string; previewLabel?: string }> = {
+  'orders-update-tracking': {
+    title: '批量更新转单号',
+    placeholder: '示例:\nEX20260601001 1Z999AA10123456784\nEX20260601002 1Z999AA10123456785',
+    hint: '格式：运单号+空格+新转单号',
+  },
+  'orders-update-weight': {
+    title: '批量更新计费重',
+    placeholder: '示例:\nEX20260601001 12.5\nEX20260601002 8.3',
+    hint: '格式：运单号+空格+新计费重(kg)',
+    showApplyCurrent: true,
+    showOverride: true,
+  },
+  'orders-change-customer': {
+    title: '变更客户',
+    placeholder: '每行一个运单号',
+    hint: '格式：每行一个运单号',
+    needCustomer: true,
+    showApplyCurrent: true,
+  },
+  'orders-batch-charge': {
+    title: '批量重新计费',
+    placeholder: '每行一个运单号',
+    hint: '格式：每行一个运单号',
+    showApplyCurrent: true,
+    showOverride: true,
+  },
+  'orders-batch-track': {
+    title: '批量追踪快件',
+    placeholder: '每行一个单号或转单号',
+    hint: '格式：每行一个单号或转单号',
+    previewLabel: '追踪预览',
+    confirmLabel: '确认追踪',
+  },
+};
+
+const batchPageMeta = computed(() => batchPageConfig[accTab.value]);
+
+async function doBatchPreview() {
+  if (!batchInputText.value.trim()) {
+    bizMessage.value = '请先输入单号';
+    return;
+  }
+  const mode = accTab.value.replace('orders-', '');
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/batch-preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode, text: batchInputText.value }),
+    });
+    const j = await res.json();
+    batchPreviewRows.value = j.rows ?? [];
+    batchPreviewSelected.value = new Set(batchPreviewRows.value.map((r: any) => r.id));
+    bizMessage.value = `解析 ${j.parsed ?? 0} 行，匹配 ${j.matched ?? 0} 条${j.missing ? '，未找到 ' + j.missing : ''}`;
   } catch (e: any) {
-    bizMessage.value = '失败: ' + e.message;
+    bizMessage.value = '预览失败：' + e.message;
   } finally {
     bizLoading.value = false;
     setTimeout(() => { bizMessage.value = ''; }, 6000);
   }
 }
 
-// 批量更新转单号 / 计费重 — 用 prompt 收集每行新值（简化交互）
-async function doUpdateTrackingRows() {
-  if (selectedIds.value.size === 0) return;
-  const ids = Array.from(selectedIds.value);
-  const lines: string[] = [];
-  for (const id of ids) {
-    const row = accData.value.find((r: any) => r.id === id);
-    const v = prompt(`订单 ${row?.orderNo ?? id}: 新转单号？`, row?.trackNo ?? '');
-    if (v == null) return;
-    lines.push(JSON.stringify({ id, trackingNo: v }));
-  }
-  bizLoading.value = true;
-  try {
-    const res = await apiFetch(`${API}/api/acc/orders/batch-update-tracking`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows: lines.map(s => JSON.parse(s)) }),
-    });
-    const j = await res.json();
-    bizMessage.value = `转单号更新: ${j.updated ?? 0}/${j.total ?? 0}`;
-    selectedIds.value.clear();
-    await fetchAccData();
-  } finally {
-    bizLoading.value = false;
-    setTimeout(() => { bizMessage.value = ''; }, 6000);
-  }
+function toggleBatchPreviewRow(id: string) {
+  const s = new Set(batchPreviewSelected.value);
+  if (s.has(id)) s.delete(id); else s.add(id);
+  batchPreviewSelected.value = s;
+}
+function batchPreviewSelectAll() { batchPreviewSelected.value = new Set(batchPreviewRows.value.map((r: any) => r.id)); }
+function batchPreviewSelectNone() { batchPreviewSelected.value = new Set(); }
+function batchPreviewInvert() {
+  const all = batchPreviewRows.value.map((r: any) => r.id);
+  const cur = batchPreviewSelected.value;
+  const inv = new Set<string>();
+  all.forEach((id: string) => { if (!cur.has(id)) inv.add(id); });
+  batchPreviewSelected.value = inv;
 }
 
-async function doUpdateWeightRows() {
-  if (selectedIds.value.size === 0) return;
-  const ids = Array.from(selectedIds.value);
-  const lines: any[] = [];
-  for (const id of ids) {
-    const row = accData.value.find((r: any) => r.id === id);
-    const v = prompt(`订单 ${row?.orderNo ?? id}: 新计费重 kg？`, '');
-    if (v == null) return;
-    const n = Number(v);
-    if (!Number.isFinite(n)) continue;
-    lines.push({ id, chargeableKg: n });
+function cancelBatchPage() {
+  batchInputText.value = '';
+  batchPreviewRows.value = [];
+  batchPreviewSelected.value = new Set();
+  batchApplyCurrentTime.value = false;
+  batchOverrideAudited.value = false;
+  batchTargetCustomerId.value = '';
+}
+
+async function doBatchConfirm() {
+  if (batchPreviewSelected.value.size === 0) {
+    bizMessage.value = '请先勾选要更新的订单';
+    return;
   }
+  const selected = batchPreviewRows.value.filter((r: any) => batchPreviewSelected.value.has(r.id));
+  let endpoint = '';
+  const opts: any = {
+    applyCurrentTime: batchApplyCurrentTime.value,
+    overrideAudited: batchOverrideAudited.value,
+  };
+  let body: any = opts;
+
+  if (accTab.value === 'orders-update-tracking') {
+    endpoint = 'batch-update-tracking';
+    body = { ...opts, rows: selected.map((r: any) => ({ id: r.id, trackingNo: r.newValue })) };
+  } else if (accTab.value === 'orders-update-weight') {
+    endpoint = 'batch-update-weight';
+    body = { ...opts, rows: selected.map((r: any) => ({ id: r.id, chargeableKg: Number(r.newValue) })) };
+  } else if (accTab.value === 'orders-change-customer') {
+    if (!batchTargetCustomerId.value) { bizMessage.value = '请先选目标客户'; return; }
+    endpoint = 'batch-change-customer';
+    body = { ...opts, ids: selected.map((r: any) => r.id), customerId: batchTargetCustomerId.value };
+  } else if (accTab.value === 'orders-batch-charge') {
+    endpoint = 'batch-recharge';
+    body = { ...opts, ids: selected.map((r: any) => r.id) };
+  } else if (accTab.value === 'orders-batch-track') {
+    endpoint = 'batch-track';
+    body = { ids: selected.map((r: any) => r.id) };
+  }
+
   bizLoading.value = true;
   try {
-    const res = await apiFetch(`${API}/api/acc/orders/batch-update-weight`, {
+    const res = await apiFetch(`${API}/api/acc/orders/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rows: lines }),
+      body: JSON.stringify(body),
     });
     const j = await res.json();
-    bizMessage.value = `计费重更新: ${j.updated ?? 0}/${j.total ?? 0}`;
-    selectedIds.value.clear();
-    await fetchAccData();
+    if (endpoint === 'batch-track') {
+      const eventMap = new Map((j.rows ?? []).map((r: any) => [r.id, r.events ?? []]));
+      batchPreviewRows.value = batchPreviewRows.value.map((r: any) => ({ ...r, events: eventMap.get(r.id) ?? [] }));
+      bizMessage.value = `追踪完成 ${j.total ?? 0} 条`;
+    } else {
+      bizMessage.value = `${batchPageMeta.value?.title} 完成: ${JSON.stringify(j).slice(0, 200)}`;
+      cancelBatchPage();
+    }
+  } catch (e: any) {
+    bizMessage.value = '操作失败：' + e.message;
   } finally {
     bizLoading.value = false;
-    setTimeout(() => { bizMessage.value = ''; }, 6000);
+    setTimeout(() => { bizMessage.value = ''; }, 8000);
   }
 }
 
@@ -4198,8 +4282,8 @@ async function doReloadBill(id: number) {
           <strong>{{ accTabs.find(t => t.key === accTab)?.label ?? '快件订单' }}</strong>
         </div>
 
-        <!-- Search bar -->
-        <div class="acc-search-bar">
+        <!-- Search bar (批量页面隐藏) -->
+        <div class="acc-search-bar" v-if="!batchPagePanel">
           <div class="search-group">
             <Search :size="14" class="search-icon" />
             <input type="text" v-model="accKeyword" placeholder="搜索关键词..." @keyup.enter="accSearch" />
@@ -4295,47 +4379,147 @@ async function doReloadBill(id: number) {
         </div>
 
         <!-- ACC 5 个批量操作页面的专用面板（在表格上方） -->
-        <div v-if="batchPagePanel" class="batch-panel" style="margin:8px 0;padding:12px;background:#f8fafc;border:1px dashed #94a3b8;border-radius:6px">
-          <template v-if="accTab === 'orders-change-customer'">
-            <strong>批量变更客户：</strong>
-            勾选订单 + 选目标客户：
-            <select v-model="batchTargetCustomerId" style="margin:0 8px">
-              <option value="">请选择新客户</option>
-              <option v-for="opt in (selectOptions['customers'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
-            </select>
-            <button class="primary sm" @click="doChangeCustomer" :disabled="!batchTargetCustomerId || selectedIds.size===0">
-              应用到 {{ selectedIds.size }} 单
-            </button>
-          </template>
-          <template v-if="accTab === 'orders-update-tracking'">
-            <strong>批量更新转单号：</strong>勾订单后，每行单独填新转单号，再点提交：
-            <button class="primary sm" @click="doUpdateTrackingRows" :disabled="selectedIds.size===0">
-              提交 {{ selectedIds.size }} 行
-            </button>
-            <p style="font-size:12px;color:#64748b">支持: 在表格 ↗右侧粘贴 trackingNo 后回车，或在弹窗里逐行填</p>
-          </template>
-          <template v-if="accTab === 'orders-update-weight'">
-            <strong>批量更新计费重：</strong>勾订单后，每行单独填新重量，再点提交：
-            <button class="primary sm" @click="doUpdateWeightRows" :disabled="selectedIds.size===0">
-              提交 {{ selectedIds.size }} 行
-            </button>
-          </template>
-          <template v-if="accTab === 'orders-batch-charge'">
-            <strong>批量计费：</strong>勾选订单 → 重新跑费率引擎 (charges 标 DRAFT 等下次 Submit 重新计费)：
-            <button class="primary sm" @click="doOrdersBatchRecharge" :disabled="selectedIds.size===0">
-              重算 {{ selectedIds.size }} 单
-            </button>
-          </template>
-          <template v-if="accTab === 'orders-batch-op'">
-            <strong>批量操作 (替换转单号)：</strong>勾订单 + 每行填新转单号：
-            <button class="primary sm" @click="doUpdateTrackingRows" :disabled="selectedIds.size===0">
-              替换 {{ selectedIds.size }} 单的转单号
-            </button>
-          </template>
+        <!-- ACC 批量操作页面（textarea 粘贴 + 预览 + 确认两步） -->
+        <div v-if="batchPagePanel" class="acc-batch-page" style="background:#fff;border:1px solid #cbd5e1;border-radius:4px;margin-top:8px">
+          <div style="background:#e0f2fe;border-bottom:1px solid #93c5fd;padding:10px 16px;font-weight:bold;text-align:center">
+            {{ batchPageMeta?.title }}
+          </div>
+          <!-- 输入区 -->
+          <div style="padding:16px;border-bottom:1px solid #e2e8f0">
+            <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+              <label style="width:80px;text-align:right;padding-top:4px;font-size:13px">{{ accTab === 'orders-batch-track' ? '单号/转单号：' : '转单号：' }}</label>
+              <div style="flex:1">
+                <textarea v-model="batchInputText"
+                          :placeholder="batchPageMeta?.placeholder"
+                          rows="8"
+                          style="width:100%;font-family:monospace;font-size:13px;padding:6px;border:1px solid #cbd5e1;border-radius:3px"></textarea>
+                <div style="font-size:12px;color:#64748b;margin-top:4px">{{ batchPageMeta?.hint }}</div>
+              </div>
+            </div>
+            <!-- 变更客户专属：新客户下拉 -->
+            <div v-if="batchPageMeta?.needCustomer" style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+              <label style="width:80px;text-align:right;font-size:13px">
+                <span style="color:#dc2626">(*)</span>新客户：
+              </label>
+              <select v-model="batchTargetCustomerId" style="padding:4px 8px;min-width:220px">
+                <option value="">请选择客户</option>
+                <option v-for="opt in (selectOptions['customers'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+              </select>
+            </div>
+            <!-- 选项区 -->
+            <div v-if="batchPageMeta?.showApplyCurrent || batchPageMeta?.showOverride" style="display:flex;align-items:center;gap:24px;margin-bottom:10px">
+              <label style="width:80px;text-align:right;font-size:13px">其它选项：</label>
+              <label v-if="batchPageMeta?.showApplyCurrent" style="font-size:13px">
+                <input type="checkbox" v-model="batchApplyCurrentTime" /> 以当前时间计费
+              </label>
+              <label v-if="batchPageMeta?.showOverride" style="font-size:13px">
+                <input type="checkbox" v-model="batchOverrideAudited" /> 覆盖已审费用
+              </label>
+            </div>
+            <div style="margin-left:92px">
+              <button class="primary sm" @click="doBatchPreview" :disabled="bizLoading">
+                {{ batchPageMeta?.previewLabel ?? '更新预览' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 预览表格 -->
+          <table class="data-table" style="width:100%">
+            <thead>
+              <tr>
+                <th class="check-col">
+                  <input type="checkbox"
+                         :checked="batchPreviewRows.length > 0 && batchPreviewSelected.size === batchPreviewRows.length"
+                         @change="batchPreviewSelected.size === batchPreviewRows.length ? batchPreviewSelectNone() : batchPreviewSelectAll()" />
+                </th>
+                <th>序号</th>
+                <th>单号</th>
+                <th>重量</th>
+                <th>目的地</th>
+                <th>销售产品</th>
+                <th>状态</th>
+                <template v-if="accTab === 'orders-update-tracking'">
+                  <th>转单号</th>
+                  <th>新转单号</th>
+                </template>
+                <template v-else-if="accTab === 'orders-update-weight'">
+                  <th>原重量</th>
+                  <th>新计费重</th>
+                </template>
+                <template v-else-if="accTab === 'orders-change-customer'">
+                  <th>原客户</th>
+                </template>
+                <template v-else-if="accTab === 'orders-batch-track'">
+                  <th>转单号</th>
+                  <th>渠道类型</th>
+                  <th>追踪轨迹</th>
+                </template>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="batchPreviewRows.length === 0">
+                <td :colspan="accTab === 'orders-batch-track' ? 10 : 9" class="empty-cell">输入单号后点击「更新预览」</td>
+              </tr>
+              <tr v-for="(row, i) in batchPreviewRows" :key="row.id">
+                <td class="check-col">
+                  <input type="checkbox"
+                         :checked="batchPreviewSelected.has(row.id)"
+                         @change="toggleBatchPreviewRow(row.id)" />
+                </td>
+                <td>{{ i + 1 }}</td>
+                <td>{{ row.orderNo }}</td>
+                <td>{{ row.weight }}</td>
+                <td>{{ row.country }}</td>
+                <td>{{ row.product }}</td>
+                <td>{{ row.status }}</td>
+                <template v-if="accTab === 'orders-update-tracking'">
+                  <td>{{ row.trackNo }}</td>
+                  <td style="color:#dc2626;font-weight:bold">{{ row.newValue }}</td>
+                </template>
+                <template v-else-if="accTab === 'orders-update-weight'">
+                  <td>{{ row.weight }}</td>
+                  <td style="color:#dc2626;font-weight:bold">{{ row.newValue }}</td>
+                </template>
+                <template v-else-if="accTab === 'orders-change-customer'">
+                  <td>{{ row.customerName }}</td>
+                </template>
+                <template v-else-if="accTab === 'orders-batch-track'">
+                  <td>{{ row.trackNo }}</td>
+                  <td>{{ row.product }}</td>
+                  <td style="max-width:300px">
+                    <div v-if="row.events && row.events.length > 0" style="font-size:11px;color:#64748b">
+                      <div v-for="(ev, j) in row.events.slice(0, 3)" :key="j">
+                        {{ ev.event_time }} - {{ ev.event_code }} ({{ ev.location }})
+                      </div>
+                    </div>
+                    <span v-else style="color:#94a3b8">-</span>
+                  </td>
+                </template>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- 底部 -->
+          <div style="padding:12px 16px;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:16px">
+            <span style="font-size:13px">
+              <strong>选择：</strong>
+              <a href="#" @click.prevent="batchPreviewSelectAll" style="color:#2563eb;margin:0 4px">全选</a> -
+              <a href="#" @click.prevent="batchPreviewInvert" style="color:#2563eb;margin:0 4px">反选</a> -
+              <a href="#" @click.prevent="batchPreviewSelectNone" style="color:#2563eb;margin:0 4px">不选</a>
+            </span>
+            <div style="flex:1;text-align:center">
+              <button class="primary" @click="doBatchConfirm" :disabled="bizLoading || batchPreviewRows.length === 0">
+                {{ batchPageMeta?.confirmLabel ?? '确认更新' }}
+              </button>
+              <button class="secondary" @click="cancelBatchPage" style="margin-left:8px">
+                取消返回
+              </button>
+            </div>
+          </div>
         </div>
 
-        <!-- Data table -->
-        <div class="acc-table-wrap">
+        <!-- Data table (非批量页才显示) -->
+        <div class="acc-table-wrap" v-if="!batchPagePanel">
           <table class="data-table" v-if="accColumns[accTab]">
             <thead>
               <tr>
@@ -4441,7 +4625,7 @@ async function doReloadBill(id: number) {
         </div>
 
         <!-- Pagination -->
-        <div class="pagination" v-if="!noPaginationTabs.has(accTab) && accTotal > 0">
+        <div class="pagination" v-if="!noPaginationTabs.has(accTab) && accTotal > 0 && !batchPagePanel">
           <button @click="accPrev" :disabled="accPage <= 1">
             <ChevronLeft :size="14" /> 上一页
           </button>
