@@ -217,6 +217,11 @@ public class AccOrdersController {
         accCompat.put("volume", body.get("volume"));
         accCompat.put("currency", strOrDefault(body.get("currency"), "USD"));
         accCompat.put("declaredValue", body.get("declaredValue"));
+        accCompat.put("freight", body.get("freight"));
+        accCompat.put("insurance", body.get("insurance"));
+        accCompat.put("materialsEn", strOrNull(body.get("materialsEn")));
+        accCompat.put("materialsCn", strOrNull(body.get("materialsCn")));
+        accCompat.put("batteryCode", strOrNull(body.get("batteryCode")));
         accCompat.put("services", body.get("services"));
         accCompat.put("remark", strOrNull(body.get("remark")));
         accCompat.put("receiver", body.get("receiver"));

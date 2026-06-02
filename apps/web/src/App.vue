@@ -2915,17 +2915,22 @@ const fullOrderData = reactive<any>({
   channelAccount: '',
   packageType: 'PARCEL',
   batteryType: 0,
+  batteryCode: '',     // ACC BatteryCode select
   specialType: 0,
   labelType: 'PDF',
+  materialsEn: '',     // ACC MaterialsEN
+  materialsCn: '',     // ACC MaterialsCN
   country: '',
   weight: 0,
   piece: 1,
   volume: 0,
   currency: 'USD',
   declaredValue: 0,
+  freight: 0,          // ACC Freight - 运费
+  insurance: 0,        // ACC Insurance - 保险
   services: [] as string[],
   remark: '',
-  receiver: { warehouseCode: '', country: '', ...emptyParty() },
+  receiver: { warehouseCode: '', country: '', areaCode: '', ...emptyParty() },
   shipper: emptyParty(),
   shipTo: { templateId: '', ...emptyParty() },
   declare: [emptyDeclareRow()],
@@ -2940,10 +2945,12 @@ async function openFullOrderAdd() {
     orderDate: new Date().toISOString().slice(0, 10),
     customerId: '',
     product: '', channelAccount: '', packageType: 'PARCEL',
-    batteryType: 0, specialType: 0, labelType: 'PDF',
+    batteryType: 0, batteryCode: '', specialType: 0, labelType: 'PDF',
+    materialsEn: '', materialsCn: '',
     country: '', weight: 0, piece: 1, volume: 0,
-    currency: 'USD', declaredValue: 0, services: [], remark: '',
-    receiver: { warehouseCode: '', country: '', ...emptyParty() },
+    currency: 'USD', declaredValue: 0, freight: 0, insurance: 0,
+    services: [], remark: '',
+    receiver: { warehouseCode: '', country: '', areaCode: '', ...emptyParty() },
     shipper: emptyParty(),
     shipTo: { templateId: '', ...emptyParty() },
     declare: [emptyDeclareRow()],
@@ -2953,10 +2960,25 @@ async function openFullOrderAdd() {
   await loadSelectOptions([
     { type: 'select', ref: 'customers' } as any,
     { type: 'select', ref: 'channels' } as any,
+    { type: 'select', ref: 'channel-accounts' } as any,
     { type: 'select', ref: 'countries' } as any,
     { type: 'select', ref: 'warehouses' } as any,
+    { type: 'select', ref: 'importer-templates' } as any,
   ]);
   showFullOrderForm.value = true;
+}
+
+// ACC 进口商模板选择 → 自动回填进口商区字段
+function applyImporterTemplate() {
+  const id = fullOrderData.shipTo.templateId;
+  if (!id) return;
+  const tpl = ((selectOptions as any)['importer-templates'] ?? []).find((t: any) => t.id === id);
+  if (!tpl) return;
+  fullOrderData.shipTo.company = tpl.name ?? fullOrderData.shipTo.company;
+  fullOrderData.shipTo.name = tpl.contactName ?? fullOrderData.shipTo.name;
+  fullOrderData.shipTo.phone = tpl.contactPhone ?? fullOrderData.shipTo.phone;
+  fullOrderData.shipTo.address = tpl.address ?? fullOrderData.shipTo.address;
+  fullOrderData.shipTo.vat = tpl.taxId ?? fullOrderData.shipTo.vat;
 }
 
 function addDeclareRow() { fullOrderData.declare.push(emptyDeclareRow()); }
@@ -4253,7 +4275,13 @@ async function doReloadBill(id: number) {
                   <option v-for="opt in (selectOptions['channels'] ?? [])" :key="opt.id" :value="opt.code || opt.name">{{ opt.name }}</option>
                 </select>
               </div>
-              <div class="form-field"><label>制单账号</label><input type="text" v-model="fullOrderData.channelAccount" placeholder="ACC-001" /></div>
+              <div class="form-field">
+                <label>制单账号</label>
+                <select v-model="fullOrderData.channelAccount">
+                  <option value="">请选择制单账号</option>
+                  <option v-for="opt in (selectOptions['channel-accounts'] ?? [])" :key="opt.id" :value="opt.code || opt.name">{{ opt.name }}</option>
+                </select>
+              </div>
               <div class="form-field">
                 <label>包裹类型</label>
                 <div class="radio-row">
@@ -4294,11 +4322,21 @@ async function doReloadBill(id: number) {
           <div class="form-section">
             <h4>货物信息</h4>
             <div class="form-grid">
-              <div class="form-field full-width"><label>英文描述</label><input type="text" v-model="fullOrderData.receiver.englishDesc" /></div>
-              <div class="form-field full-width"><label>中文描述</label><input type="text" v-model="fullOrderData.receiver.chineseDesc" /></div>
+              <div class="form-field full-width"><label>英文品名 <span class="required">*</span></label><input type="text" v-model="fullOrderData.materialsEn" placeholder="英文品名 (ACC MaterialsEN)" /></div>
+              <div class="form-field full-width"><label>中文品名</label><input type="text" v-model="fullOrderData.materialsCn" placeholder="中文品名 (ACC MaterialsCN)" /></div>
               <div class="form-field"><label>件数</label><input type="number" v-model.number="fullOrderData.piece" /></div>
               <div class="form-field"><label>重量 (kg)</label><input type="number" step="any" v-model.number="fullOrderData.weight" /></div>
               <div class="form-field"><label>体积 (m³)</label><input type="number" step="any" v-model.number="fullOrderData.volume" /></div>
+              <div class="form-field">
+                <label>电池代码</label>
+                <select v-model="fullOrderData.batteryCode">
+                  <option value="">无电池</option>
+                  <option value="UN3480">UN3480 锂电池单独</option>
+                  <option value="UN3481">UN3481 锂电池随附</option>
+                  <option value="UN3090">UN3090 锂金属电池</option>
+                  <option value="UN3091">UN3091 锂金属电池随附</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -4326,6 +4364,8 @@ async function doReloadBill(id: number) {
                 </select>
               </div>
               <div class="form-field"><label>货物金额</label><input type="number" step="any" v-model.number="fullOrderData.declaredValue" /></div>
+              <div class="form-field"><label>运费 (Freight)</label><input type="number" step="any" v-model.number="fullOrderData.freight" /></div>
+              <div class="form-field"><label>保险 (Insurance)</label><input type="number" step="any" v-model.number="fullOrderData.insurance" /></div>
               <div class="form-field full-width"><label>备注</label><textarea v-model="fullOrderData.remark" rows="2" /></div>
             </div>
           </div>
@@ -4348,6 +4388,7 @@ async function doReloadBill(id: number) {
                   <option v-for="opt in (selectOptions['countries'] ?? [])" :key="opt.id" :value="opt.code || opt.name">{{ opt.name }}</option>
                 </select>
               </div>
+              <div class="form-field"><label>目的地代码</label><input type="text" v-model="fullOrderData.receiver.areaCode" placeholder="输入后自动填充国家邮编" /></div>
               <div class="form-field"><label>公司 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.company" /></div>
               <div class="form-field"><label>收件人 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.name" /></div>
               <div class="form-field"><label>电话 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.phone" /></div>
@@ -4379,7 +4420,13 @@ async function doReloadBill(id: number) {
           <div class="form-section">
             <h4>进口商 (IOR)</h4>
             <div class="form-grid">
-              <div class="form-field"><label>预设模板</label><input type="text" v-model="fullOrderData.shipTo.templateId" placeholder="选择预设的进口商模板" /></div>
+              <div class="form-field">
+                <label>预设模板</label>
+                <select v-model="fullOrderData.shipTo.templateId" @change="applyImporterTemplate">
+                  <option value="">请选择预设模板</option>
+                  <option v-for="opt in (selectOptions['importer-templates'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                </select>
+              </div>
               <div class="form-field"><label>公司名称</label><input type="text" v-model="fullOrderData.shipTo.company" /></div>
               <div class="form-field"><label>联系人</label><input type="text" v-model="fullOrderData.shipTo.name" /></div>
               <div class="form-field"><label>电话</label><input type="text" v-model="fullOrderData.shipTo.phone" /></div>
