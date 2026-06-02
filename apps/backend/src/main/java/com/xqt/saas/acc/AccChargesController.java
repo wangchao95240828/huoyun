@@ -61,12 +61,16 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String status
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+
+            // 核算中心 子页过滤
+            String statusFilter = buildChargesStatusFilter(status);
 
             var access = branchAccess.forCurrent("ch");
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
@@ -79,6 +83,7 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                 + "   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
                 + "   AND (?::date IS NULL OR ch.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
+                + statusFilter
                 + access.sql(),
                 Long.class, countParams.toArray());
 
@@ -118,6 +123,7 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                 + " AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
                 + " AND (?::date IS NULL OR ch.created_at >= ?::date)"
                 + " AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
+                + statusFilter
                 + access.sql()
                 + " ORDER BY ch.created_at DESC LIMIT ? OFFSET ?",
                 buildChargesListParams(search, dateFrom, dateTo, access, limit, offset));
@@ -133,6 +139,7 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                 + "   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
                 + "   AND (?::date IS NULL OR ch.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
+                + statusFilter
                 + access.sql(),
                 java.math.BigDecimal.class, sumParams.toArray());
             java.util.Map<String, Object> agg = new java.util.LinkedHashMap<>();
@@ -218,6 +225,20 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM charges WHERE id = ?::uuid AND side = ?::charge_side", id, SIDE);
         return Map.of("id", id, "deleted", true);
+    }
+
+    /** 核算中心 子页过滤. */
+    private static String buildChargesStatusFilter(String status) {
+        if (status == null || status.isBlank()) return "";
+        return switch (status) {
+            case "UNAUDITED"           -> " AND ch.audit_status = 'UNAUDITED'";
+            case "HISTORY"             -> " AND ch.created_at < date_trunc('month', current_date)";
+            case "RETURN_PENDING"      -> " AND ch.audit_status = 'UNAUDITED'"
+                + " AND EXISTS (SELECT 1 FROM acc_returns r WHERE r.shipment_id = ch.shipment_id)";
+            case "REPARATION_PENDING"  -> " AND ch.audit_status = 'UNAUDITED'"
+                + " AND EXISTS (SELECT 1 FROM acc_reparations r WHERE r.shipment_id = ch.shipment_id)";
+            default                     -> "";
+        };
     }
 
     private static Object[] buildChargesListParams(String search, String dateFrom, String dateTo,

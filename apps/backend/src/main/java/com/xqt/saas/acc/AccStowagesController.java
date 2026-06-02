@@ -45,32 +45,35 @@ public class AccStowagesController {
     public Map<String, Object> list(
         @RequestParam(required = false) Integer page,
         @RequestParam(required = false) Integer pageSize,
-        @RequestParam(required = false) String keyword
+        @RequestParam(required = false) String keyword,
+        @RequestParam(required = false) String status
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+            String statusFilter = "EXCEPTION".equals(status) ? " AND s.status = 'EXCEPTION'" : "";
 
             long total = json.value(jdbc.queryForObject(
-                "SELECT count(*) FROM stowages WHERE ?::text IS NULL OR stowage_no ILIKE ?",
+                "SELECT count(*) FROM stowages s WHERE (?::text IS NULL OR s.stowage_no ILIKE ?)" + statusFilter,
                 Long.class, search, search)) instanceof Number n ? n.longValue() : 0;
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT s.id::text AS id, s.stowage_no, s.stowage_date, s.status, s.category_id::text AS category_id,
-                       s.customer_id::text AS customer_id, s.departure_port_id::text AS departure_port_id,
-                       s.arrival_port_id::text AS arrival_port_id, s.remark,
-                       sc.name AS category_name, c.name AS customer_name,
-                       dp.name AS departure_port_name, ap.name AS arrival_port_name,
-                       s.audit_status, s.audited_at, s.audit_name, s.created_at
-                FROM stowages s
-                LEFT JOIN stowage_categories sc ON sc.id = s.category_id
-                LEFT JOIN customers c ON c.id = s.customer_id
-                LEFT JOIN stowage_ports dp ON dp.id = s.departure_port_id
-                LEFT JOIN stowage_ports ap ON ap.id = s.arrival_port_id
-                WHERE ?::text IS NULL OR s.stowage_no ILIKE ?
-                ORDER BY s.stowage_date DESC
-                LIMIT ? OFFSET ?
-                """, search, search, limit, offset);
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT s.id::text AS id, s.stowage_no, s.stowage_date, s.status, s.category_id::text AS category_id,"
+                + "       s.customer_id::text AS customer_id, s.departure_port_id::text AS departure_port_id,"
+                + "       s.arrival_port_id::text AS arrival_port_id, s.remark,"
+                + "       sc.name AS category_name, c.name AS customer_name,"
+                + "       dp.name AS departure_port_name, ap.name AS arrival_port_name,"
+                + "       s.audit_status, s.audited_at, s.audit_name, s.created_at"
+                + " FROM stowages s"
+                + " LEFT JOIN stowage_categories sc ON sc.id = s.category_id"
+                + " LEFT JOIN customers c ON c.id = s.customer_id"
+                + " LEFT JOIN stowage_ports dp ON dp.id = s.departure_port_id"
+                + " LEFT JOIN stowage_ports ap ON ap.id = s.arrival_port_id"
+                + " WHERE (?::text IS NULL OR s.stowage_no ILIKE ?)"
+                + statusFilter
+                + " ORDER BY s.stowage_date DESC"
+                + " LIMIT ? OFFSET ?",
+                search, search, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(), total);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);

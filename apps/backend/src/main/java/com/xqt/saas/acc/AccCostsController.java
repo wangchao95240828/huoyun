@@ -57,21 +57,26 @@ public class AccCostsController {
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String status
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
 
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM charges ch
-                LEFT JOIN shipments s ON s.id = ch.shipment_id
-                WHERE ch.side = 'AP'
-                  AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)
-                  AND (?::date IS NULL OR ch.created_at >= ?::date)
-                  AND (?::date IS NULL OR ch.created_at < (?::date + 1))
-                """, Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+            // 核算中心 成本子页过滤
+            String statusFilter = buildCostsStatusFilter(status);
+
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM charges ch"
+                + " LEFT JOIN shipments s ON s.id = ch.shipment_id"
+                + " WHERE ch.side = 'AP'"
+                + "   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
+                + "   AND (?::date IS NULL OR ch.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
+                + statusFilter,
+                Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
 
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT
@@ -106,9 +111,10 @@ public class AccCostsController {
                   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)
                   AND (?::date IS NULL OR ch.created_at >= ?::date)
                   AND (?::date IS NULL OR ch.created_at < (?::date + 1))
-                ORDER BY ch.created_at DESC
-                LIMIT ? OFFSET ?
-                """, search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+                """
+                + statusFilter
+                + " ORDER BY ch.created_at DESC LIMIT ? OFFSET ?",
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
 
             // 应付合计
             java.math.BigDecimal sumAmount = jdbc.queryForObject(
@@ -117,7 +123,8 @@ public class AccCostsController {
                 + " WHERE ch.side = 'AP'"
                 + "   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
                 + "   AND (?::date IS NULL OR ch.created_at >= ?::date)"
-                + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))",
+                + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
+                + statusFilter,
                 java.math.BigDecimal.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
             java.util.Map<String, Object> agg = new java.util.LinkedHashMap<>();
             agg.put("amount", sumAmount == null ? java.math.BigDecimal.ZERO : sumAmount);
@@ -127,6 +134,21 @@ public class AccCostsController {
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
         }
+    }
+
+    /** 核算中心 成本子页过滤. */
+    private static String buildCostsStatusFilter(String status) {
+        if (status == null || status.isBlank()) return "";
+        return switch (status) {
+            case "UNAUDITED" -> " AND ch.audit_status = 'UNAUDITED'";
+            case "ESTIMATE"  -> " AND ch.status = 'DRAFT'";
+            case "RECENT"    -> " AND ch.created_at >= (current_date - interval '7 days')";
+            case "HISTORY"   -> " AND ch.created_at < date_trunc('month', current_date)";
+            case "TRANSIT"   -> " AND EXISTS (SELECT 1 FROM channels c2 WHERE c2.id = (SELECT s2.channel_id FROM shipments s2 WHERE s2.id = ch.shipment_id) AND c2.lane = 'TRANSIT')";
+            case "ZHONGGANG" -> " AND EXISTS (SELECT 1 FROM channels c2 WHERE c2.id = (SELECT s2.channel_id FROM shipments s2 WHERE s2.id = ch.shipment_id) AND c2.lane = 'HK')";
+            case "AIR"       -> " AND EXISTS (SELECT 1 FROM channels c2 WHERE c2.id = (SELECT s2.channel_id FROM shipments s2 WHERE s2.id = ch.shipment_id) AND c2.lane = 'AIR')";
+            default          -> "";
+        };
     }
 
     @GetMapping("/{id}/raw")

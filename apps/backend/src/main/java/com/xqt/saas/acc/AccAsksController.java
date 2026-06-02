@@ -49,12 +49,14 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String status
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+            String statusFilter = buildAsksStatusFilter(status);
             var access = branchAccess.forCurrent("s");
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
                 search, search, search, dateFrom, dateFrom, dateTo, dateTo));
@@ -65,6 +67,7 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
                 + " WHERE (?::text IS NULL OR a.customer_ref ILIKE ? OR s.shipment_no ILIKE ?)"
                 + "   AND (?::date IS NULL OR a.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR a.created_at < (?::date + 1))"
+                + statusFilter
                 + access.sql(),
                 Long.class, countParams.toArray());
             List<Map<String, Object>> rows = jdbc.queryForList(
@@ -77,6 +80,7 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
                 + " WHERE (?::text IS NULL OR a.customer_ref ILIKE ? OR s.shipment_no ILIKE ?)"
                 + "   AND (?::date IS NULL OR a.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR a.created_at < (?::date + 1))"
+                + statusFilter
                 + access.sql()
                 + " ORDER BY a.created_at DESC"
                 + " LIMIT ? OFFSET ?",
@@ -146,6 +150,19 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM acc_asks WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    /** 客服中心 问题件子页过滤 (CUSTOMER/SUPPLIER 按 source；PROCESSING/PENDING/DONE 按 status) */
+    private static String buildAsksStatusFilter(String status) {
+        if (status == null || status.isBlank()) return "";
+        return switch (status) {
+            case "CUSTOMER"   -> " AND a.source = 'CUSTOMER'";
+            case "SUPPLIER"   -> " AND a.source = 'SUPPLIER'";
+            case "PROCESSING" -> " AND a.status = 'PROCESSING'";
+            case "PENDING"    -> " AND a.status IN ('OPEN','PENDING')";
+            case "DONE"       -> " AND a.status IN ('CLOSED','DONE')";
+            default            -> "";
+        };
     }
 
     private static Object[] buildAsksListParams(String search, String dateFrom, String dateTo,

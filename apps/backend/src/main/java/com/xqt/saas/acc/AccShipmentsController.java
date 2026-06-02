@@ -58,12 +58,16 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String status
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
+
+            // ACC 配载中心子页过滤：把高层语义 status 转 SQL where 片段
+            String statusFilter = buildShipmentsStatusFilter(status);
 
             var access = branchAccess.forCurrent("s");
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
@@ -74,6 +78,7 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
                 + " WHERE (?::text IS NULL OR (s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?))"
                 + "   AND (?::date IS NULL OR s.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR s.created_at < (?::date + 1))"
+                + statusFilter
                 + access.sql(),
                 Long.class, countParams.toArray());
 
@@ -119,6 +124,7 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
                 + " AND (?::text IS NULL OR (s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?))"
                 + " AND (?::date IS NULL OR s.created_at >= ?::date)"
                 + " AND (?::date IS NULL OR s.created_at < (?::date + 1))"
+                + statusFilter
                 + access.sql()
                 + " ORDER BY s.created_at DESC"
                 + " LIMIT ? OFFSET ?",
@@ -128,6 +134,23 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
         }
+    }
+
+    /**
+     * 配载中心子页过滤：把前端发的 status 关键字翻译成 SQL where 片段。
+     * 注意：返回的片段以 " AND ..." 开头或空字符串，不带绑定参数（用 date_trunc/now() 内联）。
+     */
+    private static String buildShipmentsStatusFilter(String status) {
+        if (status == null || status.isBlank()) return "";
+        return switch (status) {
+            case "TODAY"             -> " AND s.created_at::date = current_date";
+            case "PICKUP_TODAY"      -> " AND s.created_at::date = current_date AND s.status <> 'DRAFT'";
+            case "PICKUP_WEEK"       -> " AND s.created_at >= date_trunc('week', current_date)";
+            case "INTRANSIT"         -> " AND s.status = 'IN_TRANSIT'";
+            case "EXCEPTION"         -> " AND s.status = 'EXCEPTION'";
+            case "DELIVERED_TODAY"   -> " AND s.status = 'DELIVERED' AND s.completed_at::date = current_date";
+            default                   -> "";
+        };
     }
 
     @GetMapping("/{id}/raw")

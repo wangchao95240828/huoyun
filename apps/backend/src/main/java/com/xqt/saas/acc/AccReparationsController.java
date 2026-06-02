@@ -49,38 +49,53 @@ public class AccReparationsController {
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false) String status
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
-            Long total = jdbc.queryForObject("""
-                SELECT count(*) FROM acc_reparations r
-                LEFT JOIN shipments s ON s.id = r.shipment_id
-                LEFT JOIN customers c ON c.id = s.customer_id
-                WHERE (?::text IS NULL OR r.customer_ref ILIKE ? OR c.name ILIKE ?)
-                  AND (?::date IS NULL OR r.created_at >= ?::date)
-                  AND (?::date IS NULL OR r.created_at < (?::date + 1))
-                """, Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
-            List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT r.id::text AS id, r.customer_ref, r.apply_amount, r.paid_amount, r.currency,
-                       r.reason, r.status, r.add_name, r.created_at,
-                       r.audit_status, r.audited_at, r.audit_name,
-                       s.shipment_no, c.name AS customer_name
-                FROM acc_reparations r
-                LEFT JOIN shipments s ON s.id = r.shipment_id
-                LEFT JOIN customers c ON c.id = s.customer_id
-                WHERE (?::text IS NULL OR r.customer_ref ILIKE ? OR c.name ILIKE ?)
-                  AND (?::date IS NULL OR r.created_at >= ?::date)
-                  AND (?::date IS NULL OR r.created_at < (?::date + 1))
-                ORDER BY r.created_at DESC
-                LIMIT ? OFFSET ?
-                """, search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+            String statusFilter = buildReparationsStatusFilter(status);
+            Long total = jdbc.queryForObject(
+                "SELECT count(*) FROM acc_reparations r"
+                + " LEFT JOIN shipments s ON s.id = r.shipment_id"
+                + " LEFT JOIN customers c ON c.id = s.customer_id"
+                + " WHERE (?::text IS NULL OR r.customer_ref ILIKE ? OR c.name ILIKE ?)"
+                + "   AND (?::date IS NULL OR r.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR r.created_at < (?::date + 1))"
+                + statusFilter,
+                Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+            List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT r.id::text AS id, r.customer_ref, r.apply_amount, r.paid_amount, r.currency,"
+                + "       r.reason, r.status, r.add_name, r.created_at,"
+                + "       r.audit_status, r.audited_at, r.audit_name,"
+                + "       s.shipment_no, c.name AS customer_name"
+                + " FROM acc_reparations r"
+                + " LEFT JOIN shipments s ON s.id = r.shipment_id"
+                + " LEFT JOIN customers c ON c.id = s.customer_id"
+                + " WHERE (?::text IS NULL OR r.customer_ref ILIKE ? OR c.name ILIKE ?)"
+                + "   AND (?::date IS NULL OR r.created_at >= ?::date)"
+                + "   AND (?::date IS NULL OR r.created_at < (?::date + 1))"
+                + statusFilter
+                + " ORDER BY r.created_at DESC"
+                + " LIMIT ? OFFSET ?",
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(), total == null ? 0 : total);
         } catch (DataAccessException ex) {
             return AccPaging.result(List.of(), 0);
         }
+    }
+
+    /** 客服中心 赔偿子页过滤 */
+    private static String buildReparationsStatusFilter(String status) {
+        if (status == null || status.isBlank()) return "";
+        return switch (status) {
+            case "DRAFT"   -> " AND r.status = 'DRAFT'";
+            case "PENDING" -> " AND r.audit_status = 'PENDING'";
+            case "DONE"    -> " AND r.audit_status = 'AUDITED'";
+            default          -> "";
+        };
     }
 
     @GetMapping("/{id}/raw")

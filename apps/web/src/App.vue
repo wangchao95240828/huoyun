@@ -427,13 +427,42 @@ const accTabs = [
   { key: "returns", label: "退件管理", icon: CornerDownLeft, api: "returns" },
   { key: "detains", label: "扣件管理", icon: Lock, api: "detains" },
   { key: "asks", label: "问题件", icon: HelpCircle, api: "asks" },
+  // 问题件 ACC 7 子页（按角色/状态过滤）
+  { key: "asks-customer", label: "客户查询件", icon: HelpCircle, api: "asks", statusFilter: "CUSTOMER" },
+  { key: "asks-supplier", label: "服务商反馈", icon: HelpCircle, api: "asks", statusFilter: "SUPPLIER" },
+  { key: "asks-processing", label: "处理中问题", icon: HelpCircle, api: "asks", statusFilter: "PROCESSING" },
+  { key: "asks-pending", label: "未处理问题", icon: HelpCircle, api: "asks", statusFilter: "PENDING" },
+  { key: "asks-new", label: "发起新问题", icon: PlusCircle, api: "asks" },
+  { key: "asks-history", label: "历史问题件", icon: HelpCircle, api: "asks", statusFilter: "DONE" },
   { key: "reparations", label: "赔偿管理", icon: Gavel, api: "reparations" },
+  // 赔偿 3 子页
+  { key: "reparations-apply", label: "申请赔偿", icon: PlusCircle, api: "reparations", statusFilter: "DRAFT" },
+  { key: "reparations-pending", label: "待审赔偿", icon: Gavel, api: "reparations", statusFilter: "PENDING" },
+  { key: "reparations-history", label: "历史赔偿", icon: Gavel, api: "reparations", statusFilter: "DONE" },
   { key: "quick-orders", label: "快速下单", icon: ClipboardList, api: "quick-orders" },
+  // 制单中心工具类 (ACC 缺失补齐) - 大多是 orders 数据源 + 不同 filter
+  { key: "orders-queue", label: "制单队列", icon: ClipboardList, api: "orders", statusFilter: "QUEUE" },
+  { key: "orders-import", label: "导入快件", icon: Upload, api: "orders" },
+  { key: "orders-batch-print", label: "批量打印", icon: FileText, api: "orders" },
+  { key: "orders-batch-op", label: "批量操作", icon: ListChecks, api: "orders" },
+  { key: "orders-update-tracking", label: "更新转单号", icon: RefreshCw, api: "orders" },
+  { key: "orders-update-weight", label: "更新计费重", icon: RefreshCw, api: "orders" },
+  { key: "orders-change-customer", label: "变更客户", icon: ArrowLeftRight, api: "orders" },
+  { key: "orders-batch-charge", label: "批量计费", icon: Calculator, api: "orders" },
+  { key: "orders-track", label: "追踪快递", icon: MapPin, api: "orders" },
   // 物流出货
   { key: "shipments", label: "出货管理", icon: Truck, api: "shipments" },
   // ACC「配载中心」拆分快件查询 / 今日快件 (沿用 shipments 数据源 + 不同过滤)
   { key: "shipments-query", label: "快件查询", icon: Search, api: "shipments" },
   { key: "shipments-today", label: "今日快件", icon: CalendarClock, api: "shipments", statusFilter: "TODAY" },
+  // 配载中心 ACC 缺失补齐
+  { key: "stowages-exception", label: "异常提单", icon: AlertTriangle, api: "stowages", statusFilter: "EXCEPTION" },
+  { key: "shipments-channel-stats", label: "渠道统计", icon: BarChart3, api: "shipments" },
+  { key: "shipments-pickup-today", label: "今日提取", icon: CalendarClock, api: "shipments", statusFilter: "PICKUP_TODAY" },
+  { key: "shipments-pickup-week", label: "本周提取", icon: CalendarClock, api: "shipments", statusFilter: "PICKUP_WEEK" },
+  { key: "shipments-intransit", label: "在途订单", icon: Plane, api: "shipments", statusFilter: "INTRANSIT" },
+  { key: "shipments-exception", label: "异常订单", icon: AlertTriangle, api: "shipments", statusFilter: "EXCEPTION" },
+  { key: "shipments-delivered-today", label: "今日签收", icon: CheckCircle, api: "shipments", statusFilter: "DELIVERED_TODAY" },
   { key: "stowages", label: "配载管理", icon: Plane, api: "stowages" },
   { key: "packages", label: "装箱单", icon: PackageOpen, api: "packages" },
   { key: "transits", label: "转运管理", icon: Ship, api: "transits" },
@@ -446,7 +475,22 @@ const accTabs = [
   { key: "tracks", label: "轨迹项目", icon: MapPin, api: "tracks" },
   // 财务管理
   { key: "charges", label: "应收运费", icon: DollarSign, api: "charges" },
+  // 核算中心 运费核算 ACC 子页
+  { key: "charges-history", label: "历史费用", icon: DollarSign, api: "charges", statusFilter: "HISTORY" },
+  { key: "charges-pending", label: "待核费用", icon: DollarSign, api: "charges", statusFilter: "UNAUDITED" },
+  { key: "charges-pending-return", label: "待核退件", icon: CornerDownLeft, api: "charges", statusFilter: "RETURN_PENDING" },
+  { key: "charges-pending-reparation", label: "待核赔偿", icon: Gavel, api: "charges", statusFilter: "REPARATION_PENDING" },
+  { key: "charges-import", label: "导入费用", icon: Upload, api: "charges" },
   { key: "costs", label: "应付成本", icon: CreditCard, api: "costs" },
+  // 核算中心 成本核算 ACC 子页
+  { key: "costs-pending", label: "待核成本", icon: CreditCard, api: "costs", statusFilter: "UNAUDITED" },
+  { key: "costs-estimate", label: "预估成本", icon: CreditCard, api: "costs", statusFilter: "ESTIMATE" },
+  { key: "costs-recent", label: "近期成本", icon: CreditCard, api: "costs", statusFilter: "RECENT" },
+  { key: "costs-history", label: "历史成本", icon: CreditCard, api: "costs", statusFilter: "HISTORY" },
+  { key: "costs-import", label: "导入成本", icon: Upload, api: "costs" },
+  { key: "costs-transit", label: "转运成本", icon: CreditCard, api: "costs", statusFilter: "TRANSIT" },
+  { key: "costs-zhonggang", label: "中港成本", icon: CreditCard, api: "costs", statusFilter: "ZHONGGANG" },
+  { key: "costs-air", label: "航空成本", icon: Plane, api: "costs", statusFilter: "AIR" },
   { key: "bills", label: "客户账单", icon: ReceiptText, api: "bills" },
   { key: "payments", label: "供应商付款", icon: Landmark, api: "payments" },
   { key: "receiveds", label: "客户收款", icon: Coins, api: "receiveds" },
@@ -594,17 +638,35 @@ const T = (k: string) => accTabs.find(t => t.key === k)!;
 const accGroupOrder = [
   T("orders"), T("orders-draft"), T("orders-history"), T("orders-cancelled"),
   T("quick-orders"),
+  T("orders-queue"),                    // 制单队列
+  T("orders-import"),                   // 导入快件
+  T("orders-batch-print"),              // 批量打印
+  T("orders-batch-op"),                 // 批量操作
+  T("orders-update-tracking"),          // 更新转单号
+  T("orders-update-weight"),            // 更新计费重
+  T("orders-change-customer"),          // 变更客户
+  T("orders-batch-charge"),             // 批量计费
+  T("orders-track"),                    // 追踪快递
 ];
 // 配载中心
 const accGroupStowage = [
   T("shipments"),
   T("shipments-query"),                     // ACC 配载中心「快件查询」
   T("shipments-today"),                     // ACC 配载中心「今日快件」
-  T("stowages"), T("packages"), T("transits"),
+  T("stowages"),
+  T("stowages-exception"),                  // 异常提单
+  T("packages"),
+  T("transits"),
+  T("shipments-channel-stats"),             // 渠道统计
+  T("shipments-pickup-today"),              // 今日提取
+  T("shipments-pickup-week"),               // 本周提取
+  T("shipments-intransit"),                 // 在途订单
+  T("shipments-exception"),                 // 异常订单
+  T("shipments-delivered-today"),           // 今日签收
   T("ports"), T("warehouses"), T("stowage-categories"), T("stowage-steps"),
   T("forecasts"), T("tracks"),
 ];
-// 客服中心（收货 + 异常）
+// 客服中心（收货 + 问题件 + 赔偿）
 const accGroupCustomerService = [
   T("dispatches"),         // 上门揽收（收货前置）
   T("inbound-parcels"),    // 入仓预报（收货主表，DWS 扫描的对象）
@@ -613,8 +675,19 @@ const accGroupCustomerService = [
   T("collects"),           // 总单/留仓
   T("returns"),            // 退件管理
   T("detains"),            // 扣件管理
-  T("asks"),               // 问题件
-  T("reparations"),        // 赔偿管理
+  // 问题件 7 子页（ACC 客服中心）
+  T("asks"),               // 问题件 (总)
+  T("asks-customer"),      // 客户查询件
+  T("asks-supplier"),      // 服务商反馈
+  T("asks-processing"),    // 处理中问题
+  T("asks-pending"),       // 未处理问题
+  T("asks-new"),           // 发起新问题
+  T("asks-history"),       // 历史问题件
+  // 赔偿 4 子页
+  T("reparations"),        // 赔偿管理 (总)
+  T("reparations-apply"),  // 申请赔偿
+  T("reparations-pending"),// 待审赔偿
+  T("reparations-history"),// 历史赔偿
   T("received-sms"),       // 收款短信（客服触发）
 ];
 // 销售中心
@@ -626,7 +699,25 @@ const accGroupSales = [
 ];
 // 核算中心（业务核算 - SKU 级 AR/AP/利润）
 const accGroupAccounting = [
-  T("charges"), T("costs"), T("bills"),
+  // 运费核算 ACC 子组
+  T("charges"),
+  T("charges-history"),                  // 历史费用
+  T("charges-pending"),                  // 待核费用
+  T("charges-pending-return"),           // 待核退件
+  T("charges-pending-reparation"),       // 待核赔偿
+  T("charges-import"),                   // 导入费用
+  // 成本核算 ACC 子组
+  T("costs"),
+  T("costs-pending"),                    // 待核成本
+  T("costs-estimate"),                   // 预估成本
+  T("costs-recent"),                     // 近期成本
+  T("costs-history"),                    // 历史成本
+  T("costs-import"),                     // 导入成本
+  T("costs-transit"),                    // 转运成本
+  T("costs-zhonggang"),                  // 中港成本
+  T("costs-air"),                        // 航空成本
+  // 其余核算项
+  T("bills"),
   T("profits"),
   T("commissions"), T("commission-rules"),
   T("expenses"), T("cycles"),
@@ -688,6 +779,51 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'profits-unfinished': 'profits',
       'profits-overdue': 'profits',
       'profits-lowprofit': 'profits',
+      // 配载中心 view tabs (复用 shipments 列)
+      'shipments-query': 'shipments',
+      'shipments-today': 'shipments',
+      'shipments-pickup-today': 'shipments',
+      'shipments-pickup-week': 'shipments',
+      'shipments-intransit': 'shipments',
+      'shipments-exception': 'shipments',
+      'shipments-delivered-today': 'shipments',
+      'stowages-exception': 'stowages',
+      'shipments-channel-stats': 'shipments',
+      // 制单中心 view tabs (复用 orders 列)
+      'orders-queue': 'orders',
+      'orders-import': 'orders',
+      'orders-batch-print': 'orders',
+      'orders-batch-op': 'orders',
+      'orders-update-tracking': 'orders',
+      'orders-update-weight': 'orders',
+      'orders-change-customer': 'orders',
+      'orders-batch-charge': 'orders',
+      'orders-track': 'orders',
+      // 核算中心 view tabs (复用 charges/costs 列)
+      'charges-history': 'charges',
+      'charges-pending': 'charges',
+      'charges-pending-return': 'charges',
+      'charges-pending-reparation': 'charges',
+      'charges-import': 'charges',
+      'costs-pending': 'costs',
+      'costs-estimate': 'costs',
+      'costs-recent': 'costs',
+      'costs-history': 'costs',
+      'costs-import': 'costs',
+      'costs-transit': 'costs',
+      'costs-zhonggang': 'costs',
+      'costs-air': 'costs',
+      // 客服中心 问题件细分 (复用 asks 列)
+      'asks-customer': 'asks',
+      'asks-supplier': 'asks',
+      'asks-processing': 'asks',
+      'asks-pending': 'asks',
+      'asks-new': 'asks',
+      'asks-history': 'asks',
+      // 客服中心 赔偿细分 (复用 reparations 列)
+      'reparations-apply': 'reparations',
+      'reparations-pending': 'reparations',
+      'reparations-history': 'reparations',
     };
     if (subTabMap[key]) return target[subTabMap[key]];
     return target[key];
@@ -706,6 +842,51 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'profits-unfinished': 'profits',
       'profits-overdue': 'profits',
       'profits-lowprofit': 'profits',
+      // 配载中心 view tabs (复用 shipments 列)
+      'shipments-query': 'shipments',
+      'shipments-today': 'shipments',
+      'shipments-pickup-today': 'shipments',
+      'shipments-pickup-week': 'shipments',
+      'shipments-intransit': 'shipments',
+      'shipments-exception': 'shipments',
+      'shipments-delivered-today': 'shipments',
+      'stowages-exception': 'stowages',
+      'shipments-channel-stats': 'shipments',
+      // 制单中心 view tabs (复用 orders 列)
+      'orders-queue': 'orders',
+      'orders-import': 'orders',
+      'orders-batch-print': 'orders',
+      'orders-batch-op': 'orders',
+      'orders-update-tracking': 'orders',
+      'orders-update-weight': 'orders',
+      'orders-change-customer': 'orders',
+      'orders-batch-charge': 'orders',
+      'orders-track': 'orders',
+      // 核算中心 view tabs (复用 charges/costs 列)
+      'charges-history': 'charges',
+      'charges-pending': 'charges',
+      'charges-pending-return': 'charges',
+      'charges-pending-reparation': 'charges',
+      'charges-import': 'charges',
+      'costs-pending': 'costs',
+      'costs-estimate': 'costs',
+      'costs-recent': 'costs',
+      'costs-history': 'costs',
+      'costs-import': 'costs',
+      'costs-transit': 'costs',
+      'costs-zhonggang': 'costs',
+      'costs-air': 'costs',
+      // 客服中心 问题件细分 (复用 asks 列)
+      'asks-customer': 'asks',
+      'asks-supplier': 'asks',
+      'asks-processing': 'asks',
+      'asks-pending': 'asks',
+      'asks-new': 'asks',
+      'asks-history': 'asks',
+      // 客服中心 赔偿细分 (复用 reparations 列)
+      'reparations-apply': 'reparations',
+      'reparations-pending': 'reparations',
+      'reparations-history': 'reparations',
     };
     if (subTabMap[key]) return subTabMap[key] in target;
     return key in target;
@@ -1520,7 +1701,22 @@ const moduleCards = [
 const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'customer-prices', 'published-prices',
   'account-transactions', 'profits-unfinished', 'profits-overdue', 'profits-lowprofit',
   'receiveds-pending', 'customer-refunds-pending', 'payments-pending', 'supplier-refunds-pending',
-  'dws-scans', 'dws-discrepancies']);
+  'dws-scans', 'dws-discrepancies',
+  // 配载中心 view tab 都是只读
+  'shipments-query', 'shipments-today',
+  'shipments-pickup-today', 'shipments-pickup-week',
+  'shipments-intransit', 'shipments-exception', 'shipments-delivered-today',
+  'shipments-channel-stats', 'stowages-exception',
+  // 制单工具类多为只读视图
+  'orders-queue', 'orders-batch-print', 'orders-update-tracking', 'orders-update-weight',
+  'orders-change-customer', 'orders-batch-charge', 'orders-track',
+  // 核算 view 子页只读
+  'charges-history', 'charges-pending', 'charges-pending-return', 'charges-pending-reparation',
+  'costs-pending', 'costs-estimate', 'costs-recent', 'costs-history',
+  'costs-transit', 'costs-zhonggang', 'costs-air',
+  // 问题件/赔偿子页只读
+  'asks-customer', 'asks-supplier', 'asks-processing', 'asks-pending', 'asks-history',
+  'reparations-pending', 'reparations-history']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
