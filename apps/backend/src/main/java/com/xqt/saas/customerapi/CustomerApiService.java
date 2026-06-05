@@ -209,6 +209,7 @@ public class CustomerApiService {
 
         String balanceAccountId = null;
         String prepaidChargeId = null;
+        // 预扣余额（仅对开了 prepay 账户的客户；月结客户跳过此分支）
         if (prepayAmount.signum() > 0) {
             Map<String, Object> balanceAccount = repository.findCustomerBalanceAccount(
                 principal.tenantId(), principal.customerId(), prepayCurrency);
@@ -223,32 +224,33 @@ public class CustomerApiService {
                 if (!repository.decrementBalance(balanceAccountId, prepayAmount)) {
                     throw ApiException.badRequest("余额扣减失败，请重试");
                 }
-                // 资金流水：预扣（余额减少 DEBIT），记 before/after 便于追溯（ACC Customer_Balance_History）
                 BigDecimal balBefore = currentBalance == null ? BigDecimal.ZERO : currentBalance;
                 repository.recordBalanceLedger(
                     principal.tenantId(), balanceAccountId, "CUSTOMER", principal.customerId(),
                     "PREPAY", "order", orderNo, prepayCurrency, "DEBIT",
                     prepayAmount, balBefore, balBefore.subtract(prepayAmount),
                     principal.customerCode(), "下单预扣");
-                if (quote != null) {
-                    // 有正式报价：按 breakdown 拆 AR/AP 多费用行 + S3 关键词附加费
-                    prepaidChargeId = writeBreakdownCharges(
-                        principal.tenantId(), shipmentId, prepayCurrency,
-                        balanceAccountId, quote, keywordSurcharges);
-                } else {
-                    // 无报价（dev/demo 估算）：落一笔合并 AR 行
-                    String chargeItemId = repository.findDefaultFreightChargeItemId(principal.tenantId());
-                    Map<String, Object> evidence = new LinkedHashMap<>();
-                    evidence.put("prepaid", true);
-                    evidence.put("balance_account_id", balanceAccountId);
-                    evidence.put("prepay_at", java.time.Instant.now().toString());
-                    evidence.put("estimate", true);
-                    prepaidChargeId = repository.insertPrepaidCharge(
-                        principal.tenantId(), shipmentId, chargeItemId,
-                        prepayAmount, prepayCurrency, json.toJson(evidence));
-                }
             }
-            // 若客户没建预付账户，跳过预扣（兼容部分 B2B 月结客户）
+        }
+
+        // 写 charges —— 与预扣解耦：月结客户也必须落 AR/AP 行，否则后续无法对账/收款
+        if (prepayAmount.signum() > 0) {
+            if (quote != null) {
+                prepaidChargeId = writeBreakdownCharges(
+                    principal.tenantId(), shipmentId, prepayCurrency,
+                    balanceAccountId, quote, keywordSurcharges);
+            } else {
+                // 无报价（dev/demo 估算）：落一笔合并 AR 行
+                String chargeItemId = repository.findDefaultFreightChargeItemId(principal.tenantId());
+                Map<String, Object> evidence = new LinkedHashMap<>();
+                evidence.put("prepaid", balanceAccountId != null);
+                evidence.put("balance_account_id", balanceAccountId);
+                evidence.put("prepay_at", java.time.Instant.now().toString());
+                evidence.put("estimate", true);
+                prepaidChargeId = repository.insertPrepaidCharge(
+                    principal.tenantId(), shipmentId, chargeItemId,
+                    prepayAmount, prepayCurrency, json.toJson(evidence));
+            }
         }
 
         // 按 channel 路由到合适 gateway。ACC: getPlugin($Code)。
@@ -546,6 +548,12 @@ public class CustomerApiService {
             "FUEL", quote.fuelAmount(), quote, firstChargeId);
         firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
             "REMOTE", quote.surchargeAmount(), quote, firstChargeId);
+        firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
+            "INSURANCE", quote.insuranceAmount(), quote, firstChargeId);
+        firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
+            "BATTERY", quote.batteryAmount(), quote, firstChargeId);
+        firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
+            "PROCESSING", quote.processingAmount(), quote, firstChargeId);
 
         // ─── 任务 S3 A1：品名关键词附加费各落一行 AR ───
         if (keywordSurcharges != null) {
@@ -560,6 +568,9 @@ public class CustomerApiService {
             insertApLine(tenantId, shipmentId, currency, "FREIGHT", quote.costFreight(), quote);
             insertApLine(tenantId, shipmentId, currency, "FUEL", quote.costFuel(), quote);
             insertApLine(tenantId, shipmentId, currency, "REMOTE", quote.costSurcharge(), quote);
+            insertApLine(tenantId, shipmentId, currency, "INSURANCE", quote.costInsurance(), quote);
+            insertApLine(tenantId, shipmentId, currency, "BATTERY", quote.costBattery(), quote);
+            insertApLine(tenantId, shipmentId, currency, "PROCESSING", quote.costProcessing(), quote);
         }
         return firstChargeId;
     }
@@ -619,10 +630,16 @@ public class CustomerApiService {
     /**
      * 从 metadata.acc_compat 构造 RateEngine 入参。PreSubmit 与 Submit 共用，保证报价口径一致。
      */
+    @SuppressWarnings("unchecked")
     private RateQuoteRequest buildQuoteRequest(String customerId, Map<String, Object> accCompat,
                                                String channelCode, String country,
                                                BigDecimal weight, Integer piece,
                                                BigDecimal declaredValue, String currency) {
+        // postcode 优先顶层；fallback 到 receiver.postcode（前端 /full 把邮编放收件人下）
+        String postcode = stringOrNull(accCompat.get("postcode"));
+        if (postcode == null && accCompat.get("receiver") instanceof Map<?, ?> r) {
+            postcode = stringOrNull(((Map<String, Object>) r).get("postcode"));
+        }
         return new RateQuoteRequest(
             customerId,
             stringOrNull(accCompat.get("customerGroupId")),
@@ -630,7 +647,7 @@ public class CustomerApiService {
             stringOrNull(accCompat.get("serviceCode")),
             stringOrNull(accCompat.get("channelAccount")),
             country,
-            stringOrNull(accCompat.get("postcode")),
+            postcode,
             weight,
             piece,
             asBigDecimal(accCompat.get("volume")),

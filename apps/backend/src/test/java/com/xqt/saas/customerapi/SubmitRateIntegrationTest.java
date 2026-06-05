@@ -84,11 +84,17 @@ class SubmitRateIntegrationTest {
             new BigDecimal("100.00"),  // freight
             new BigDecimal("18.50"),   // fuel
             new BigDecimal("0.00"),    // surcharge
+            new BigDecimal("0.00"),    // insurance
+            new BigDecimal("0.00"),    // battery
+            new BigDecimal("0.00"),    // processing
             new BigDecimal("0.00"),    // commission
             new BigDecimal("118.50"),  // total
             new BigDecimal("80.00"),   // costFreight
             new BigDecimal("14.80"),   // costFuel
             new BigDecimal("0.00"),    // costSurcharge
+            new BigDecimal("0.00"),    // costInsurance
+            new BigDecimal("0.00"),    // costBattery
+            new BigDecimal("0.00"),    // costProcessing
             new BigDecimal("94.80"),   // costTotal
             new BigDecimal("0.185"),
             ev,
@@ -126,8 +132,10 @@ class SubmitRateIntegrationTest {
         Quote q = fullQuote();
         Quote blocked = new Quote(q.channelCode(), q.channelName(), q.currency(), q.remoteLevel(),
             q.actualWeightKg(), q.volumetricWeightKg(), q.chargeableWeightKg(),
-            q.freight(), q.fuelAmount(), q.surchargeAmount(), q.commission(), q.totalAmount(),
-            q.costFreight(), q.costFuel(), q.costSurcharge(), q.costTotal(), q.fuelRate(),
+            q.freight(), q.fuelAmount(), q.surchargeAmount(), q.insuranceAmount(),
+            q.batteryAmount(), q.processingAmount(), q.commission(), q.totalAmount(),
+            q.costFreight(), q.costFuel(), q.costSurcharge(), q.costInsurance(),
+            q.costBattery(), q.costProcessing(), q.costTotal(), q.fuelRate(),
             q.matched(), q.breakdown(), List.of("battery not allowed"));
         when(engine.quote(eq(TENANT), any())).thenReturn(blocked);
 
@@ -270,8 +278,10 @@ class SubmitRateIntegrationTest {
         Quote q = fullQuote();
         Quote blocked = new Quote(q.channelCode(), q.channelName(), q.currency(), q.remoteLevel(),
             q.actualWeightKg(), q.volumetricWeightKg(), q.chargeableWeightKg(),
-            q.freight(), q.fuelAmount(), q.surchargeAmount(), q.commission(), q.totalAmount(),
-            q.costFreight(), q.costFuel(), q.costSurcharge(), q.costTotal(), q.fuelRate(),
+            q.freight(), q.fuelAmount(), q.surchargeAmount(), q.insuranceAmount(),
+            q.batteryAmount(), q.processingAmount(), q.commission(), q.totalAmount(),
+            q.costFreight(), q.costFuel(), q.costSurcharge(), q.costInsurance(),
+            q.costBattery(), q.costProcessing(), q.costTotal(), q.fuelRate(),
             q.matched(), q.breakdown(), List.of("battery not allowed"));
         when(engine.quote(eq(TENANT), any())).thenReturn(blocked);
 

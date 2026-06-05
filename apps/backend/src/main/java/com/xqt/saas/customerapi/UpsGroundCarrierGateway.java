@@ -155,13 +155,15 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
             "Description", creds.serviceType == null ? "Ground" : creds.serviceType
         );
 
-        // Package
-        BigDecimal w = ctx.weightKg() == null ? BigDecimal.ONE : ctx.weightKg();
+        // Package — UPS US 国内单要求 LBS+IN（KGS 只能配 CM；混用会被 120548 拒绝）
+        BigDecimal wKg = ctx.weightKg() == null ? BigDecimal.ONE : ctx.weightKg();
+        BigDecimal wLbs = wKg.multiply(new BigDecimal("2.20462"))
+            .setScale(1, java.math.RoundingMode.HALF_UP);
         Map<String, Object> pkg = new LinkedHashMap<>();
         pkg.put("Packaging", Map.of("Code", "02", "Description", "Customer Supplied Package"));
         pkg.put("PackageWeight", Map.of(
-            "UnitOfMeasurement", Map.of("Code", "KGS"),
-            "Weight", w.toPlainString()
+            "UnitOfMeasurement", Map.of("Code", "LBS"),
+            "Weight", wLbs.toPlainString()
         ));
 
         // Shipment

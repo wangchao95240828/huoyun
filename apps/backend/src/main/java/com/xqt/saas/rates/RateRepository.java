@@ -232,6 +232,51 @@ public class RateRepository {
     }
 
     /**
+     * 从渠道账号取出电池/超规附加费（对应 ACC Channel_Account.BatteryA/B/C/Overweight/Overlength）。
+     */
+    public Map<String, Object> findChannelAccountSurcharges(String tenantId, String accountNo) {
+        if (accountNo == null || accountNo.isBlank()) return null;
+        try {
+            return jdbc.queryForMap("""
+                SELECT battery_a_fee, battery_b_fee, battery_c_fee,
+                       overweight_fee, overlength_fee, processing_fee,
+                       coalesce(surcharge_currency, 'CNY') AS currency
+                FROM acc_channel_accounts
+                WHERE tenant_id = ?::uuid AND account_no = ? AND is_active = true
+                LIMIT 1
+                """, tenantId, accountNo);
+        } catch (EmptyResultDataAccessException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * 申报价值保险费率（对应 ACC FreightClass 保险段）。
+     * insurance_amount = max(declared_value × rate, min_fee) 仅当 declared_value > free_coverage 时计费。
+     * 优先取 channel_id 匹配；fallback 到 channel_id IS NULL 的全租户兜底。
+     */
+    public Map<String, Object> findInsuranceRate(String tenantId, String channelId,
+                                                  String currency, LocalDate chargeDate) {
+        try {
+            return jdbc.queryForMap("""
+                SELECT id::text AS id,
+                       rate, min_fee, free_coverage, max_coverage
+                FROM insurance_rates
+                WHERE tenant_id = ?::uuid
+                  AND active = true
+                  AND currency = ?
+                  AND (channel_id IS NULL OR channel_id = ?::uuid)
+                  AND effective_from <= ?
+                  AND (effective_to IS NULL OR effective_to >= ?)
+                ORDER BY (channel_id IS NULL), effective_from DESC
+                LIMIT 1
+                """, tenantId, currency, channelId, chargeDate, chargeDate);
+        } catch (EmptyResultDataAccessException ex) {
+            return null;
+        }
+    }
+
+    /**
      * 渠道账号限额：单票件数 / 重量 / 当日票量。
      * 返回 max_count / max_piece / max_weight 以及当日已用量（count/piece/weight）。
      */

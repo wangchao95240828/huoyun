@@ -7,6 +7,8 @@ import java.util.Map;
 import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.BranchAccessFilter;
 import com.xqt.saas.common.JsonSupport;
+import com.xqt.saas.customerapi.CustomerApiPrincipal;
+import com.xqt.saas.customerapi.CustomerApiService;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
 import org.springframework.dao.DataAccessException;
@@ -40,15 +42,18 @@ public class AccOrdersController {
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
     private final BranchAccessFilter branchAccess;
+    private final CustomerApiService customerApiService;
 
     public AccOrdersController(JdbcTemplate jdbc, JsonSupport json,
                                CascadeChecker cascadeChecker, FieldGate fieldGate,
-                               BranchAccessFilter branchAccess) {
+                               BranchAccessFilter branchAccess,
+                               CustomerApiService customerApiService) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.branchAccess = branchAccess;
+        this.customerApiService = customerApiService;
     }
 
     @GetMapping
@@ -453,6 +458,39 @@ public class AccOrdersController {
             throw ApiException.badRequest("订单状态不允许申请作废（DRAFT/VOID 已不需作废）");
         }
         return Map.of("id", id, "audit_status", "PENDING", "void_requested", true);
+    }
+
+    /**
+     * 制单中心「提交」按钮 — 对应 ACC act=Submit。
+     * 走 CustomerApiService.submitOrder：DRAFT→SUBMITTED + RateEngine 算费 + CarrierGateway 取号 + 写 shipments/charges。
+     * 管理员调用：从订单本身拿 tenant/customer 凑出 Principal，跳过 HMAC。
+     */
+    @PostMapping("/{id}/submit")
+    public Map<String, Object> submit(@PathVariable String id) {
+        Map<String, Object> ctx;
+        try {
+            ctx = jdbc.queryForMap(
+                "SELECT o.tenant_id::text AS tenant_id, o.customer_id::text AS customer_id,"
+                + " o.order_no, c.code AS customer_code"
+                + " FROM orders o JOIN customers c ON c.id=o.customer_id"
+                + " WHERE o.id = ?::uuid", id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("order not found: " + id);
+        }
+        CustomerApiPrincipal principal = new CustomerApiPrincipal(
+            null,
+            (String) ctx.get("tenant_id"),
+            (String) ctx.get("customer_id"),
+            (String) ctx.get("customer_code"),
+            null, null
+        );
+        var r = customerApiService.submitOrder(principal, (String) ctx.get("order_no"));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", id);
+        out.put("orderNo", ctx.get("order_no"));
+        out.put("submitted", true);
+        out.put("result", r);
+        return out;
     }
 
     @DeleteMapping("/{id}")

@@ -160,11 +160,13 @@ public class CustomerApiRepository {
      */
     public void insertShipmentOrderLink(String tenantId, String shipmentId, String orderId,
                                          String linkType) {
+        // 表实际列名 relation_type；CHECK 仅允许 FULFILLMENT/SPLIT/MERGE/REPLACEMENT。
+        // "SUBMIT" 由调用方传入但不属于允许值，统一落 FULFILLMENT。
         jdbc.update("""
-            INSERT INTO shipment_order_links (tenant_id, shipment_id, order_id, link_type)
+            INSERT INTO shipment_order_links (tenant_id, shipment_id, order_id, relation_type)
             VALUES (?::uuid, ?::uuid, ?::uuid, ?)
-            ON CONFLICT (tenant_id, shipment_id, order_id) DO NOTHING
-            """, tenantId, shipmentId, orderId, linkType == null ? "SUBMIT" : linkType);
+            ON CONFLICT (order_id, shipment_id, relation_type) DO NOTHING
+            """, tenantId, shipmentId, orderId, "FULFILLMENT");
     }
 
     public void insertCarton(String tenantId, String shipmentId, String cartonNo,

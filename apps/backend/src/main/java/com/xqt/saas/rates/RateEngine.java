@@ -152,6 +152,50 @@ public class RateEngine {
             surchargeAmount = applyRemoteRule(remoteRule, freight);
         }
 
+        // ─── 电池/带电附加费（对应 ACC Channel_Account.BatteryA/B/C）───
+        BigDecimal batteryAmount = BigDecimal.ZERO;
+        Integer batteryType = request.batteryType() == null ? 0 : request.batteryType();
+        Map<String, Object> chAcctSurcharges = null;
+        if (batteryType > 0 && request.channelAccountCode() != null) {
+            chAcctSurcharges = repository.findChannelAccountSurcharges(
+                tenantId, request.channelAccountCode());
+            if (chAcctSurcharges != null) {
+                BigDecimal fee = switch (batteryType) {
+                    case 1 -> toBigDecimal(chAcctSurcharges.get("battery_a_fee"));
+                    case 2 -> toBigDecimal(chAcctSurcharges.get("battery_b_fee"));
+                    case 3 -> toBigDecimal(chAcctSurcharges.get("battery_c_fee"));
+                    default -> BigDecimal.ZERO;
+                };
+                if (fee != null) batteryAmount = fee.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+            }
+        }
+
+        // ─── 处理费（对应 ACC Channel_Account.Fee 一次性账号操作费）───
+        BigDecimal processingAmount = BigDecimal.ZERO;
+        if (request.channelAccountCode() != null) {
+            if (chAcctSurcharges == null) {
+                chAcctSurcharges = repository.findChannelAccountSurcharges(
+                    tenantId, request.channelAccountCode());
+            }
+            if (chAcctSurcharges != null) {
+                BigDecimal pf = toBigDecimal(chAcctSurcharges.get("processing_fee"));
+                if (pf != null && pf.signum() > 0) {
+                    processingAmount = pf.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+                }
+            }
+        }
+
+        // ─── 申报价值保险（对应 ACC FreightClass 保险段）───
+        BigDecimal insuranceAmount = BigDecimal.ZERO;
+        String insuranceRateId = null;
+        Map<String, Object> insRate = repository.findInsuranceRate(
+            tenantId, channelId, request.currency(), request.chargeDate());
+        if (insRate != null && request.declaredValue() != null
+            && request.declaredValue().signum() > 0) {
+            insuranceRateId = (String) insRate.get("id");
+            insuranceAmount = applyInsuranceRate(insRate, request.declaredValue());
+        }
+
         // ─── 佣金（仅销售价生成；成本价侧不算佣金）───
         BigDecimal commission = BigDecimal.ZERO;
         String commissionRuleId = null;
@@ -163,13 +207,17 @@ public class RateEngine {
             commission = applyCommissionRule(commRule, freight, fuelAmount, surchargeAmount);
         }
 
-        BigDecimal total = freight.add(fuelAmount).add(surchargeAmount)
+        BigDecimal total = freight.add(fuelAmount).add(surchargeAmount).add(insuranceAmount)
+            .add(batteryAmount).add(processingAmount)
             .setScale(MONEY_SCALE, RoundingMode.HALF_UP);
 
         // ─── 成本价（AP 侧，独立查表）───
         BigDecimal costFreight = null;
         BigDecimal costFuel = null;
         BigDecimal costSurcharge = null;
+        BigDecimal costInsurance = null;
+        BigDecimal costBattery = null;
+        BigDecimal costProcessing = null;
         BigDecimal costTotal = null;
         String costRateCardId = null;
         Map<String, Object> apCard = repository.findActiveRateCard(
@@ -183,7 +231,11 @@ public class RateEngine {
                 costFuel = costFreight.multiply(fuelRate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
                 costSurcharge = remoteRule == null ? BigDecimal.ZERO
                     : applyRemoteRule(remoteRule, costFreight);
-                costTotal = costFreight.add(costFuel).add(costSurcharge)
+                costInsurance = insuranceAmount;  // 保险按申报价值计算，AR/AP 同额
+                costBattery = batteryAmount;       // 电池费同 AR（账号级固定费，不区分销售/成本）
+                costProcessing = processingAmount; // 处理费同 AR（账号级一次性费）
+                costTotal = costFreight.add(costFuel).add(costSurcharge).add(costInsurance)
+                    .add(costBattery).add(costProcessing)
                     .setScale(MONEY_SCALE, RoundingMode.HALF_UP);
             }
         }
@@ -196,6 +248,15 @@ public class RateEngine {
         }
         if (surchargeAmount.signum() != 0) {
             breakdown.add(new BreakdownLine("REMOTE", "偏远附加费", surchargeAmount));
+        }
+        if (insuranceAmount.signum() != 0) {
+            breakdown.add(new BreakdownLine("INSURANCE", "申报价值保险", insuranceAmount));
+        }
+        if (batteryAmount.signum() != 0) {
+            breakdown.add(new BreakdownLine("BATTERY", "带电附加费", batteryAmount));
+        }
+        if (processingAmount.signum() != 0) {
+            breakdown.add(new BreakdownLine("PROCESSING", "处理费", processingAmount));
         }
         if (commission.signum() != 0) {
             breakdown.add(new BreakdownLine("COMMISSION", "佣金", commission));
@@ -225,11 +286,17 @@ public class RateEngine {
             freight,
             fuelAmount,
             surchargeAmount,
+            insuranceAmount,
+            batteryAmount,
+            processingAmount,
             commission,
             total,
             costFreight,
             costFuel,
             costSurcharge,
+            costInsurance,
+            costBattery,
+            costProcessing,
             costTotal,
             fuelRate,
             evidence,
@@ -343,6 +410,27 @@ public class RateEngine {
             out.add(new RateQuoteResponse.BreakdownLine(feeCode, "品名附加费: " + feeCode, amount));
         }
         return out;
+    }
+
+    /**
+     * 申报价值保险计算 — 对应 ACC FreightClass 中按声明价值计费的段。
+     * 公式：保险费 = max(declared × rate, min_fee)，free_coverage 以下不计费。
+     */
+    private BigDecimal applyInsuranceRate(Map<String, Object> rule, BigDecimal declaredValue) {
+        BigDecimal free = toBigDecimal(rule.get("free_coverage"));
+        BigDecimal billable = declaredValue;
+        if (free != null && free.signum() > 0) {
+            billable = declaredValue.subtract(free);
+            if (billable.signum() <= 0) return BigDecimal.ZERO;
+        }
+        BigDecimal rate = toBigDecimal(rule.get("rate"));
+        BigDecimal minFee = toBigDecimal(rule.get("min_fee"));
+        BigDecimal fee = billable.multiply(rate == null ? BigDecimal.ZERO : rate)
+            .setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        if (minFee != null && fee.compareTo(minFee) < 0) {
+            return minFee.setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        }
+        return fee;
     }
 
     private BigDecimal applyRemoteRule(Map<String, Object> rule, BigDecimal base) {
