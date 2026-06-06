@@ -264,14 +264,16 @@ public class CustomerApiRepository {
               o.status,
               c.tracking_no                       AS tracking_no,
               c.carrier_master_tracking_no        AS master_tracking_no,
-              te.event_code                       AS last_event,
+              te.raw_status                       AS last_event,
+              te.normalized_status                AS last_event_normalized,
               te.event_time                       AS last_event_at
             FROM orders o
             LEFT JOIN shipment_order_links sol ON sol.order_id = o.id
             LEFT JOIN cartons c ON c.shipment_id = sol.shipment_id
             LEFT JOIN LATERAL (
-              SELECT event_code, event_time FROM tracking_events
-              WHERE order_id = o.id
+              SELECT raw_status, normalized_status::text AS normalized_status, event_time
+              FROM tracking_events
+              WHERE shipment_id = sol.shipment_id
               ORDER BY event_time DESC LIMIT 1
             ) te ON true
             WHERE o.tenant_id = ?::uuid

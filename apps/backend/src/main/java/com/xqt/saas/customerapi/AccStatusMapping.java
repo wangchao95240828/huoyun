@@ -30,4 +30,34 @@ public final class AccStatusMapping {
             default -> NOT_FOUND;
         };
     }
+
+    /**
+     * ACC api/Track.php 的 10 档物流进度（Delivery 字段）：
+     *   0=待收取 / 1=已签入 / 2=转仓中 / 3=分发中 / 4=已发货
+     *   5=转运中 / 6=送货中 / 7=已签收 / 8=已退件 / 9=已赔偿
+     * 内部 tracking_status enum → ACC 数字码。-1=未知。
+     */
+    private static final String[] DELIVERY_NAMES = {
+        "待收取", "已签入", "转仓中", "分发中", "已发货",
+        "转运中", "送货中", "已签收", "已退件", "已赔偿"
+    };
+
+    public static int toDeliveryCode(String trackingStatus) {
+        if (trackingStatus == null) return 0;
+        return switch (trackingStatus) {
+            case "CREATED" -> 1;
+            case "IN_TRANSIT" -> 5;
+            case "OUT_FOR_DELIVERY" -> 6;
+            case "DELIVERED" -> 7;
+            case "RETURNED" -> 8;
+            case "CLAIMING" -> 9;
+            case "EXCEPTION", "VOID" -> NOT_FOUND;
+            default -> 0;
+        };
+    }
+
+    public static String deliveryName(int code) {
+        if (code < 0 || code >= DELIVERY_NAMES.length) return "未知";
+        return DELIVERY_NAMES[code];
+    }
 }

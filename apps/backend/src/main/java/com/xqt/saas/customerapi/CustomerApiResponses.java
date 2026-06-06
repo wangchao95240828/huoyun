@@ -75,7 +75,26 @@ public final class CustomerApiResponses {
     public record StatusEntry(
         String no,
         String status,
-        int statusCode
+        int statusCode,
+        String statusName
+    ) {
+    }
+
+    /** 对应 ACC act=Product：可用产品（价格表）列表。 */
+    public record ProductEntry(
+        String code,
+        String name,
+        String channelCode,
+        String channelName,
+        String currency,
+        String lane,
+        String lastMileMethod,
+        String supplier,
+        boolean active
+    ) {
+    }
+    public record ProductList(
+        List<ProductEntry> data
     ) {
     }
 
@@ -92,6 +111,8 @@ public final class CustomerApiResponses {
         String no,
         String status,
         int statusCode,
+        int deliveryCode,
+        String deliveryName,
         String trackingNo,
         String carrierMasterTrackingNo,
         String lastEvent,

@@ -783,13 +783,17 @@ public class CustomerApiService {
             Map<String, Object> row = byInput.get(no.toLowerCase());
             if (row == null) {
                 entries.add(new CustomerApiResponses.SyncEntry(
-                    no, null, AccStatusMapping.NOT_FOUND, null, null, null, null));
+                    no, null, AccStatusMapping.NOT_FOUND,
+                    0, AccStatusMapping.deliveryName(0),
+                    null, null, null, null));
             } else {
                 found++;
                 String status = (String) row.get("status");
                 Object eventTime = row.get("last_event_at");
+                int delivery = AccStatusMapping.toDeliveryCode((String) row.get("last_event_normalized"));
                 entries.add(new CustomerApiResponses.SyncEntry(
                     no, status, AccStatusMapping.toAccCode(status),
+                    delivery, AccStatusMapping.deliveryName(delivery),
                     (String) row.get("tracking_no"),
                     (String) row.get("master_tracking_no"),
                     (String) row.get("last_event"),
@@ -820,10 +824,11 @@ public class CustomerApiService {
         for (String no : nos) {
             Map<String, Object> row = byInput.get(no.toLowerCase());
             if (row == null) {
-                entries.add(new StatusEntry(no, null, AccStatusMapping.NOT_FOUND));
+                entries.add(new StatusEntry(no, null, AccStatusMapping.NOT_FOUND, "未知"));
             } else {
                 String status = (String) row.get("status");
-                entries.add(new StatusEntry(no, status, AccStatusMapping.toAccCode(status)));
+                int code = AccStatusMapping.toAccCode(status);
+                entries.add(new StatusEntry(no, status, code, AccStatusMapping.deliveryName(code)));
             }
         }
         return new StatusList(entries);
@@ -991,6 +996,47 @@ public class CustomerApiService {
             ))
             .toList();
         return new ChannelList(data);
+    }
+
+    /**
+     * 对应 ACC act=Product — 列出客户可用产品（价格表）。
+     * 取所有 ACTIVE 的 AR 价表，按 channel join 拿名称、币种、运输方式。
+     */
+    @Transactional(readOnly = true)
+    public CustomerApiResponses.ProductList listProducts(CustomerApiPrincipal principal) {
+        setTenant(principal);
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT
+              c.code            AS channel_code,
+              c.name            AS channel_name,
+              c.lane            AS lane,
+              c.last_mile_method AS last_mile_method,
+              c.active          AS active,
+              rc.currency       AS currency
+            FROM rate_cards rc
+            JOIN channels c ON c.id = rc.channel_id
+            WHERE rc.tenant_id = ?::uuid
+              AND rc.side = 'AR'
+              AND rc.status = 'ACTIVE'
+              AND c.active = true
+              AND (rc.effective_to IS NULL OR rc.effective_to >= CURRENT_DATE)
+            ORDER BY c.code
+            """, principal.tenantId());
+
+        List<CustomerApiResponses.ProductEntry> data = rows.stream()
+            .map(row -> new CustomerApiResponses.ProductEntry(
+                (String) row.get("channel_code"),
+                (String) row.get("channel_name"),
+                (String) row.get("channel_code"),
+                (String) row.get("channel_name"),
+                (String) row.get("currency"),
+                (String) row.get("lane"),
+                (String) row.get("last_mile_method"),
+                null,
+                Boolean.TRUE.equals(row.get("active"))
+            ))
+            .toList();
+        return new CustomerApiResponses.ProductList(data);
     }
 
     private List<String> resolveNos(CustomerApiRequests.OrderRefList body) {

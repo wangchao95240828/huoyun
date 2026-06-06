@@ -104,6 +104,12 @@ public class CustomerApiController {
         return ApiResponse.ok(new ItemResponse<>(service.listChannels(principal())));
     }
 
+    /** 对应 ACC act=Product：列出该客户可用产品（价格表）。 */
+    @GetMapping("/products")
+    public ApiResponse<ItemResponse<CustomerApiResponses.ProductList>> products() {
+        return ApiResponse.ok(new ItemResponse<>(service.listProducts(principal())));
+    }
+
     @PostMapping("/tracking/query")
     public ApiResponse<ItemResponse<TrackingList>> trackingQuery(@RequestBody CustomerApiRequests.OrderRefList body) {
         return ApiResponse.ok(new ItemResponse<>(service.queryTracking(principal(), body)));
