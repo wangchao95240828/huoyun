@@ -6,9 +6,52 @@
 deploy/
 ├── README.md                  本文件
 ├── docker-compose.prod.yml    生产 compose（含 47 migrations + backend + web + redis）
-├── .env.example               环境变量模板
-└── deploy.sh                  一键部署脚本
+├── .env.example               docker 路线环境变量模板
+├── .deploy.env.example        部署凭据模板（host / password）
+├── deploy.sh                  Docker 路线（构建镜像 + compose up）
+└── deploy-native.sh           ★ 原生路线（systemd jar + nginx 直传）— 当前生产实际用这条
 ```
+
+## 两条部署路径
+
+| 脚本 | 远端拓扑 | 何时用 |
+|---|---|---|
+| `deploy.sh` | Docker / docker-compose | 全新机器初始化、SaaS 演示环境 |
+| **`deploy-native.sh`** | systemd `xqt-backend` + nginx serve `/opt/xqt-saas/web/` | **目前线上 8.148.227.76 就是这个** |
+
+### `deploy-native.sh` 用法
+
+```bash
+# 一键部署 backend + web
+./deploy/deploy-native.sh
+
+# 只部署一边
+./deploy/deploy-native.sh backend
+./deploy/deploy-native.sh web
+
+# 跳过 build 直接上传现有 target/ 和 dist/
+./deploy/deploy-native.sh skip-build
+```
+
+凭据：复制 `.deploy.env.example` → `.deploy.env`，填 `DEPLOY_HOST` 和（可选）`DEPLOY_PASSWORD`。
+
+### 关键路径（**别改**，nginx 和 systemd 都依赖）
+
+| 项 | 路径 |
+|---|---|
+| 后端 jar | `/opt/xqt-saas/backend/xqt-backend.jar` |
+| systemd | `xqt-backend.service` |
+| 前端 root | `/opt/xqt-saas/web/`（**不是** `/opt/xqt-saas/web/dist/`） |
+| nginx vhost | `/www/server/panel/vhost/nginx/xqt-saas.conf` |
+| 后端端口 | `18103`（actuator `/actuator/health`） |
+| DB | `127.0.0.1:15432` `xqt_saas` |
+
+### 部署事故经验
+
+| 错误路径 | 现象 | 正确 |
+|---|---|---|
+| `/opt/xqt/backend/xqt-backend.jar` | jar 传成功但服务跑的还是旧版本 | `/opt/xqt-saas/backend/xqt-backend.jar` |
+| `/opt/xqt-saas/web/dist/` | 前端 build 完没生效，浏览器拿旧 hash | `/opt/xqt-saas/web/` |
 
 应用 Dockerfile 位于：
 - `apps/backend/Dockerfile`：Spring Boot multi-stage（maven build → JRE 17）
