@@ -72,6 +72,8 @@ import {
   Maximize2,
   Scale,
   KeyRound,
+  Webhook,
+  Send,
 } from "lucide-vue-next";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -574,6 +576,8 @@ const accTabs = [
   // API 对接（对应 ACC CustomerAPI.php / OnlineAPI.php）
   { key: "api-credentials", label: "API 凭证", icon: KeyRound, api: "api-credentials" },
   { key: "api-call-logs", label: "API 调用日志", icon: ListChecks, api: "api-call-logs" },
+  { key: "webhook-endpoints", label: "Webhook 回调地址", icon: Webhook, api: "webhook-endpoints" },
+  { key: "webhook-events", label: "Webhook 投递记录", icon: Send, api: "webhook-events" },
   { key: "api-docs", label: "API 文档", icon: BookOpen, api: "api-docs" },
 ];
 
@@ -1625,6 +1629,28 @@ Object.assign(accColumns, {
     { key: "duration_ms", label: "耗时(ms)" },
     { key: "ip", label: "来源 IP" },
   ],
+  "webhook-endpoints": [
+    { key: "url", label: "回调 URL" },
+    { key: "customer_name", label: "客户" },
+    { key: "event_types", label: "订阅事件" },
+    { key: "active", label: "启用", fmt: "bool" },
+    { key: "secret_masked", label: "Secret" },
+    { key: "total_events", label: "总投递" },
+    { key: "dead_events", label: "死信" },
+    { key: "description", label: "备注" },
+    { key: "created_at", label: "创建时间" },
+  ],
+  "webhook-events": [
+    { key: "created_at", label: "时间" },
+    { key: "event_type", label: "事件" },
+    { key: "customer_name", label: "客户" },
+    { key: "endpoint_url", label: "回调 URL" },
+    { key: "status", label: "状态" },
+    { key: "attempt_count", label: "尝试次数" },
+    { key: "last_response_code", label: "上次响应码" },
+    { key: "next_attempt_at", label: "下次重试" },
+    { key: "last_error", label: "错误" },
+  ],
   tasks: [
     { key: "name", label: "任务名称" },
     { key: "code", label: "编号" },
@@ -1781,8 +1807,8 @@ const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'custome
   // 问题件/赔偿子页只读
   'asks-customer', 'asks-supplier', 'asks-processing', 'asks-pending', 'asks-history',
   'reparations-pending', 'reparations-history',
-  // API 调用日志只读
-  'api-call-logs']);
+  // API 调用日志 + webhook 事件只读
+  'api-call-logs', 'webhook-events']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
@@ -2443,6 +2469,11 @@ const accFormFields: Record<string, FormField[]> = {
       ], required: true },
     { col: 'ownerId', label: '客户ID', type: 'text' },
     { col: 'expiresAt', label: '过期时间(ISO)', type: 'text' },
+  ],
+  'webhook-endpoints': [
+    { col: 'url', label: '回调 URL', type: 'text', required: true },
+    { col: 'customerId', label: '客户 ID（留空=全租户）', type: 'text' },
+    { col: 'description', label: '备注', type: 'textarea' },
   ],
   districts: [
     { col: 'Name', label: '英文名', type: 'text', required: true },

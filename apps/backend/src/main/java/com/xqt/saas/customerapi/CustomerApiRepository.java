@@ -251,6 +251,36 @@ public class CustomerApiRepository {
     }
 
     /**
+     * 对应 ACC act=Sync：批量回查 status + tracking + 最近一次轨迹事件。
+     * 单条 SQL 用 LATERAL JOIN 取每单最近一条 tracking_events，避免 N+1。
+     */
+    public List<Map<String, Object>> findOrdersForSync(String tenantId, String customerId, List<String> nos) {
+        if (nos == null || nos.isEmpty()) return List.of();
+        String[] arr = nos.toArray(new String[0]);
+        return jdbc.queryForList("""
+            SELECT
+              o.order_no,
+              o.customer_ref,
+              o.status,
+              c.tracking_no                       AS tracking_no,
+              c.carrier_master_tracking_no        AS master_tracking_no,
+              te.event_code                       AS last_event,
+              te.event_time                       AS last_event_at
+            FROM orders o
+            LEFT JOIN shipment_order_links sol ON sol.order_id = o.id
+            LEFT JOIN cartons c ON c.shipment_id = sol.shipment_id
+            LEFT JOIN LATERAL (
+              SELECT event_code, event_time FROM tracking_events
+              WHERE order_id = o.id
+              ORDER BY event_time DESC LIMIT 1
+            ) te ON true
+            WHERE o.tenant_id = ?::uuid
+              AND o.customer_id = ?::uuid
+              AND (o.customer_ref = ANY (?) OR o.order_no = ANY (?))
+            """, tenantId, customerId, arr, arr);
+    }
+
+    /**
      * 对应 ACC act=Query：拉订单主档 + 元数据（receiver/declare 原样存在 metadata.acc_compat）。
      * declarations / cartons 在 Submit 之后才会有数据，目前仅返回 orders 维度。
      */

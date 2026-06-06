@@ -49,6 +49,7 @@ public class CustomerApiService {
     private final CarrierGatewayRegistry carrierGateways;
     private final RateEngine rateEngine;
     private final SubmitCompensationService compensationService;
+    private final com.xqt.saas.webhook.WebhookService webhook;
 
     /** 生产应为 true：报价失败直接阻断 Submit，不退化为简化估算。 */
     @org.springframework.beans.factory.annotation.Value("${app.rates.strict-quote:false}")
@@ -57,13 +58,15 @@ public class CustomerApiService {
     public CustomerApiService(CustomerApiRepository repository, JsonSupport json,
                               JdbcTemplate jdbc, CarrierGatewayRegistry carrierGateways,
                               RateEngine rateEngine,
-                              SubmitCompensationService compensationService) {
+                              SubmitCompensationService compensationService,
+                              com.xqt.saas.webhook.WebhookService webhook) {
         this.repository = repository;
         this.json = json;
         this.jdbc = jdbc;
         this.carrierGateways = carrierGateways;
         this.rateEngine = rateEngine;
         this.compensationService = compensationService;
+        this.webhook = webhook;
     }
 
     @Transactional(readOnly = true)
@@ -322,6 +325,15 @@ public class CustomerApiService {
             throw ApiException.badRequest("order state changed concurrently");
         }
 
+        // 发布 order.submitted webhook（事务提交后调度器会发出）
+        Map<String, Object> webhookPayload = new LinkedHashMap<>();
+        webhookPayload.put("orderNo", orderNo);
+        webhookPayload.put("customerRef", customerRef);
+        webhookPayload.put("status", "SUBMITTED");
+        webhookPayload.put("trackingNo", issuance.carrierTrackingNo());
+        webhookPayload.put("carrierMasterTrackingNo", issuance.carrierMasterTrackingNo());
+        webhook.publish(principal.tenantId(), principal.customerId(), "order.submitted", webhookPayload);
+
         return new SubmitResult(
             orderId, orderNo, customerRef, shipmentId, shipmentNo,
             issuance.carrierTrackingNo(), issuance.carrierMasterTrackingNo(), "SUBMITTED"
@@ -437,6 +449,15 @@ public class CustomerApiService {
             }
             repository.voidPrepaidCharges(principal.tenantId(), chargeIds);
         }
+
+        // 发布 order.cancelled webhook
+        Map<String, Object> cancelPayload = new LinkedHashMap<>();
+        cancelPayload.put("orderNo", orderNo);
+        cancelPayload.put("customerRef", customerRef);
+        cancelPayload.put("previousStatus", status);
+        cancelPayload.put("status", "CANCELLED");
+        cancelPayload.put("refundedAmount", refundedAmount);
+        webhook.publish(principal.tenantId(), principal.customerId(), "order.cancelled", cancelPayload);
 
         return new CancelResult(orderNo, customerRef, status, "CANCELLED",
             shipmentMarked, refundedAmount, refundedCount);
@@ -732,6 +753,51 @@ public class CustomerApiService {
 
     private String resolveOrderNo(String submittedNo) {
         return ORDER_NO_PREFIX + "-" + ORDER_NO_TIME.format(LocalDateTime.now()) + "-" + submittedNo;
+    }
+
+    /**
+     * 对应 ACC act=Sync — 批量回查 status + tracking + 最近一条事件。
+     * 同一单可能多 carton，按 order_no 聚合：取首个 tracking_no + 最新事件。
+     */
+    @Transactional(readOnly = true)
+    public CustomerApiResponses.SyncList syncOrders(CustomerApiPrincipal principal,
+                                                     CustomerApiRequests.OrderRefList body) {
+        List<String> nos = resolveNos(body);
+        if (nos.size() > 500) {
+            throw ApiException.badRequest("sync 单次最多 500 条，当前 " + nos.size());
+        }
+        setTenant(principal);
+        Map<String, Map<String, Object>> byInput = new LinkedHashMap<>();
+        List<Map<String, Object>> rows = repository.findOrdersForSync(
+            principal.tenantId(), principal.customerId(), nos);
+        for (Map<String, Object> row : rows) {
+            String ref = (String) row.get("customer_ref");
+            String orderNo = (String) row.get("order_no");
+            // 同单可能多 carton，已存在的不覆盖（首条 tracking + 已聚合的最近事件）
+            if (ref != null) byInput.putIfAbsent(ref.toLowerCase(), row);
+            if (orderNo != null) byInput.putIfAbsent(orderNo.toLowerCase(), row);
+        }
+        List<CustomerApiResponses.SyncEntry> entries = new ArrayList<>(nos.size());
+        int found = 0;
+        for (String no : nos) {
+            Map<String, Object> row = byInput.get(no.toLowerCase());
+            if (row == null) {
+                entries.add(new CustomerApiResponses.SyncEntry(
+                    no, null, AccStatusMapping.NOT_FOUND, null, null, null, null));
+            } else {
+                found++;
+                String status = (String) row.get("status");
+                Object eventTime = row.get("last_event_at");
+                entries.add(new CustomerApiResponses.SyncEntry(
+                    no, status, AccStatusMapping.toAccCode(status),
+                    (String) row.get("tracking_no"),
+                    (String) row.get("master_tracking_no"),
+                    (String) row.get("last_event"),
+                    eventTime == null ? null : eventTime.toString()
+                ));
+            }
+        }
+        return new CustomerApiResponses.SyncList(nos.size(), found, entries);
     }
 
     /**

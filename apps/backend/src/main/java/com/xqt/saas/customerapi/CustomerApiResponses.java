@@ -85,6 +85,28 @@ public final class CustomerApiResponses {
     }
 
     /**
+     * 对应 ACC act=Sync：批量回查，单次返回 status + tracking + 最近事件。
+     * 给客户做定时轮询和对账用，避免分多次调 status/track/query。
+     */
+    public record SyncEntry(
+        String no,
+        String status,
+        int statusCode,
+        String trackingNo,
+        String carrierMasterTrackingNo,
+        String lastEvent,
+        String lastEventAt
+    ) {
+    }
+
+    public record SyncList(
+        int total,
+        int found,
+        List<SyncEntry> express
+    ) {
+    }
+
+    /**
      * 对应 ACC act=Query 单条订单结构，字段名沿用旧响应方便契约测试。
      */
     public record OrderDeclareItem(

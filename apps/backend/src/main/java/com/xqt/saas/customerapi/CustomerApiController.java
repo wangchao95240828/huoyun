@@ -93,6 +93,12 @@ public class CustomerApiController {
         return ApiResponse.ok(new ItemResponse<>(service.queryDetail(principal(), body)));
     }
 
+    /** 对应 ACC act=Sync：批量回查 status + tracking + 最近事件，单次 ≤500 条。 */
+    @PostMapping("/orders/sync")
+    public ApiResponse<ItemResponse<CustomerApiResponses.SyncList>> orderSync(@RequestBody CustomerApiRequests.OrderRefList body) {
+        return ApiResponse.ok(new ItemResponse<>(service.syncOrders(principal(), body)));
+    }
+
     @GetMapping("/channels")
     public ApiResponse<ItemResponse<ChannelList>> channels() {
         return ApiResponse.ok(new ItemResponse<>(service.listChannels(principal())));
