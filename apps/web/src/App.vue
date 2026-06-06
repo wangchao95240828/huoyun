@@ -71,6 +71,7 @@ import {
   Settings,
   Maximize2,
   Scale,
+  KeyRound,
 } from "lucide-vue-next";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -570,6 +571,10 @@ const accTabs = [
   { key: "profits-unfinished", label: "未完结快件", icon: BarChart3, api: "profits", statusFilter: "UNFINISHED" },
   { key: "profits-overdue", label: "逾期未结", icon: AlertTriangle, api: "profits", statusFilter: "OVERDUE" },
   { key: "profits-lowprofit", label: "低利快件", icon: BarChart3, api: "profits", statusFilter: "LOWPROFIT" },
+  // API 对接（对应 ACC CustomerAPI.php / OnlineAPI.php）
+  { key: "api-credentials", label: "API 凭证", icon: KeyRound, api: "api-credentials" },
+  { key: "api-call-logs", label: "API 调用日志", icon: ListChecks, api: "api-call-logs" },
+  { key: "api-docs", label: "API 文档", icon: BookOpen, api: "api-docs" },
 ];
 
 // ACC 基础信息（对应 ACC 顶部"基础信息"菜单的 4 大子组、共 21 项）。
@@ -1599,6 +1604,27 @@ Object.assign(accColumns, {
     { key: "isOpen", label: "启用", fmt: "bool" },
     { key: "remark", label: "备注" },
   ],
+  "api-credentials": [
+    { key: "access_key", label: "Access Key" },
+    { key: "owner_code", label: "客户编号" },
+    { key: "owner_name", label: "客户名称" },
+    { key: "status", label: "状态" },
+    { key: "call_count", label: "累计调用" },
+    { key: "last_used_at", label: "最近调用" },
+    { key: "expires_at", label: "过期时间" },
+    { key: "created_at", label: "创建时间" },
+  ],
+  "api-call-logs": [
+    { key: "created_at", label: "时间" },
+    { key: "access_key", label: "Access Key" },
+    { key: "owner_name", label: "客户" },
+    { key: "method", label: "方法" },
+    { key: "endpoint", label: "端点" },
+    { key: "http_status", label: "状态码" },
+    { key: "error_code", label: "错误码" },
+    { key: "duration_ms", label: "耗时(ms)" },
+    { key: "ip", label: "来源 IP" },
+  ],
   tasks: [
     { key: "name", label: "任务名称" },
     { key: "code", label: "编号" },
@@ -1754,7 +1780,9 @@ const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'custome
   'costs-transit', 'costs-zhonggang', 'costs-air',
   // 问题件/赔偿子页只读
   'asks-customer', 'asks-supplier', 'asks-processing', 'asks-pending', 'asks-history',
-  'reparations-pending', 'reparations-history']);
+  'reparations-pending', 'reparations-history',
+  // API 调用日志只读
+  'api-call-logs']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
@@ -2409,6 +2437,13 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'Name', label: '银行名称', type: 'text', required: true },
     { col: 'Remark', label: '备注', type: 'textarea' },
   ],
+  'api-credentials': [
+    { col: 'ownerType', label: '所有者类型', type: 'select', opts: [
+        { v: 'CUSTOMER', l: '客户' }, { v: 'PARTNER', l: '合作方' }, { v: 'SYSTEM', l: '系统' }
+      ], required: true },
+    { col: 'ownerId', label: '客户ID', type: 'text' },
+    { col: 'expiresAt', label: '过期时间(ISO)', type: 'text' },
+  ],
   districts: [
     { col: 'Name', label: '英文名', type: 'text', required: true },
     { col: 'CN', label: '中文名', type: 'text' },
@@ -2816,7 +2851,7 @@ async function fetchDashboard() {
 
 // ACC data fetching
 
-const noDateTabs = new Set(["channels", "acc-branches", "departments", "countries", "fuels", "currencies", "fees", "fee-types", "banks", "ports", "warehouses", "customer-groups", "zones", "stowage-categories", "stowage-steps", "tracks", "expense-categories", "fee-item-types", "bank-names", "logistics-interfaces", "potentials", "sold-tos", "notices", "social-persons", "fund-persons", "commission-rules", "districts", "tasks", "templates", "sales-prices", "customer-prices", "published-prices", "files"]);
+const noDateTabs = new Set(["channels", "acc-branches", "departments", "countries", "fuels", "currencies", "fees", "fee-types", "banks", "ports", "warehouses", "customer-groups", "zones", "stowage-categories", "stowage-steps", "tracks", "expense-categories", "fee-item-types", "bank-names", "logistics-interfaces", "potentials", "sold-tos", "notices", "social-persons", "fund-persons", "commission-rules", "districts", "tasks", "templates", "sales-prices", "customer-prices", "published-prices", "files", "api-credentials"]);
 const noPaginationTabs = new Set(["channels", "acc-branches", "departments", "countries", "fuels", "currencies", "fees", "fee-types", "banks", "ports", "warehouses", "customer-groups", "zones", "stowage-categories", "stowage-steps", "tracks", "expense-categories", "fee-item-types", "bank-names", "logistics-interfaces"]);
 
 async function fetchAccData() {
@@ -3348,6 +3383,9 @@ const batchPageSet = new Set([
 const batchPagePanel = computed(() => batchPageSet.has(accTab.value));
 // 批量打印独立扫描页
 const isBatchPrintPage = computed(() => accTab.value === 'orders-batch-print');
+// API 文档独立 iframe 页
+const isApiDocsPage = computed(() => accTab.value === 'api-docs');
+const apiDocsUrl = '/swagger-ui/index.html';
 // 批量打印状态
 const printScanInput = ref('');
 const printScanRows = ref<any[]>([]);
@@ -4541,8 +4579,8 @@ async function doReloadBill(id: number) {
           <strong>{{ accTabs.find(t => t.key === accTab)?.label ?? '快件订单' }}</strong>
         </div>
 
-        <!-- Search bar (批量页面/打印页隐藏) -->
-        <div class="acc-search-bar" v-if="!batchPagePanel && !isBatchPrintPage">
+        <!-- Search bar (批量页面/打印页/API文档页隐藏) -->
+        <div class="acc-search-bar" v-if="!batchPagePanel && !isBatchPrintPage && !isApiDocsPage">
           <!-- ACC 风格：搜索字段下拉 + 输入框 -->
           <template v-if="currentTabSearchFields">
             <span style="font-size:13px;margin-right:4px">搜索:</span>
@@ -4883,8 +4921,13 @@ async function doReloadBill(id: number) {
           </div>
         </div>
 
-        <!-- Data table (非批量页/打印页才显示) -->
-        <div class="acc-table-wrap" v-if="!batchPagePanel && !isBatchPrintPage">
+        <!-- API 文档：内嵌 Swagger UI -->
+        <div v-if="isApiDocsPage" style="background:#fff;border:1px solid #cbd5e1;border-radius:4px;margin-top:8px;height:calc(100vh - 220px);overflow:hidden">
+          <iframe :src="apiDocsUrl" style="width:100%;height:100%;border:0" title="API Documentation"></iframe>
+        </div>
+
+        <!-- Data table (非批量页/打印页/API文档页才显示) -->
+        <div class="acc-table-wrap" v-if="!batchPagePanel && !isBatchPrintPage && !isApiDocsPage">
           <table class="data-table" v-if="accColumns[accTab]">
             <thead>
               <tr>

@@ -15,7 +15,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 import com.xqt.saas.common.ApiResponse;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -53,13 +55,16 @@ public class CustomerApiAuthFilter extends OncePerRequestFilter {
     private final SignatureValidator signatureValidator;
     private final CustomerApiRepository repository;
     private final ObjectMapper objectMapper;
+    private final JdbcTemplate jdbc;
 
     public CustomerApiAuthFilter(SignatureValidator signatureValidator,
                                  CustomerApiRepository repository,
-                                 ObjectMapper objectMapper) {
+                                 ObjectMapper objectMapper,
+                                 JdbcTemplate jdbc) {
         this.signatureValidator = signatureValidator;
         this.repository = repository;
         this.objectMapper = objectMapper;
+        this.jdbc = jdbc;
     }
 
     @Override
@@ -71,6 +76,7 @@ public class CustomerApiAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        long startNs = System.nanoTime();
         CachedBodyHttpServletRequest cached = CachedBodyHttpServletRequest.from(request);
 
         String accessKey = cached.getHeader(HEADER_USER);
@@ -80,10 +86,12 @@ public class CustomerApiAuthFilter extends OncePerRequestFilter {
 
         if (isBlank(accessKey)) {
             reject(response, HTTP_BAD_REQUEST, AccErrorCode.MISSING_USER, "missing X-API-User header");
+            logCall(request, null, null, HTTP_BAD_REQUEST, AccErrorCode.MISSING_USER, startNs);
             return;
         }
         if (isBlank(time) || !isNumeric(time)) {
             reject(response, HTTP_BAD_REQUEST, AccErrorCode.TIME_DRIFT, "X-API-Time must be unix epoch seconds");
+            logCall(request, accessKey, null, HTTP_BAD_REQUEST, AccErrorCode.TIME_DRIFT, startNs);
             return;
         }
         long requestTime;
@@ -91,28 +99,34 @@ public class CustomerApiAuthFilter extends OncePerRequestFilter {
             requestTime = Long.parseLong(time);
         } catch (NumberFormatException ex) {
             reject(response, HTTP_BAD_REQUEST, AccErrorCode.TIME_DRIFT, "X-API-Time is not a valid integer");
+            logCall(request, accessKey, null, HTTP_BAD_REQUEST, AccErrorCode.TIME_DRIFT, startNs);
             return;
         }
         if (!signatureValidator.withinTimeWindow(requestTime, Instant.now().getEpochSecond())) {
             reject(response, HTTP_BAD_REQUEST, AccErrorCode.TIME_DRIFT, "X-API-Time drifts more than 1 hour");
+            logCall(request, accessKey, null, HTTP_BAD_REQUEST, AccErrorCode.TIME_DRIFT, startNs);
             return;
         }
         if (isBlank(version) || !isNumeric(version)) {
             reject(response, HTTP_BAD_REQUEST, AccErrorCode.MISSING_VERSION, "X-API-Version must be numeric");
+            logCall(request, accessKey, null, HTTP_BAD_REQUEST, AccErrorCode.MISSING_VERSION, startNs);
             return;
         }
         if (sign == null || sign.length() != SignatureValidator.MD5_HEX_LENGTH) {
             reject(response, HTTP_BAD_REQUEST, AccErrorCode.INVALID_SIGN, "X-API-Sign must be a 32-char md5");
+            logCall(request, accessKey, null, HTTP_BAD_REQUEST, AccErrorCode.INVALID_SIGN, startNs);
             return;
         }
 
         CustomerApiCredential credential = repository.findByAccessKey(accessKey);
         if (credential == null) {
             reject(response, HTTP_UNAUTHORIZED, AccErrorCode.UNKNOWN_USER, "access_key not registered");
+            logCall(request, accessKey, null, HTTP_UNAUTHORIZED, AccErrorCode.UNKNOWN_USER, startNs);
             return;
         }
         if (!credential.active()) {
             reject(response, HTTP_UNAUTHORIZED, AccErrorCode.UNKNOWN_USER, "access_key is not active");
+            logCall(request, accessKey, credential.credentialId(), HTTP_UNAUTHORIZED, AccErrorCode.UNKNOWN_USER, startNs);
             return;
         }
 
@@ -123,6 +137,7 @@ public class CustomerApiAuthFilter extends OncePerRequestFilter {
         signedParams.put("version", version);
         if (!signatureValidator.matches(signedParams, credential.secretKey(), sign)) {
             reject(response, HTTP_UNAUTHORIZED, AccErrorCode.SIGN_MISMATCH, "signature mismatch");
+            logCall(request, accessKey, credential.credentialId(), HTTP_UNAUTHORIZED, AccErrorCode.SIGN_MISMATCH, startNs);
             return;
         }
 
@@ -141,7 +156,33 @@ public class CustomerApiAuthFilter extends OncePerRequestFilter {
             new UsernamePasswordAuthenticationToken(principal, null, authorities)
         );
 
-        filterChain.doFilter(cached, response);
+        try {
+            filterChain.doFilter(cached, response);
+        } finally {
+            logCall(request, accessKey, credential.credentialId(), response.getStatus(), null, startNs);
+        }
+    }
+
+    /** 后置补录调用流水。失败不阻塞主流程。 */
+    private void logCall(HttpServletRequest request, String accessKey, String credentialId,
+                         int httpStatus, String errorCode, long startNs) {
+        try {
+            int durationMs = (int) ((System.nanoTime() - startNs) / 1_000_000L);
+            String tenantId = jdbc.queryForObject(
+                "SELECT id::text FROM tenants WHERE code='xqt' LIMIT 1", String.class);
+            String ip = request.getRemoteAddr();
+            String ua = request.getHeader("User-Agent");
+            jdbc.update("""
+                INSERT INTO api_call_logs
+                    (tenant_id, credential_id, access_key, endpoint, method, http_status,
+                     error_code, duration_ms, ip, user_agent)
+                VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::inet, ?)
+                """,
+                tenantId, credentialId, accessKey, request.getRequestURI(), request.getMethod(),
+                httpStatus, errorCode, durationMs, ip, ua);
+        } catch (DataAccessException ignore) {
+            // logging must never break the API call
+        }
     }
 
     private void reject(HttpServletResponse response, int status, String errorCode, String message) throws IOException {
