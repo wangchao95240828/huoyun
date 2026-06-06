@@ -437,16 +437,23 @@ public class CustomerApiRepository {
     @Transactional(rollbackFor = Exception.class)
     public String insertPrepaidCharge(String tenantId, String shipmentId, String chargeItemId,
                                       BigDecimal amount, String currency, String evidenceJson) {
+        return insertPrepaidCharge(tenantId, shipmentId, chargeItemId, amount, currency, evidenceJson, null, null);
+    }
+
+    /** 同 insertPrepaidCharge 但同时落 customer_id / order_id（修复财务对账 join）。 */
+    public String insertPrepaidCharge(String tenantId, String shipmentId, String chargeItemId,
+                                      BigDecimal amount, String currency, String evidenceJson,
+                                      String customerId, String orderId) {
         return jdbc.queryForObject("""
             INSERT INTO charges (
               tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
-              evidence
+              evidence, customer_id, order_id
             ) VALUES (
-              ?::uuid, ?::uuid, ?::uuid, 'AR', 'ESTIMATED', ?, ?, ?::jsonb
+              ?::uuid, ?::uuid, ?::uuid, 'AR', 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid
             )
             RETURNING id::text
             """, String.class, tenantId, shipmentId, chargeItemId,
-            currency, amount, evidenceJson);
+            currency, amount, evidenceJson, customerId, orderId);
     }
 
     /** 落 AP 成本估算行（status='ESTIMATED' side='AP'）。 */
@@ -485,15 +492,25 @@ public class CustomerApiRepository {
     @Transactional(rollbackFor = Exception.class)
     public String insertChargeLine(String tenantId, String shipmentId, String chargeItemId,
                                    String side, BigDecimal amount, String currency, String evidenceJson) {
+        return insertChargeLine(tenantId, shipmentId, chargeItemId, side, amount, currency, evidenceJson, null, null);
+    }
+
+    /** 同 insertChargeLine 但同时落 customer_id / order_id（修复财务对账 join）。 */
+    @Transactional(rollbackFor = Exception.class)
+    public String insertChargeLine(String tenantId, String shipmentId, String chargeItemId,
+                                   String side, BigDecimal amount, String currency, String evidenceJson,
+                                   String customerId, String orderId) {
         return jdbc.queryForObject("""
             INSERT INTO charges (
-              tenant_id, shipment_id, charge_item_id, side, status, currency, amount, evidence
+              tenant_id, shipment_id, charge_item_id, side, status, currency, amount, evidence,
+              customer_id, order_id
             ) VALUES (
-              ?::uuid, ?::uuid, ?::uuid, ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb
+              ?::uuid, ?::uuid, ?::uuid, ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb,
+              ?::uuid, ?::uuid
             )
             RETURNING id::text
             """, String.class, tenantId, shipmentId, chargeItemId,
-            side, currency, amount, evidenceJson);
+            side, currency, amount, evidenceJson, customerId, orderId);
     }
 
     /** 读资金账户当前余额（写流水时取 before/after 用）。 */

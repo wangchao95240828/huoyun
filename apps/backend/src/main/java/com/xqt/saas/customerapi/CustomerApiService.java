@@ -241,7 +241,8 @@ public class CustomerApiService {
             if (quote != null) {
                 prepaidChargeId = writeBreakdownCharges(
                     principal.tenantId(), shipmentId, prepayCurrency,
-                    balanceAccountId, quote, keywordSurcharges);
+                    balanceAccountId, quote, keywordSurcharges,
+                    principal.customerId(), orderId);
             } else {
                 // 无报价（dev/demo 估算）：落一笔合并 AR 行
                 String chargeItemId = repository.findDefaultFreightChargeItemId(principal.tenantId());
@@ -252,7 +253,8 @@ public class CustomerApiService {
                 evidence.put("estimate", true);
                 prepaidChargeId = repository.insertPrepaidCharge(
                     principal.tenantId(), shipmentId, chargeItemId,
-                    prepayAmount, prepayCurrency, json.toJson(evidence));
+                    prepayAmount, prepayCurrency, json.toJson(evidence),
+                    principal.customerId(), orderId);
             }
         }
 
@@ -558,40 +560,41 @@ public class CustomerApiService {
      */
     private String writeBreakdownCharges(String tenantId, String shipmentId, String currency,
                                          String balanceAccountId, Quote quote,
-                                         java.util.List<com.xqt.saas.rates.RateQuoteResponse.BreakdownLine> keywordSurcharges) {
+                                         java.util.List<com.xqt.saas.rates.RateQuoteResponse.BreakdownLine> keywordSurcharges,
+                                         String customerId, String orderId) {
         String prepayAt = java.time.Instant.now().toString();
 
-        // ─── AR 三行 ───
+        // ─── AR 多行 ───
         String firstChargeId = null;
         firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
-            "FREIGHT", quote.freight(), quote, firstChargeId);
+            "FREIGHT", quote.freight(), quote, firstChargeId, customerId, orderId);
         firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
-            "FUEL", quote.fuelAmount(), quote, firstChargeId);
+            "FUEL", quote.fuelAmount(), quote, firstChargeId, customerId, orderId);
         firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
-            "REMOTE", quote.surchargeAmount(), quote, firstChargeId);
+            "REMOTE", quote.surchargeAmount(), quote, firstChargeId, customerId, orderId);
         firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
-            "INSURANCE", quote.insuranceAmount(), quote, firstChargeId);
+            "INSURANCE", quote.insuranceAmount(), quote, firstChargeId, customerId, orderId);
         firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
-            "BATTERY", quote.batteryAmount(), quote, firstChargeId);
+            "BATTERY", quote.batteryAmount(), quote, firstChargeId, customerId, orderId);
         firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
-            "PROCESSING", quote.processingAmount(), quote, firstChargeId);
+            "PROCESSING", quote.processingAmount(), quote, firstChargeId, customerId, orderId);
 
         // ─── 任务 S3 A1：品名关键词附加费各落一行 AR ───
         if (keywordSurcharges != null) {
             for (com.xqt.saas.rates.RateQuoteResponse.BreakdownLine line : keywordSurcharges) {
                 firstChargeId = insertArLine(tenantId, shipmentId, currency, balanceAccountId, prepayAt,
-                    line.code(), line.amount(), quote, firstChargeId);
+                    line.code(), line.amount(), quote, firstChargeId, customerId, orderId);
             }
         }
 
-        // ─── AP 三行（仅当引擎产出成本价）───
+        // ─── AP 多行（仅当引擎产出成本价）───
         if (quote.costTotal() != null && quote.costTotal().signum() > 0) {
-            insertApLine(tenantId, shipmentId, currency, "FREIGHT", quote.costFreight(), quote);
-            insertApLine(tenantId, shipmentId, currency, "FUEL", quote.costFuel(), quote);
-            insertApLine(tenantId, shipmentId, currency, "REMOTE", quote.costSurcharge(), quote);
-            insertApLine(tenantId, shipmentId, currency, "INSURANCE", quote.costInsurance(), quote);
-            insertApLine(tenantId, shipmentId, currency, "BATTERY", quote.costBattery(), quote);
-            insertApLine(tenantId, shipmentId, currency, "PROCESSING", quote.costProcessing(), quote);
+            insertApLine(tenantId, shipmentId, currency, "FREIGHT", quote.costFreight(), quote, customerId, orderId);
+            insertApLine(tenantId, shipmentId, currency, "FUEL", quote.costFuel(), quote, customerId, orderId);
+            insertApLine(tenantId, shipmentId, currency, "REMOTE", quote.costSurcharge(), quote, customerId, orderId);
+            insertApLine(tenantId, shipmentId, currency, "INSURANCE", quote.costInsurance(), quote, customerId, orderId);
+            insertApLine(tenantId, shipmentId, currency, "BATTERY", quote.costBattery(), quote, customerId, orderId);
+            insertApLine(tenantId, shipmentId, currency, "PROCESSING", quote.costProcessing(), quote, customerId, orderId);
         }
         return firstChargeId;
     }
@@ -612,7 +615,8 @@ public class CustomerApiService {
 
     private String insertArLine(String tenantId, String shipmentId, String currency,
                                 String balanceAccountId, String prepayAt,
-                                String code, BigDecimal amount, Quote quote, String firstChargeId) {
+                                String code, BigDecimal amount, Quote quote, String firstChargeId,
+                                String customerId, String orderId) {
         if (amount == null || amount.signum() == 0) return firstChargeId;
         String chargeItemId = repository.findChargeItemIdByCode(tenantId, code);
         Map<String, Object> ev = new LinkedHashMap<>();
@@ -623,7 +627,6 @@ public class CustomerApiService {
         ev.put("rate_card_id", quote.matched().rateCardId());
         ev.put("rate_card_line_id", quote.matched().rateCardLineId());
         if ("FREIGHT".equals(code)) {
-            // 主行额外记完整命中证据 + 佣金（佣金不落独立 charge 行）
             ev.put("customer_rate_matched", quote.matched().customerRateMatched());
             ev.put("group_rate_matched", quote.matched().groupRateMatched());
             ev.put("commission_rule_id", quote.matched().commissionRuleId());
@@ -632,12 +635,13 @@ public class CustomerApiService {
             ev.put("chargeable_weight_kg", quote.chargeableWeightKg());
         }
         String id = repository.insertChargeLine(tenantId, shipmentId, chargeItemId,
-            "AR", amount, currency, json.toJson(ev));
+            "AR", amount, currency, json.toJson(ev), customerId, orderId);
         return firstChargeId == null ? id : firstChargeId;
     }
 
     private void insertApLine(String tenantId, String shipmentId, String currency,
-                              String code, BigDecimal amount, Quote quote) {
+                              String code, BigDecimal amount, Quote quote,
+                              String customerId, String orderId) {
         if (amount == null || amount.signum() == 0) return;
         String chargeItemId = repository.findChargeItemIdByCode(tenantId, code);
         Map<String, Object> ev = new LinkedHashMap<>();
@@ -645,7 +649,7 @@ public class CustomerApiService {
         ev.put("component", code);
         ev.put("rate_card_id", quote.matched().costRateCardId());
         repository.insertChargeLine(tenantId, shipmentId, chargeItemId,
-            "AP", amount, currency, json.toJson(ev));
+            "AP", amount, currency, json.toJson(ev), customerId, orderId);
     }
 
     /**
