@@ -748,6 +748,15 @@ const accGroupSystem = [
   T("importer-templates"),                  // 制单进口商预设
 ];
 
+// API 对接中心：客户 API 凭证 / 调用日志 / Webhook 出站 / 文档
+const accGroupApi = [
+  T("api-credentials"),
+  T("api-call-logs"),
+  T("webhook-endpoints"),
+  T("webhook-events"),
+  T("api-docs"),
+];
+
 const accMenuGroups = [
   { key: "order",          label: "制单中心",       icon: FileText,    tabs: accGroupOrder },
   { key: "stowage",        label: "配载中心",       icon: Plane,       tabs: accGroupStowage },
@@ -758,6 +767,7 @@ const accMenuGroups = [
   { key: "basic-info",     label: "基础信息",       icon: Layers,      tabs: accBasicTabs },
   { key: "hr",             label: "人事组织",       icon: Building2,   tabs: accGroupHR },
   { key: "system",         label: "数据管理",       icon: Globe,       tabs: accGroupSystem },
+  { key: "api",            label: "API 对接中心",    icon: KeyRound,    tabs: accGroupApi },
 ];
 // 当前展开的 ACC 功能组（手风琴，一次展开一个）
 const expandedAccGroup = ref<string>("order");
