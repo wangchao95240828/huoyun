@@ -69,6 +69,7 @@ import {
   PanelLeftClose,
   Settings,
   Maximize2,
+  TrendingUp,
 } from "lucide-vue-next";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -439,6 +440,7 @@ const accTabs = [
   // 财务管理
   { key: "charges", label: "应收运费", icon: DollarSign, api: "charges" },
   { key: "costs", label: "应付成本", icon: CreditCard, api: "costs" },
+  { key: "customer-receivables", label: "应收款项目", icon: TrendingUp, api: "customer-receivables" },
   { key: "bills", label: "客户账单", icon: ReceiptText, api: "bills" },
   { key: "payments", label: "供应商付款", icon: Landmark, api: "payments" },
   { key: "receiveds", label: "客户收款", icon: Coins, api: "receiveds" },
@@ -572,6 +574,18 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
     { key: "paid", label: "实付金额", fmt: "money" },
     { key: "theDate", label: "日期" },
     { key: "auditName", label: "审核人" },
+  ],
+  "customer-receivables": [
+    { key: "code",              label: "客户编码" },
+    { key: "name",              label: "名称" },
+    { key: "contact_name",      label: "联系人" },
+    { key: "salesman_name",     label: "业务员" },
+    { key: "currency",          label: "结算币种" },
+    { key: "unpaid_amount",     label: "欠款金额", fmt: "money" },
+    { key: "estimated_balance", label: "预估结余", fmt: "money" },
+    { key: "settlement_method", label: "结算方式" },
+    { key: "credit_amount",     label: "授信额度", fmt: "money" },
+    { key: "last_payment_at",   label: "最后付款", fmt: "datetime" },
   ],
   bills: [
     { key: "no", label: "账单号" },
@@ -1174,7 +1188,7 @@ const moduleCards = [
 
 // ═══════════════ Form Schemas ═══════════════
 
-const readOnlyTabs = new Set(['profits', 'void-orders']);
+const readOnlyTabs = new Set(['profits', 'void-orders', 'customer-receivables']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
@@ -2205,6 +2219,7 @@ async function loadSelectOptions(fields: FormField[]) {
       selectOptions.value[r] = list.map((row: any) => ({
         id: row.id,
         name: row[ep.nameField] || row.name || row.code || String(row.id),
+        code: row.code ?? undefined,
       }));
     } catch {
       selectOptions.value[r] = [];
@@ -2435,13 +2450,15 @@ async function openBizDialog(type: string) {
   bizDialogType.value = type;
   Object.keys(bizDialogData).forEach(k => delete bizDialogData[k]);
   if (type === 'generate-bill') {
-    bizDialogData.customerId = '';
-    bizDialogData.dateFrom = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
-    bizDialogData.dateTo = new Date().toISOString().slice(0, 10);
+    bizDialogData.customer_id = '';
+    bizDialogData.currency = 'CNY';
+    bizDialogData.date_from = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+    bizDialogData.date_to = new Date().toISOString().slice(0, 10);
   } else if (type === 'quick-payment') {
-    bizDialogData.customerId = '';
-    bizDialogData.amount = 0;
-    bizDialogData.bankId = '';
+    bizDialogData.customer_id = '';
+    bizDialogData.currency = 'CNY';
+    bizDialogData.settled_amount = 0;
+    bizDialogData.bank_account_id = '';
   } else if (type === 'calc-commission') {
     const now = new Date();
     bizDialogData.month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -2451,7 +2468,11 @@ async function openBizDialog(type: string) {
     bizDialogData.groupBy = 'customer';
   }
   if (type === 'generate-bill' || type === 'quick-payment') {
-    await loadSelectOptions([{ col: '', label: '', type: 'select', ref: 'customers' }, { col: '', label: '', type: 'select', ref: 'banks' }]);
+    await loadSelectOptions([
+      { col: '', label: '', type: 'select', ref: 'customers' },
+      { col: '', label: '', type: 'select', ref: 'banks' },
+      { col: '', label: '', type: 'select', ref: 'currencies' },
+    ]);
   }
   showBizDialog.value = true;
 }
@@ -2465,36 +2486,40 @@ async function executeBizDialog() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerId: Number(bizDialogData.customerId),
-          dateFrom: bizDialogData.dateFrom,
-          dateTo: bizDialogData.dateTo,
+          customer_id: bizDialogData.customer_id,
+          currency: bizDialogData.currency || 'CNY',
+          date_from: bizDialogData.date_from,
+          date_to: bizDialogData.date_to,
         }),
       });
-      const json = await res.json();
-      if (json.ok) {
-        bizMessage.value = `账单生成成功，ID: ${json.billId}`;
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        bizMessage.value = `账单生成成功：${json.invoice_no}，总额 ${json.total_amount}`;
         showBizDialog.value = false;
         fetchAccData();
       } else {
-        bizMessage.value = '生成失败: ' + (json.error ?? '');
+        bizMessage.value = '生成失败: ' + (json.error ?? json.message ?? '');
       }
     } else if (bizDialogType.value === 'quick-payment') {
-      const res = await apiFetch(`${API}/api/acc/receiveds/quick`, {
+      const res = await apiFetch(`${API}/api/acc/receiveds/settle`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customerId: Number(bizDialogData.customerId),
-          amount: Number(bizDialogData.amount),
-          bankId: Number(bizDialogData.bankId),
+          customer_id: bizDialogData.customer_id,
+          currency: bizDialogData.currency || 'CNY',
+          settled_amount: Number(bizDialogData.settled_amount),
+          bank_account_id: bizDialogData.bank_account_id || null,
         }),
       });
-      const json = await res.json();
-      if (json.ok) {
-        bizMessage.value = `快速收款成功，ID: ${json.id}`;
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        const matched = json.matched_invoices?.length ?? json.total_matched ?? 0;
+        const unmatched = json.unmatched_amount ?? 0;
+        bizMessage.value = `收款成功，核销 ${matched} 张账单` + (unmatched > 0 ? `，多余 ${unmatched} 进预付余额` : '');
         showBizDialog.value = false;
         fetchAccData();
       } else {
-        bizMessage.value = '收款失败: ' + (json.error ?? '');
+        bizMessage.value = '收款失败: ' + (json.error ?? json.message ?? '');
       }
     } else if (bizDialogType.value === 'calc-commission') {
       const res = await apiFetch(`${API}/api/acc/commissions/calculate`, {
@@ -3363,26 +3388,38 @@ async function doReloadBill(id: number) {
             <template v-if="bizDialogType === 'generate-bill'">
               <div class="form-field">
                 <label>客户 <span class="required">*</span></label>
-                <select v-model="bizDialogData.customerId">
+                <select v-model="bizDialogData.customer_id">
                   <option value="">请选择</option>
                   <option v-for="opt in (selectOptions['customers'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
                 </select>
               </div>
-              <div class="form-field"><label>起始日期</label><input type="date" v-model="bizDialogData.dateFrom" /></div>
-              <div class="form-field"><label>截止日期</label><input type="date" v-model="bizDialogData.dateTo" /></div>
+              <div class="form-field">
+                <label>币种</label>
+                <select v-model="bizDialogData.currency">
+                  <option v-for="opt in (selectOptions['currencies'] ?? [])" :key="opt.id" :value="opt.code">{{ opt.code }}</option>
+                </select>
+              </div>
+              <div class="form-field"><label>起始日期</label><input type="date" v-model="bizDialogData.date_from" /></div>
+              <div class="form-field"><label>截止日期</label><input type="date" v-model="bizDialogData.date_to" /></div>
             </template>
             <template v-if="bizDialogType === 'quick-payment'">
               <div class="form-field">
                 <label>客户 <span class="required">*</span></label>
-                <select v-model="bizDialogData.customerId">
+                <select v-model="bizDialogData.customer_id">
                   <option value="">请选择</option>
                   <option v-for="opt in (selectOptions['customers'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
                 </select>
               </div>
-              <div class="form-field"><label>金额 <span class="required">*</span></label><input type="number" step="any" v-model.number="bizDialogData.amount" /></div>
+              <div class="form-field">
+                <label>币种</label>
+                <select v-model="bizDialogData.currency">
+                  <option v-for="opt in (selectOptions['currencies'] ?? [])" :key="opt.id" :value="opt.code">{{ opt.code }}</option>
+                </select>
+              </div>
+              <div class="form-field"><label>收款金额 <span class="required">*</span></label><input type="number" step="any" v-model.number="bizDialogData.settled_amount" /></div>
               <div class="form-field">
                 <label>银行账户</label>
-                <select v-model="bizDialogData.bankId">
+                <select v-model="bizDialogData.bank_account_id">
                   <option value="">请选择</option>
                   <option v-for="opt in (selectOptions['banks'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
                 </select>

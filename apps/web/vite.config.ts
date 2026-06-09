@@ -7,11 +7,11 @@ export default defineConfig({
     port: Number(process.env.WEB_PORT ?? 5174),
     proxy: {
       "/api": {
-        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
+        target: `http://localhost:${process.env.SPRING_API_PORT ?? 8080}`,
         changeOrigin: true,
       },
       "/health": {
-        target: `http://localhost:${process.env.SPRING_API_PORT ?? 18103}`,
+        target: `http://localhost:${process.env.SPRING_API_PORT ?? 8080}`,
         changeOrigin: true,
       },
     },
