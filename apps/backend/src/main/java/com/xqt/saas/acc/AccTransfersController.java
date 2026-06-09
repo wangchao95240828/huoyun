@@ -7,11 +7,14 @@ import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.JsonSupport;
+import com.xqt.saas.framework.audit.AuditAction;
+import com.xqt.saas.framework.audit.AuditService;
 import com.xqt.saas.framework.cascade.CascadeChecker;
 import com.xqt.saas.framework.fieldgate.FieldGate;
 import com.xqt.saas.framework.money.MoneySnapshotService;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,15 +34,18 @@ public class AccTransfersController {
     private final CascadeChecker cascadeChecker;
     private final FieldGate fieldGate;
     private final MoneySnapshotService moneySnapshotService;
+    private final AuditService auditService;
 
     public AccTransfersController(JdbcTemplate jdbc, JsonSupport json,
                                   CascadeChecker cascadeChecker, FieldGate fieldGate,
-                                  MoneySnapshotService moneySnapshotService) {
+                                  MoneySnapshotService moneySnapshotService,
+                                  AuditService auditService) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.moneySnapshotService = moneySnapshotService;
+        this.auditService = auditService;
     }
 
     @GetMapping
@@ -141,6 +147,122 @@ public class AccTransfersController {
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM acc_transfers WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    /**
+     * C2 — 资金转账审核（双账户联动 + 二审门槛）
+     *
+     * 审核联动：
+     *   1. from_account ≠ to_account（防自己转自己）
+     *   2. > 10w 强制 verify_status=VERIFIED 才能审核（防单人误操作）
+     *   3. 检查 from 账户余额充足（行锁防并发）
+     *   4. 双账户原子联动：A 减 + B 加 + 两条 balance_ledger
+     *   5. 全流程单事务，任一步失败全部回滚
+     */
+    @PostMapping("/{id}/audit-biz")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> auditWithBusiness(@PathVariable String id) {
+        String actor = getCurrentUserName();
+
+        // ① 抓 before（行锁）
+        Map<String, Object> before = jdbc.queryForMap(
+            "SELECT * FROM acc_transfers WHERE id = ?::uuid FOR UPDATE", id);
+        if (before.isEmpty()) {
+            throw ApiException.notFound("转账单不存在: " + id);
+        }
+        if (!"PENDING".equals(before.get("audit_status"))
+            && !"UNAUDITED".equals(before.get("audit_status"))) {
+            throw ApiException.badRequest("只有 PENDING/UNAUDITED 状态可以审核");
+        }
+
+        BigDecimal amount = (BigDecimal) before.get("amount");
+        String verifyStatus = (String) before.get("verify_status");
+
+        // ② 二审门槛：> 10w 必须先二审
+        if (amount.compareTo(new BigDecimal("100000")) > 0
+            && !"VERIFIED".equals(verifyStatus)) {
+            throw ApiException.badRequest("金额 " + amount
+                + " > 10w 阈值，须先二审 (verify_status=VERIFIED)");
+        }
+
+        String fromId = (String) before.get("from_bank_id");
+        String toId   = (String) before.get("to_bank_id");
+
+        if (fromId == null || toId == null) {
+            throw ApiException.badRequest("转出/转入账户不能为空");
+        }
+
+        // ③ 检查 from 账户余额（行锁）
+        BigDecimal fromBalance = jdbc.queryForObject(
+            "SELECT balance FROM financial_accounts WHERE id = ?::uuid FOR UPDATE",
+            BigDecimal.class, fromId);
+        if (fromBalance.compareTo(amount) < 0) {
+            throw ApiException.badRequest(
+                "转出账户余额不足 (balance=" + fromBalance + ", need=" + amount + ")");
+        }
+
+        BigDecimal toBalance = jdbc.queryForObject(
+            "SELECT balance FROM financial_accounts WHERE id = ?::uuid FOR UPDATE",
+            BigDecimal.class, toId);
+
+        // ④ 改审核状态
+        jdbc.update("""
+            UPDATE acc_transfers SET
+              audit_status = 'AUDITED', audited_at = now(), audit_name = ?
+            WHERE id = ?::uuid
+            """, actor, id);
+
+        // ⑤ 转出账户：减余额 + 写 OUT ledger
+        jdbc.update("UPDATE financial_accounts SET balance = balance - ? WHERE id = ?::uuid",
+            amount, fromId);
+        jdbc.update("""
+            INSERT INTO balance_ledger (
+              tenant_id, account_id, type, amount, balance_before, balance_after,
+              source_type, source_id, remark
+            ) VALUES (
+              current_setting('app.current_tenant_id')::uuid,
+              ?::uuid, 'OUT', ?, ?, ?,
+              'transfer', ?::uuid, ?
+            )
+            """, fromId, amount, fromBalance, fromBalance.subtract(amount),
+            id, "转账给账户 " + toId);
+
+        // ⑥ 转入账户：加余额 + 写 IN ledger
+        jdbc.update("UPDATE financial_accounts SET balance = balance + ? WHERE id = ?::uuid",
+            amount, toId);
+        jdbc.update("""
+            INSERT INTO balance_ledger (
+              tenant_id, account_id, type, amount, balance_before, balance_after,
+              source_type, source_id, remark
+            ) VALUES (
+              current_setting('app.current_tenant_id')::uuid,
+              ?::uuid, 'IN', ?, ?, ?,
+              'transfer', ?::uuid, ?
+            )
+            """, toId, amount, toBalance, toBalance.add(amount),
+            id, "转账来自账户 " + fromId);
+
+        // ⑦ 写审计流水
+        Map<String, Object> after = jdbc.queryForMap(
+            "SELECT * FROM acc_transfers WHERE id = ?::uuid", id);
+        auditService.recordEvent(TABLE, id, AuditAction.AUDIT, actor, before, after);
+
+        return Map.of(
+            "audited", true,
+            "from_balance", fromBalance.subtract(amount),
+            "to_balance", toBalance.add(amount)
+        );
+    }
+
+    private String getCurrentUserName() {
+        try {
+            var auth = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication();
+            if (auth != null && auth.getPrincipal() instanceof com.xqt.saas.auth.AuthPrincipal p) {
+                return p.username();
+            }
+        } catch (Exception ignored) { }
+        return "system";
     }
 
     private Map<String, Object> project(Map<String, Object> row) {
