@@ -21,8 +21,9 @@ on:
         default: false
 
 # 串行：同一时刻只能有一个 CD 在跑
+# (v2 后缀是为了绕开一个永远卡在 queued 的 orphan run — 不影响功能)
 concurrency:
-  group: cd-production
+  group: cd-production-v2
   cancel-in-progress: false
 
 env:
