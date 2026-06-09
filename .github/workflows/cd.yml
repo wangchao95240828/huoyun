@@ -1,16 +1,15 @@
 name: CD (auto-deploy to production)
 
-# 跑在自托管 Runner（在生产服务器 8.148.227.76 上跑）
+# 在 GitHub 托管 Ubuntu Runner 上跑（CentOS 7 EOL 无法装自托管 runner）
 # 触发：push 到指定分支（默认 feat/acc-full-migration-2026-05-26；future main）
-# 作用：拉代码 → 编译 → 跑 migration → 替换 jar/dist → 健康检查 → 失败自动回滚
+# 作用：在 GitHub 编译 → SSH 跑 migration → SCP jar+dist 到服务器 → 远程重启 → 健康检查 → 失败自动回滚
 
 on:
   push:
     branches:
-      # 加分支这里就自动部署，移分支就停（白名单制）
       - feat/acc-full-migration-2026-05-26
       - main
-  workflow_dispatch:   # 也允许手动触发（GitHub UI 上点按钮）
+  workflow_dispatch:
     inputs:
       skip_tests:
         description: '跳过单元测试'
@@ -21,28 +20,32 @@ on:
         type: boolean
         default: false
 
-# 串行：同一时刻只能有一个 CD 在跑（避免 jar 半个状态）
+# 串行：同一时刻只能有一个 CD 在跑
 concurrency:
   group: cd-production
   cancel-in-progress: false
 
+env:
+  SERVER_HOST: 8.148.227.76
+  SERVER_USER: root
+  BACKEND_JAR: /opt/xqt-saas/backend/xqt-backend.jar
+  BACKEND_JAR_BAK: /opt/xqt-saas/backend/xqt-backend.jar.bak
+  WEB_ROOT: /opt/xqt-saas/web
+  WEB_ROOT_BAK: /opt/xqt-saas/web.bak
+  HEALTH_URL: http://127.0.0.1:18103/actuator/health
+  # 远程跑 psql 用的 DB 密码（也可以改为 secrets.DB_PASSWORD）
+  DB_HOST: 127.0.0.1
+  DB_PORT: 15432
+  DB_USER: xqt
+  DB_NAME: xqt_saas
+
 jobs:
   deploy:
-    # 在自托管 runner 上跑 — 那台 runner 直接装在 8.148.227.76 服务器上
-    runs-on: [self-hosted, xqt-prod]
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    env:
-      # 服务路径（与 deploy-native.sh 保持一致）
-      BACKEND_JAR: /opt/xqt-saas/backend/xqt-backend.jar
-      BACKEND_JAR_BAK: /opt/xqt-saas/backend/xqt-backend.jar.bak
-      WEB_ROOT: /opt/xqt-saas/web
-      WEB_ROOT_BAK: /opt/xqt-saas/web.bak
-      HEALTH_URL: http://127.0.0.1:18103/actuator/health
-      DB_URL: postgres://xqt:Xqt_prod_DB_2026_change_me@127.0.0.1:15432/xqt_saas
-
     steps:
-      - name: Checkout (full history for diff)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 50
@@ -77,6 +80,7 @@ jobs:
             ./mvnw -q -B package
           fi
           test -f target/xqt-backend-0.0.1-SNAPSHOT.jar
+          ls -lh target/xqt-backend-0.0.1-SNAPSHOT.jar
 
       - name: Build web
         working-directory: apps/web
@@ -84,98 +88,134 @@ jobs:
           npm ci
           npm run build
           test -f dist/index.html
+          ls -lh dist/
 
-      # ─── DB Migration ───
-      - name: Run new DB migrations
-        if: inputs.skip_migration != true
+      # ─── SSH 准备 ───
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_DEPLOY_KEY }}
         run: |
-          # 找比生产 schema 更新的 migration（按文件名 NNN 排序），逐个跑
-          # 简化策略：跑所有 migration，每个文件第一行写 -- migration: applied 标记，pgschema 表记录已跑过的
-          NEW_MIGRATIONS=$(ls db/migrations/*.sql 2>/dev/null | sort)
-          if [ -z "$NEW_MIGRATIONS" ]; then
-            echo "no migrations directory"
-            exit 0
-          fi
-          # 建追踪表（幂等）
-          PGPASSWORD=Xqt_prod_DB_2026_change_me psql \
-            -h 127.0.0.1 -p 15432 -U xqt -d xqt_saas -c "
-            CREATE TABLE IF NOT EXISTS schema_migrations (
-              filename text PRIMARY KEY,
-              applied_at timestamptz NOT NULL DEFAULT now()
-            )" >/dev/null
-          for f in $NEW_MIGRATIONS; do
-            base=$(basename "$f")
-            applied=$(PGPASSWORD=Xqt_prod_DB_2026_change_me psql -h 127.0.0.1 -p 15432 -U xqt -d xqt_saas -tA -c \
-              "SELECT 1 FROM schema_migrations WHERE filename='$base'")
-            if [ "$applied" = "1" ]; then
-              echo "  ✓ already applied: $base"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SERVER_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # 验证连通
+          ssh -i ~/.ssh/id_ed25519 "$SERVER_USER@$SERVER_HOST" 'echo "✓ SSH OK from $(hostname)"'
+
+      # ─── DB Migration（在服务器上跑 psql） ───
+      - name: Run DB migrations
+        if: inputs.skip_migration != true
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          # 把 db/migrations 整个目录 rsync 到服务器
+          rsync -avz --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            db/migrations/ "$SERVER_USER@$SERVER_HOST:/tmp/cd-migrations/"
+
+          # 远程跑：建追踪表 + 逐个跑没跑过的 migration
+          ssh -i ~/.ssh/id_ed25519 "$SERVER_USER@$SERVER_HOST" bash << EOF
+          set -e
+          export PGPASSWORD='$DB_PASSWORD'
+          PSQL="psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME"
+
+          # 追踪表（幂等）
+          \$PSQL -c "CREATE TABLE IF NOT EXISTS schema_migrations (
+            filename text PRIMARY KEY,
+            applied_at timestamptz NOT NULL DEFAULT now()
+          )" >/dev/null
+
+          # 逐个跑
+          for f in /tmp/cd-migrations/*.sql; do
+            [ -f "\$f" ] || continue
+            base=\$(basename "\$f")
+            applied=\$(\$PSQL -tA -c "SELECT 1 FROM schema_migrations WHERE filename='\$base'")
+            if [ "\$applied" = "1" ]; then
+              echo "  ✓ already applied: \$base"
               continue
             fi
-            echo "  ▶ applying: $base"
-            PGPASSWORD=Xqt_prod_DB_2026_change_me psql -h 127.0.0.1 -p 15432 -U xqt -d xqt_saas \
-              -v ON_ERROR_STOP=1 -f "$f"
-            PGPASSWORD=Xqt_prod_DB_2026_change_me psql -h 127.0.0.1 -p 15432 -U xqt -d xqt_saas \
-              -c "INSERT INTO schema_migrations(filename) VALUES('$base')" >/dev/null
-            echo "  ✓ done: $base"
+            echo "  ▶ applying: \$base"
+            \$PSQL -v ON_ERROR_STOP=1 -f "\$f"
+            \$PSQL -c "INSERT INTO schema_migrations(filename) VALUES('\$base')" >/dev/null
+            echo "  ✓ done: \$base"
           done
+          rm -rf /tmp/cd-migrations
+          EOF
 
-      # ─── 部署 backend（备份 → 替换 → 重启 → 健康检查） ───
+      # ─── 部署 backend ───
       - name: Deploy backend jar
         run: |
-          sudo cp "$BACKEND_JAR" "$BACKEND_JAR_BAK" 2>/dev/null || true
-          sudo cp apps/backend/target/xqt-backend-0.0.1-SNAPSHOT.jar "$BACKEND_JAR"
-          sudo systemctl restart xqt-backend
+          # 1. 远程备份当前 jar
+          ssh -i ~/.ssh/id_ed25519 "$SERVER_USER@$SERVER_HOST" \
+            "cp '$BACKEND_JAR' '$BACKEND_JAR_BAK' 2>/dev/null || true"
+
+          # 2. scp 新 jar（用 rsync --inplace 防 scp 截断 80MB→53MB 的旧 bug）
+          rsync -avz --inplace --partial -e "ssh -i ~/.ssh/id_ed25519" \
+            apps/backend/target/xqt-backend-0.0.1-SNAPSHOT.jar \
+            "$SERVER_USER@$SERVER_HOST:$BACKEND_JAR"
+
+          # 3. 远程 restart + 健康检查
+          ssh -i ~/.ssh/id_ed25519 "$SERVER_USER@$SERVER_HOST" bash << 'EOF'
+          set -e
+          systemctl restart xqt-backend
           echo "▶ waiting health UP (max 60s)"
           for i in $(seq 1 30); do
-            if curl -fsS "$HEALTH_URL" 2>/dev/null | grep -q UP; then
+            if curl -fsS http://127.0.0.1:18103/actuator/health 2>/dev/null | grep -q UP; then
               echo "  ✓ healthy (${i}x2s = $((i*2))s)"
               exit 0
             fi
             sleep 2
           done
-          echo "✗ backend not healthy after 60s — rolling back"
-          sudo cp "$BACKEND_JAR_BAK" "$BACKEND_JAR"
-          sudo systemctl restart xqt-backend
+          echo "✗ backend not healthy after 60s"
           exit 1
+          EOF
 
-      # ─── 部署 web（备份 → 替换） ───
+      # ─── 部署 backend 失败 → 自动回滚 ───
+      - name: Rollback backend on failure
+        if: failure()
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$SERVER_USER@$SERVER_HOST" bash << EOF
+          if [ -f '$BACKEND_JAR_BAK' ]; then
+            echo "✗ deploy failed — rolling back jar from .bak"
+            cp '$BACKEND_JAR_BAK' '$BACKEND_JAR'
+            systemctl restart xqt-backend
+            echo "  ✓ rolled back"
+          else
+            echo "✗ no .bak to roll back to"
+          fi
+          EOF
+
+      # ─── 部署 web ───
       - name: Deploy web dist
         run: |
-          sudo rm -rf "$WEB_ROOT_BAK" 2>/dev/null || true
-          sudo cp -r "$WEB_ROOT" "$WEB_ROOT_BAK"
-          sudo cp apps/web/dist/index.html "$WEB_ROOT/index.html"
-          sudo cp -r apps/web/dist/assets/. "$WEB_ROOT/assets/"
-          # 清 14 天前的旧 hash bundle（防无限堆积）
-          sudo find "$WEB_ROOT/assets/" -type f -mtime +14 -delete 2>/dev/null || true
+          # rsync 整个 dist → 服务器 web 根
+          # --delete 防止旧 hash bundle 无限堆积（备份过 dist 进 .bak 防误删）
+          ssh -i ~/.ssh/id_ed25519 "$SERVER_USER@$SERVER_HOST" \
+            "rm -rf '$WEB_ROOT_BAK' 2>/dev/null; cp -r '$WEB_ROOT' '$WEB_ROOT_BAK'"
 
-      # ─── 公网回放验证（cache_bust 防 CDN） ───
+          rsync -avz --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            apps/web/dist/ "$SERVER_USER@$SERVER_HOST:$WEB_ROOT/"
+
+      # ─── 公网回放验证 ───
       - name: Verify public access
         run: |
           EXPECTED=$(grep -oE 'index-[A-Za-z0-9_-]+\.js' apps/web/dist/index.html | head -1)
-          ACTUAL=$(curl -sfL "http://8.148.227.76/?cache_bust=$(date +%s)" \
-            | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)
-          if [ "$EXPECTED" = "$ACTUAL" ]; then
-            echo "✓ public serves new bundle: $ACTUAL"
-          else
-            echo "✗ MISMATCH: expected $EXPECTED, got $ACTUAL"
-            exit 1
-          fi
+          for i in 1 2 3 4 5; do
+            ACTUAL=$(curl -sfL "http://$SERVER_HOST/?cache_bust=$(date +%s)$i" \
+              | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)
+            if [ "$EXPECTED" = "$ACTUAL" ]; then
+              echo "✓ public serves new bundle: $ACTUAL"
+              exit 0
+            fi
+            echo "  attempt $i: expected $EXPECTED, got $ACTUAL — retry in 3s"
+            sleep 3
+          done
+          echo "✗ public still serving old bundle after 5 attempts"
+          exit 1
 
-      - name: Summary
+      - name: Final health summary
         if: always()
         run: |
           echo "::notice title=Deploy Summary::Branch=${{ github.ref_name }} Commit=${{ github.sha }}"
-          curl -s "$HEALTH_URL" || true
-
-  notify:
-    needs: deploy
-    if: always()
-    runs-on: [self-hosted, xqt-prod]
-    steps:
-      - name: Post to webhook (optional)
-        run: |
-          STATUS="${{ needs.deploy.result }}"
-          COLOR=$([ "$STATUS" = "success" ] && echo "good" || echo "danger")
-          # 改成你的 飞书/钉钉/企业微信 webhook
-          # curl -X POST $WEBHOOK_URL -d "{\"text\":\"Deploy $STATUS: ${{ github.sha }}\"}"
-          echo "Status: $STATUS"
+          ssh -i ~/.ssh/id_ed25519 "$SERVER_USER@$SERVER_HOST" \
+            "curl -s $HEALTH_URL || true; echo; md5sum $BACKEND_JAR; ls -la $WEB_ROOT/index.html"
