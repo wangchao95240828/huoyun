@@ -1,0 +1,181 @@
+name: CD (auto-deploy to production)
+
+# 跑在自托管 Runner（在生产服务器 8.148.227.76 上跑）
+# 触发：push 到指定分支（默认 feat/acc-full-migration-2026-05-26；future main）
+# 作用：拉代码 → 编译 → 跑 migration → 替换 jar/dist → 健康检查 → 失败自动回滚
+
+on:
+  push:
+    branches:
+      # 加分支这里就自动部署，移分支就停（白名单制）
+      - feat/acc-full-migration-2026-05-26
+      - main
+  workflow_dispatch:   # 也允许手动触发（GitHub UI 上点按钮）
+    inputs:
+      skip_tests:
+        description: '跳过单元测试'
+        type: boolean
+        default: false
+      skip_migration:
+        description: '跳过 DB migration'
+        type: boolean
+        default: false
+
+# 串行：同一时刻只能有一个 CD 在跑（避免 jar 半个状态）
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # 在自托管 runner 上跑 — 那台 runner 直接装在 8.148.227.76 服务器上
+    runs-on: [self-hosted, xqt-prod]
+    timeout-minutes: 30
+
+    env:
+      # 服务路径（与 deploy-native.sh 保持一致）
+      BACKEND_JAR: /opt/xqt-saas/backend/xqt-backend.jar
+      BACKEND_JAR_BAK: /opt/xqt-saas/backend/xqt-backend.jar.bak
+      WEB_ROOT: /opt/xqt-saas/web
+      WEB_ROOT_BAK: /opt/xqt-saas/web.bak
+      HEALTH_URL: http://127.0.0.1:18103/actuator/health
+      DB_URL: postgres://xqt:Xqt_prod_DB_2026_change_me@127.0.0.1:15432/xqt_saas
+
+    steps:
+      - name: Checkout (full history for diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Show commit
+        run: |
+          echo "Commit: $(git log -1 --pretty=format:'%h %s (%an, %ar)')"
+          echo "Branch: ${GITHUB_REF_NAME}"
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      # ─── 编译阶段 ───
+      - name: Build backend
+        working-directory: apps/backend
+        run: |
+          if [[ "${{ inputs.skip_tests }}" == "true" ]]; then
+            echo "▶ skipTests=true"
+            ./mvnw -q -B -DskipTests package
+          else
+            ./mvnw -q -B package
+          fi
+          test -f target/xqt-backend-0.0.1-SNAPSHOT.jar
+
+      - name: Build web
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
+          test -f dist/index.html
+
+      # ─── DB Migration ───
+      - name: Run new DB migrations
+        if: inputs.skip_migration != true
+        run: |
+          # 找比生产 schema 更新的 migration（按文件名 NNN 排序），逐个跑
+          # 简化策略：跑所有 migration，每个文件第一行写 -- migration: applied 标记，pgschema 表记录已跑过的
+          NEW_MIGRATIONS=$(ls db/migrations/*.sql 2>/dev/null | sort)
+          if [ -z "$NEW_MIGRATIONS" ]; then
+            echo "no migrations directory"
+            exit 0
+          fi
+          # 建追踪表（幂等）
+          PGPASSWORD=Xqt_prod_DB_2026_change_me psql \
+            -h 127.0.0.1 -p 15432 -U xqt -d xqt_saas -c "
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+              filename text PRIMARY KEY,
+              applied_at timestamptz NOT NULL DEFAULT now()
+            )" >/dev/null
+          for f in $NEW_MIGRATIONS; do
+            base=$(basename "$f")
+            applied=$(PGPASSWORD=Xqt_prod_DB_2026_change_me psql -h 127.0.0.1 -p 15432 -U xqt -d xqt_saas -tA -c \
+              "SELECT 1 FROM schema_migrations WHERE filename='$base'")
+            if [ "$applied" = "1" ]; then
+              echo "  ✓ already applied: $base"
+              continue
+            fi
+            echo "  ▶ applying: $base"
+            PGPASSWORD=Xqt_prod_DB_2026_change_me psql -h 127.0.0.1 -p 15432 -U xqt -d xqt_saas \
+              -v ON_ERROR_STOP=1 -f "$f"
+            PGPASSWORD=Xqt_prod_DB_2026_change_me psql -h 127.0.0.1 -p 15432 -U xqt -d xqt_saas \
+              -c "INSERT INTO schema_migrations(filename) VALUES('$base')" >/dev/null
+            echo "  ✓ done: $base"
+          done
+
+      # ─── 部署 backend（备份 → 替换 → 重启 → 健康检查） ───
+      - name: Deploy backend jar
+        run: |
+          sudo cp "$BACKEND_JAR" "$BACKEND_JAR_BAK" 2>/dev/null || true
+          sudo cp apps/backend/target/xqt-backend-0.0.1-SNAPSHOT.jar "$BACKEND_JAR"
+          sudo systemctl restart xqt-backend
+          echo "▶ waiting health UP (max 60s)"
+          for i in $(seq 1 30); do
+            if curl -fsS "$HEALTH_URL" 2>/dev/null | grep -q UP; then
+              echo "  ✓ healthy (${i}x2s = $((i*2))s)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "✗ backend not healthy after 60s — rolling back"
+          sudo cp "$BACKEND_JAR_BAK" "$BACKEND_JAR"
+          sudo systemctl restart xqt-backend
+          exit 1
+
+      # ─── 部署 web（备份 → 替换） ───
+      - name: Deploy web dist
+        run: |
+          sudo rm -rf "$WEB_ROOT_BAK" 2>/dev/null || true
+          sudo cp -r "$WEB_ROOT" "$WEB_ROOT_BAK"
+          sudo cp apps/web/dist/index.html "$WEB_ROOT/index.html"
+          sudo cp -r apps/web/dist/assets/. "$WEB_ROOT/assets/"
+          # 清 14 天前的旧 hash bundle（防无限堆积）
+          sudo find "$WEB_ROOT/assets/" -type f -mtime +14 -delete 2>/dev/null || true
+
+      # ─── 公网回放验证（cache_bust 防 CDN） ───
+      - name: Verify public access
+        run: |
+          EXPECTED=$(grep -oE 'index-[A-Za-z0-9_-]+\.js' apps/web/dist/index.html | head -1)
+          ACTUAL=$(curl -sfL "http://8.148.227.76/?cache_bust=$(date +%s)" \
+            | grep -oE 'index-[A-Za-z0-9_-]+\.js' | head -1)
+          if [ "$EXPECTED" = "$ACTUAL" ]; then
+            echo "✓ public serves new bundle: $ACTUAL"
+          else
+            echo "✗ MISMATCH: expected $EXPECTED, got $ACTUAL"
+            exit 1
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "::notice title=Deploy Summary::Branch=${{ github.ref_name }} Commit=${{ github.sha }}"
+          curl -s "$HEALTH_URL" || true
+
+  notify:
+    needs: deploy
+    if: always()
+    runs-on: [self-hosted, xqt-prod]
+    steps:
+      - name: Post to webhook (optional)
+        run: |
+          STATUS="${{ needs.deploy.result }}"
+          COLOR=$([ "$STATUS" = "success" ] && echo "good" || echo "danger")
+          # 改成你的 飞书/钉钉/企业微信 webhook
+          # curl -X POST $WEBHOOK_URL -d "{\"text\":\"Deploy $STATUS: ${{ github.sha }}\"}"
+          echo "Status: $STATUS"
