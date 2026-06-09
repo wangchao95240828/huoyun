@@ -1622,10 +1622,10 @@ Object.assign(accColumns, {
     { key: "access_key", label: "Access Key" },
     { key: "owner_code", label: "客户编号" },
     { key: "owner_name", label: "客户名称" },
-    { key: "status", label: "状态" },
     { key: "call_count", label: "累计调用" },
+    { key: "remark", label: "备注" },
+    { key: "status", label: "状态" },
     { key: "last_used_at", label: "最近调用" },
-    { key: "expires_at", label: "过期时间" },
     { key: "created_at", label: "创建时间" },
   ],
   "api-call-logs": [
@@ -2474,10 +2474,8 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'Remark', label: '备注', type: 'textarea' },
   ],
   'api-credentials': [
-    { col: 'ownerType', label: '所有者类型', type: 'select', opts: [
-        { v: 'CUSTOMER', l: '客户' }, { v: 'PARTNER', l: '合作方' }, { v: 'SYSTEM', l: '系统' }
-      ], required: true },
-    { col: 'ownerId', label: '客户ID', type: 'text' },
+    { col: 'ownerId', label: '客户', type: 'select', ref: 'customers', required: true },
+    { col: 'remark', label: '备注', type: 'textarea' },
     { col: 'expiresAt', label: '过期时间(ISO)', type: 'text' },
   ],
   'webhook-endpoints': [
@@ -3211,6 +3209,9 @@ async function saveForm() {
     } else {
       showForm.value = false;
       fetchAccData();
+      if (json.secret) {
+        alert(`Access Key: ${json.accessKey}\nSecret: ${json.secret}\n\n${json.warning || '请立即保存，不会再次显示。'}`);
+      }
     }
   } catch (e: any) {
     formError.value = e.message;

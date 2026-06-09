@@ -60,7 +60,7 @@ public class AccApiCredentialsController {
             SELECT ac.id::text AS id,
                    ac.access_key, ac.owner_type, ac.owner_id::text AS owner_id,
                    c.code AS owner_code, c.name AS owner_name,
-                   ac.status, ac.scopes,
+                   ac.status, ac.scopes, ac.remark,
                    ac.last_used_at, ac.expires_at, ac.created_at,
                    (SELECT count(*) FROM api_call_logs l WHERE l.credential_id = ac.id) AS call_count
             FROM api_credentials ac
@@ -87,6 +87,7 @@ public class AccApiCredentialsController {
         }
         List<Object> scopes = body.get("scopes") instanceof List<?> l ? (List<Object>) l : List.of();
         String expiresAt = strOrNull(body.get("expiresAt"));
+        String remark = strOrNull(body.get("remark"));
 
         String accessKey = "ak_" + randomToken(16);
         String secret = "sk_" + randomToken(32);
@@ -95,13 +96,13 @@ public class AccApiCredentialsController {
         String id;
         try {
             id = jdbc.queryForObject("""
-                INSERT INTO api_credentials (tenant_id, owner_type, owner_id, access_key, secret_hash, status, scopes, expires_at)
-                VALUES (?::uuid, ?, ?::uuid, ?, ?, 'ACTIVE', ?::jsonb, ?::timestamptz)
+                INSERT INTO api_credentials (tenant_id, owner_type, owner_id, access_key, secret_hash, status, scopes, expires_at, remark)
+                VALUES (?::uuid, ?, ?::uuid, ?, ?, 'ACTIVE', ?::jsonb, ?::timestamptz, ?)
                 RETURNING id::text
                 """, String.class,
                 tenantId, ownerType, ownerId, accessKey, secretHash,
                 scopes.isEmpty() ? "[]" : toJsonArray(scopes),
-                expiresAt);
+                expiresAt, remark);
         } catch (DataAccessException ex) {
             throw ApiException.badRequest("创建失败：" + ex.getMostSpecificCause().getMessage());
         }
@@ -114,20 +115,22 @@ public class AccApiCredentialsController {
         return out;
     }
 
-    /** 仅允许改 status / scopes / expires_at。 */
+    /** 允许改 status / scopes / expires_at / remark。 */
     @PutMapping("/{id}")
     @SuppressWarnings("unchecked")
     public Map<String, Object> update(@PathVariable String id, @RequestBody Map<String, Object> body) {
         String status = strOrNull(body.get("status"));
         String expiresAt = strOrNull(body.get("expiresAt"));
+        String remark = strOrNull(body.get("remark"));
         List<Object> scopes = body.get("scopes") instanceof List<?> l ? (List<Object>) l : null;
         int n = jdbc.update("""
             UPDATE api_credentials SET
               status = coalesce(?, status),
               scopes = coalesce(?::jsonb, scopes),
-              expires_at = coalesce(?::timestamptz, expires_at)
+              expires_at = coalesce(?::timestamptz, expires_at),
+              remark = coalesce(?, remark)
             WHERE id = ?::uuid
-            """, status, scopes == null ? null : toJsonArray(scopes), expiresAt, id);
+            """, status, scopes == null ? null : toJsonArray(scopes), expiresAt, remark, id);
         if (n == 0) throw ApiException.notFound("凭证不存在");
         return Map.of("id", id, "updated", true);
     }
@@ -135,6 +138,35 @@ public class AccApiCredentialsController {
     /** 轮换 secret：生成新明文，立即落 hash，返回明文一次。 */
     @PostMapping("/{id}/rotate")
     public Map<String, Object> rotate(@PathVariable String id) {
+        String secret = "sk_" + randomToken(32);
+        String hash = sha256(secret);
+        int n = jdbc.update("UPDATE api_credentials SET secret_hash = ? WHERE id = ?::uuid AND status <> 'REVOKED'", hash, id);
+        if (n == 0) throw ApiException.badRequest("凭证不存在或已吊销");
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("id", id);
+        out.put("secret", secret);
+        out.put("warning", "secret 明文仅本次返回，请立即保存");
+        return out;
+    }
+
+    @GetMapping("/{id}/raw")
+    public Map<String, Object> raw(@PathVariable String id) {
+        Map<String, Object> row = jdbc.queryForMap("""
+            SELECT ac.id::text AS id,
+                   ac.access_key, ac.owner_type, ac.owner_id::text AS ownerId,
+                   c.code AS owner_code, c.name AS owner_name,
+                   ac.status, ac.scopes, ac.remark,
+                   ac.last_used_at, ac.expires_at, ac.created_at,
+                   (SELECT count(*) FROM api_call_logs l WHERE l.credential_id = ac.id) AS call_count
+            FROM api_credentials ac
+            LEFT JOIN customers c ON c.id = ac.owner_id AND ac.owner_type='CUSTOMER'
+            WHERE ac.id = ?::uuid
+            """, id);
+        return row;
+    }
+
+    @PostMapping("/{id}/reset-secret")
+    public Map<String, Object> resetSecret(@PathVariable String id) {
         String secret = "sk_" + randomToken(32);
         String hash = sha256(secret);
         int n = jdbc.update("UPDATE api_credentials SET secret_hash = ? WHERE id = ?::uuid AND status <> 'REVOKED'", hash, id);
