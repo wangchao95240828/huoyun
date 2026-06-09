@@ -63,12 +63,11 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Setup Node 20
+      - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
 
       # ─── 编译阶段 ───
       - name: Build backend
@@ -84,12 +83,12 @@ jobs:
           ls -lh target/xqt-backend-0.0.1-SNAPSHOT.jar
 
       - name: Build web
-        working-directory: apps/web
+        # 仓库根用 npm workspaces，lockfile 在根，build 命令在根
         run: |
           npm ci
           npm run build
-          test -f dist/index.html
-          ls -lh dist/
+          test -f apps/web/dist/index.html
+          ls -lh apps/web/dist/
 
       # ─── SSH 准备 ───
       - name: Setup SSH
@@ -215,7 +214,8 @@ jobs:
           exit 1
 
       - name: Final health summary
-        if: always()
+        # 仅当 SSH 已写盘（部署链路真的走过）才尝试摘要，避免 build 早挂时报 Host key verification
+        if: success()
         run: |
           echo "::notice title=Deploy Summary::Branch=${{ github.ref_name }} Commit=${{ github.sha }}"
           ssh -i ~/.ssh/id_ed25519 "$SERVER_USER@$SERVER_HOST" \
