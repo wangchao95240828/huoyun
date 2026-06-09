@@ -60,7 +60,7 @@ class SubmitRateIntegrationTest {
         when(repo.findCustomerBalanceAccount(eq(TENANT), eq("cust-1"), any()))
             .thenReturn(Map.of("id", "acct-1", "balance", new BigDecimal("100000")));
         when(repo.decrementBalance(eq("acct-1"), any())).thenReturn(true);
-        when(repo.insertChargeLine(any(), any(), any(), any(), any(), any(), any()))
+        when(repo.insertChargeLine(any(), any(), any(), any(), any(), any(), any(), any(), any()))
             .thenReturn("charge-1");
         return repo;
     }
@@ -118,11 +118,11 @@ class SubmitRateIntegrationTest {
         service(repo, engine).submitOrder(principal(), "ORD-S1");
 
         // AR: FREIGHT(100) + FUEL(18.5) = 2 行（surcharge=0 跳过）
-        verify(repo, times(2)).insertChargeLine(any(), any(), any(), eq("AR"), any(), any(), any());
+        verify(repo, times(2)).insertChargeLine(any(), any(), any(), eq("AR"), any(), any(), any(), any(), any());
         // AP: FREIGHT(80) + FUEL(14.8) = 2 行（costSurcharge=0 跳过）
-        verify(repo, times(2)).insertChargeLine(any(), any(), any(), eq("AP"), any(), any(), any());
+        verify(repo, times(2)).insertChargeLine(any(), any(), any(), eq("AP"), any(), any(), any(), any(), any());
         // 不再走旧的单笔合并 insertPrepaidCharge
-        verify(repo, never()).insertPrepaidCharge(any(), any(), any(), any(), any(), any());
+        verify(repo, never()).insertPrepaidCharge(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     // ─── 2. blockers → 阻断 Submit ───
@@ -174,7 +174,7 @@ class SubmitRateIntegrationTest {
 
         assertThat(result.status()).isEqualTo("SUBMITTED");
         // 退化路径走单笔合并 insertPrepaidCharge
-        verify(repo, times(1)).insertPrepaidCharge(any(), any(), any(), any(), any(), any());
+        verify(repo, times(1)).insertPrepaidCharge(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     // ─── 5. 取号成功 → 累加 channel_account_daily_usage ───
@@ -211,7 +211,7 @@ class SubmitRateIntegrationTest {
 
         // 验证：BATTERY_SURCHARGE 行被插入（AR side, amount=100, item=ci-bat）
         verify(repo, times(1)).insertChargeLine(any(), any(), eq("ci-bat"), eq("AR"),
-            eq(new BigDecimal("100.00")), any(), any());
+            eq(new BigDecimal("100.00")), any(), any(), any(), any());
         // 预扣金额 = quote.totalAmount(118.50) + 100 = 218.50，写到 balance_ledger
         verify(repo, times(1)).recordBalanceLedger(
             eq(TENANT), eq("acct-1"), eq("CUSTOMER"), eq("cust-1"),
