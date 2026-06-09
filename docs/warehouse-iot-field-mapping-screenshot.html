@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>仓库 IoT 字段对应截图</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 28px;
+      background: #f4f6fb;
+      color: #172033;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      background: #fff;
+      border: 1px solid #d9e1ef;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    header {
+      padding: 22px 26px;
+      background: #111827;
+      color: #f9fafb;
+    }
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0.2px;
+    }
+    .sub {
+      margin-top: 8px;
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+    .content {
+      padding: 22px 26px 28px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .card {
+      border: 1px solid #dbe3ef;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #fff;
+    }
+    .card h2 {
+      margin: 0;
+      padding: 12px 14px;
+      font-size: 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid #dbe3ef;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #edf2f7;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: #475569;
+      background: #fbfdff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .field {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #0f172a;
+      white-space: nowrap;
+    }
+    .hit {
+      background: #dcfce7;
+      color: #166534;
+      border-radius: 4px;
+      padding: 2px 5px;
+      font-weight: 700;
+    }
+    .note {
+      color: #64748b;
+      line-height: 1.45;
+    }
+    .mapping {
+      margin-top: 18px;
+      border: 1px solid #dbe3ef;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .mapping h2 {
+      margin: 0;
+      padding: 12px 14px;
+      font-size: 16px;
+      background: #eff6ff;
+      border-bottom: 1px solid #dbe3ef;
+      color: #1e3a8a;
+    }
+    .sql {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+    }
+    .footer {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>仓库 IoT 接口字段与现有数据库对应关系</h1>
+      <div class="sub">第一阶段可不新增表：用 shipments + cartons + scan_events 支撑 check / pickup / update 联调</div>
+    </header>
+    <div class="content">
+      <div class="grid">
+        <section class="card">
+          <h2>shipments 运单表</h2>
+          <table>
+            <thead><tr><th>字段</th><th>用途</th></tr></thead>
+            <tbody>
+              <tr><td class="field">id</td><td>运单主键</td></tr>
+              <tr><td class="field">tenant_id</td><td>租户隔离</td></tr>
+              <tr><td class="field">customer_id</td><td>客户</td></tr>
+              <tr><td class="field">shipment_no</td><td><span class="hit">对应 shipment_number</span></td></tr>
+              <tr><td class="field">status</td><td>运单状态</td></tr>
+              <tr><td class="field">destination_country</td><td>目的国家</td></tr>
+              <tr><td class="field">destination_postal_code</td><td>目的邮编</td></tr>
+              <tr><td class="field">warehouse_in_at</td><td>入仓时间</td></tr>
+              <tr><td class="field">measured_at</td><td>量方/称重时间</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="card">
+          <h2>cartons 箱子表</h2>
+          <table>
+            <thead><tr><th>字段</th><th>用途</th></tr></thead>
+            <tbody>
+              <tr><td class="field">id</td><td>箱子主键</td></tr>
+              <tr><td class="field">tenant_id</td><td>租户隔离</td></tr>
+              <tr><td class="field">shipment_id</td><td>关联 shipments.id</td></tr>
+              <tr><td class="field">carton_no</td><td><span class="hit">对应 item_number</span></td></tr>
+              <tr><td class="field">tracking_no</td><td>面单号兜底匹配</td></tr>
+              <tr><td class="field">actual_weight_kg</td><td><span class="hit">对应 weight</span></td></tr>
+              <tr><td class="field">length_cm</td><td><span class="hit">对应 length</span></td></tr>
+              <tr><td class="field">width_cm</td><td><span class="hit">对应 width</span></td></tr>
+              <tr><td class="field">height_cm</td><td><span class="hit">对应 height</span></td></tr>
+              <tr><td class="field">cbm</td><td>体积，用于后续智能排柜</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="card">
+          <h2>scan_events 扫描事件表</h2>
+          <table>
+            <thead><tr><th>字段</th><th>用途</th></tr></thead>
+            <tbody>
+              <tr><td class="field">id</td><td>事件主键</td></tr>
+              <tr><td class="field">tenant_id</td><td>租户隔离</td></tr>
+              <tr><td class="field">warehouse_id</td><td>仓库</td></tr>
+              <tr><td class="field">shipment_id</td><td>关联 shipments.id</td></tr>
+              <tr><td class="field">carton_id</td><td>关联 cartons.id</td></tr>
+              <tr><td class="field">tracking_no</td><td>面单号</td></tr>
+              <tr><td class="field">scan_type</td><td><span class="hit">对应 action</span></td></tr>
+              <tr><td class="field">scanned_at</td><td><span class="hit">对应 time</span></td></tr>
+              <tr><td class="field">device_code</td><td>设备号，可从 ext 取</td></tr>
+              <tr><td class="field">raw_payload</td><td><span class="hit">保存 ext / 原始请求</span></td></tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <section class="mapping">
+        <h2>仓库请求字段映射</h2>
+        <table>
+          <thead><tr><th>仓库字段</th><th>数据库字段</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td class="field">action</td><td class="field">scan_events.scan_type</td><td>check / pickup / update</td></tr>
+            <tr><td class="field">item_number</td><td class="field">cartons.carton_no</td><td>箱号主匹配字段；如果扫面单号则兜底匹配 tracking_no</td></tr>
+            <tr><td class="field">shipment_number</td><td class="field">shipments.shipment_no</td><td>运单号，用于校验箱子归属</td></tr>
+            <tr><td class="field">time</td><td class="field">scan_events.scanned_at</td><td>也参与 token 验签</td></tr>
+            <tr><td class="field">token</td><td class="field">不入业务表</td><td>只用于验签</td></tr>
+            <tr><td class="field">ext</td><td class="field">scan_events.raw_payload</td><td>保存原始请求，方便排查</td></tr>
+            <tr><td class="field">weight / length / width / height</td><td class="field">cartons 实测重量尺寸字段</td><td>后续智能排柜直接使用这些数据</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div class="sql">select s.id as shipment_id, c.id as carton_id
+from shipments s
+join cartons c on c.shipment_id = s.id
+where s.shipment_no = :shipment_number
+  and (c.carton_no = :item_number or c.tracking_no = :item_number);</div>
+
+      <div class="footer">
+        结论：第一阶段可以不新增 IoT 表，直接用 shipments 查运单、cartons 查箱子并回写重量尺寸、scan_events 记录扫描事件。
+      </div>
+    </div>
+  </div>
+</body>
+</html>
