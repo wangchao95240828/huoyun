@@ -145,6 +145,11 @@ public class CustomerApiService {
         if (!"DRAFT".equals(status)) {
             throw ApiException.badRequest("only DRAFT can be submitted, current=" + status);
         }
+        // ACC Submit.php L111-117：JoinID > 0（已合并）拒绝 Submit
+        String mergedTo = (String) order.get("merged_to_order_id");
+        if (mergedTo != null && !mergedTo.isBlank()) {
+            throw ApiException.badRequest("该订单已合并到主订单 " + mergedTo + "，请提交主订单而非这一单");
+        }
         String orderId = (String) order.get("order_id");
         String orderNo = (String) order.get("order_no");
         String customerRef = (String) order.get("customer_ref");

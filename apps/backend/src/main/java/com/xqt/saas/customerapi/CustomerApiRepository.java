@@ -86,7 +86,8 @@ public class CustomerApiRepository {
               o.order_no,
               o.customer_ref,
               o.status,
-              o.metadata
+              o.metadata,
+              o.merged_to_order_id::text AS merged_to_order_id
             FROM orders o
             WHERE o.tenant_id = ?::uuid
               AND o.customer_id = ?::uuid

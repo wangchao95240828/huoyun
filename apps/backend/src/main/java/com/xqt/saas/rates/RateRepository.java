@@ -145,7 +145,8 @@ public class RateRepository {
                        uom::text AS uom, unit_price, min_amount,
                        calculation_type, first_weight_kg, first_amount,
                        continued_step_kg, continued_unit_price, fixed_amount,
-                       postal_code_pattern, postal_priority
+                       postal_code_pattern, postal_priority,
+                       min_weight_per_box, min_amount_per_box, min_item_kg
                 FROM rate_card_lines
                 WHERE tenant_id = ?::uuid
                   AND rate_card_id = ?::uuid

@@ -8,6 +8,8 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 import com.xqt.saas.common.ApiException;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,6 +24,12 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class SubmitValidator {
+
+    private final JdbcTemplate jdbc;
+
+    public SubmitValidator(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
 
     private static final Pattern HSCODE_PATTERN = Pattern.compile("^[A-Za-z0-9.]{6,15}$");
     private static final Pattern COUNTRY_CODE_PATTERN = Pattern.compile("^[A-Z]{2}$");
@@ -58,9 +66,53 @@ public class SubmitValidator {
                          BigDecimal weight, Integer piece) {
         validateCommon(weight, piece);
 
+        // ACC _Product.MaxWeight / MaxLength：承运商级硬限（如 UPS Ground 70kg / 274cm）
+        if (channelCode != null) {
+            validateChannelHardLimits(channelCode, weight, accCompat);
+        }
+
         if ("UPS".equalsIgnoreCase(providerCode)) {
             validateUps(accCompat);
         }
+    }
+
+    /** 查 channels.max_weight_kg / max_length_cm，超过即拒。 */
+    private void validateChannelHardLimits(String channelCode, BigDecimal weight,
+                                           Map<String, Object> accCompat) {
+        Map<String, Object> limits;
+        try {
+            limits = jdbc.queryForMap(
+                "SELECT max_weight_kg, max_length_cm FROM channels WHERE code = ? LIMIT 1",
+                channelCode);
+        } catch (EmptyResultDataAccessException ex) {
+            return; // 未知渠道交由后续 RateEngine 处理
+        }
+        BigDecimal maxWeight = bd(limits.get("max_weight_kg"));
+        if (maxWeight != null && maxWeight.signum() > 0 && weight.compareTo(maxWeight) > 0) {
+            throw ApiException.badRequest(
+                "渠道 " + channelCode + " 单件最大重量 " + maxWeight + " kg（ACC _Product.MaxWeight），当前 " + weight + " kg"); // ACC FreightClass L1342-1345
+        }
+
+        BigDecimal maxLength = bd(limits.get("max_length_cm"));
+        if (maxLength != null && maxLength.signum() > 0) {
+            BigDecimal maxDim = packagesMaxDimension(accCompat.get("packageList"));
+            if (maxDim != null && maxDim.compareTo(maxLength) > 0) {
+                throw ApiException.badRequest(
+                    "渠道 " + channelCode + " 单件最大长度 " + maxLength + " cm（ACC _Product.MaxLength），当前最长边 " + maxDim + " cm");
+            }
+        }
+    }
+
+    /** packageList 里所有箱子的 max(length, width, height) 取最大。 */
+    private BigDecimal packagesMaxDimension(Object packageList) {
+        BigDecimal max = null;
+        for (Map<String, Object> pkg : listOfMaps(packageList)) {
+            for (String dim : new String[]{"length", "width", "height"}) {
+                BigDecimal v = bd(pkg.get(dim));
+                if (v != null && (max == null || v.compareTo(max) > 0)) max = v;
+            }
+        }
+        return max;
     }
 
     // ─── 通用边界（所有承运商都适用） ───

@@ -134,6 +134,13 @@ public class RateEngine {
         }
         String postalPriorityLabel = formatPostalPriority(tier);
 
+        // ─── ACC FreightClass L1056-1057：单件最小计费重提升 ───
+        // 实重 < tier.min_item_kg 时提升 chargeable 到 min_item_kg 参与计费（不拦截，是修正）
+        BigDecimal minItemKg = toBigDecimal(tier.get("min_item_kg"));
+        if (minItemKg != null && minItemKg.signum() > 0 && chargeable.compareTo(minItemKg) < 0) {
+            chargeable = minItemKg;
+        }
+
         // ─── 多段计费 ───
         BigDecimal freight = calculateFreight(tier, chargeable, request.pieces(), request.volumeCbm());
 
