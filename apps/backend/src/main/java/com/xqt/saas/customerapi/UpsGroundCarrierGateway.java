@@ -84,7 +84,12 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
 
             @SuppressWarnings("unchecked")
             Map<String, Object> respMap = json.readValue(resp.body(), Map.class);
-            return parseUpsResponse(respMap);
+            Issuance issuance = parseUpsResponse(respMap);
+
+            // ACC UPS_New.php L1850-1856: TrackNo 必须以 "1Z" + Account 开头
+            // 不一致 → 留 warning 在 raw（不阻断，因为单已在 UPS 落库，阻断会留 orphan）
+            verifyTrackingPrefix(issuance, creds);
+            return issuance;
 
         } catch (ApiException ex) {
             throw ex;
@@ -238,6 +243,26 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
             // body 不是 JSON 或结构不对 → 退化
         }
         return "UPS API 返回 " + httpStatus + "：" + body.substring(0, Math.min(200, body.length()));
+    }
+
+    /**
+     * ACC UPS_New.php L1850-1856 对齐：tracking 必须 1Z+Account 开头。
+     * 不一致只 warning（已下单成功，阻断会留 orphan tracking）。
+     */
+    @SuppressWarnings("unchecked")
+    private void verifyTrackingPrefix(Issuance issuance, UpsCreds creds) {
+        if (creds.accountNo == null || creds.accountNo.isBlank()) return;
+        String expectedPrefix = "1Z" + creds.accountNo.toUpperCase();
+        String tracking = issuance.carrierTrackingNo();
+        if (tracking == null) return;
+        if (!tracking.toUpperCase().startsWith(expectedPrefix)) {
+            String warn = "tracking '" + tracking + "' 不匹配预期前缀 '" + expectedPrefix
+                + "' — 渠道账号 " + creds.accountNo + " 可能配置错乱";
+            System.err.println("[UpsGroundCarrierGateway] WARN " + warn);
+            if (issuance.raw() != null) {
+                ((Map<String, Object>) issuance.raw()).put("tracking_prefix_warning", warn);
+            }
+        }
     }
 
     /** UPS 服务码映射. */
