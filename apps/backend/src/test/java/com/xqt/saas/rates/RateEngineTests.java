@@ -73,7 +73,7 @@ class RateEngineTests {
     private Map<String, Object> baseTier(String id, BigDecimal unitPrice) {
         Map<String, Object> m = new HashMap<>();
         m.put("id", id);
-        m.put("zone_code", "ZONE_A");
+        m.put("zone_code", "US-Z005");
         m.put("weight_from", new BigDecimal("1"));
         m.put("weight_to", new BigDecimal("21"));
         m.put("uom", "KG");
@@ -134,7 +134,7 @@ class RateEngineTests {
             .thenReturn(Map.of("id", "rc-base", "status", "ACTIVE"));
         lenient().when(repo.findRemoteLevel(eq(TENANT), eq(CHANNEL_ID), eq("US"), any()))
             .thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), any()))
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), any()))
             .thenReturn(baseTier("line-1", new BigDecimal("25.0")));
 
         Quote q = engine.quote(TENANT, baseRequest(new BigDecimal("5")));
@@ -155,7 +155,7 @@ class RateEngineTests {
         when(repo.findCustomerSpecificRateCard(TENANT, "cust-1", CHANNEL_ID, null, DATE))
             .thenReturn(Map.of("id", "crc-1", "rate_card_id", "rc-cust", "priority", 100));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-cust"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-cust"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-cust", new BigDecimal("18.0"))); // 折扣价
 
         Quote q = engine.quote(TENANT, withCustomer("cust-1"));
@@ -174,7 +174,7 @@ class RateEngineTests {
         when(repo.findCustomerGroupRateCard(TENANT, "grp-1", CHANNEL_ID, null, DATE))
             .thenReturn(Map.of("id", "cgrc-1", "rate_card_id", "rc-grp", "priority", 50));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-grp"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-grp"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-grp", new BigDecimal("22.0")));
 
         Quote q = engine.quote(TENANT, withCustomerAndGroup(null, "grp-1"));
@@ -193,7 +193,7 @@ class RateEngineTests {
         when(repo.findCustomerGroupRateCard(TENANT, "grp-1", CHANNEL_ID, null, DATE))
             .thenReturn(Map.of("id", "cgrc-1", "rate_card_id", "rc-grp", "priority", 50));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-cust"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-cust"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-cust", new BigDecimal("15.0")));
 
         Quote q = engine.quote(TENANT, withCustomerAndGroup("cust-1", "grp-1"));
@@ -213,7 +213,7 @@ class RateEngineTests {
         when(repo.findRemoteRateRule(TENANT, CHANNEL_ID, "REMOTE", DATE)).thenReturn(Map.of(
             "id", "rrr-1", "rate_type", "PERCENT", "rate", new BigDecimal("0.20") // 20% 自定义
         ));
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), eq("HS1 0AB")))
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), eq("HS1 0AB")))
             .thenReturn(baseTier("line-1", new BigDecimal("25.0")));
 
         RateQuoteRequest req = new RateQuoteRequest(
@@ -233,7 +233,7 @@ class RateEngineTests {
         when(repo.findActiveRateCard(TENANT, CHANNEL_ID, "AR", "CNY", DATE))
             .thenReturn(Map.of("id", "rc-base", "status", "ACTIVE"));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "IR", null)).thenReturn("EMBARGO");
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-1", new BigDecimal("25.0")));
 
         RateQuoteRequest req = new RateQuoteRequest(
@@ -257,7 +257,7 @@ class RateEngineTests {
         when(repo.findActiveRateCard(TENANT, CHANNEL_ID, "AR", "CNY", DATE))
             .thenReturn(Map.of("id", "rc-base", "status", "ACTIVE"));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-1", new BigDecimal("25.0")));
 
         Quote q = engine.quote(TENANT, withBattery(2));
@@ -277,7 +277,7 @@ class RateEngineTests {
         when(repo.findActiveRateCard(TENANT, CHANNEL_ID, "AR", "CNY", DATE))
             .thenReturn(Map.of("id", "rc-base", "status", "ACTIVE"));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-1", new BigDecimal("25.0")));
 
         Quote q = engine.quote(TENANT, withSpecial(5));
@@ -297,7 +297,7 @@ class RateEngineTests {
         when(repo.findActiveRateCard(TENANT, CHANNEL_ID, "AR", "CNY", DATE))
             .thenReturn(Map.of("id", "rc-base", "status", "ACTIVE"));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-1", new BigDecimal("25.0")));
 
         Quote q = engine.quote(TENANT, withAccountAndWeight("ACC-001", new BigDecimal("5"), 1));
@@ -318,7 +318,7 @@ class RateEngineTests {
         when(repo.findActiveRateCard(TENANT, CHANNEL_ID, "AR", "CNY", DATE))
             .thenReturn(Map.of("id", "rc-base", "status", "ACTIVE"));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-1", new BigDecimal("25.0")));
 
         Quote q = engine.quote(TENANT, withAccountAndWeight("ACC-001", new BigDecimal("5"), 3));
@@ -334,7 +334,7 @@ class RateEngineTests {
         when(repo.findActiveRateCard(TENANT, CHANNEL_ID, "AR", "CNY", DATE))
             .thenReturn(Map.of("id", "rc-base", "status", "ACTIVE"));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-1", new BigDecimal("25.0")));
         when(repo.findCommissionRule(TENANT, "cust-1", null, CHANNEL_ID, null, DATE)).thenReturn(Map.of(
             "id", "cr-1", "rule_type", "RATE", "rate", new BigDecimal("0.10")
@@ -361,7 +361,7 @@ class RateEngineTests {
         tier.put("first_amount", new BigDecimal("50.0"));
         tier.put("continued_step_kg", new BigDecimal("0.5"));
         tier.put("continued_unit_price", new BigDecimal("8.0"));
-        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("ZONE_A"), any(BigDecimal.class), isNull())).thenReturn(tier);
+        when(repo.findTier(eq(TENANT), eq("rc-base"), eq("US-Z005"), any(BigDecimal.class), isNull())).thenReturn(tier);
 
         Quote q = engine.quote(TENANT, baseRequest(new BigDecimal("10")));
 
@@ -378,9 +378,9 @@ class RateEngineTests {
         when(repo.findActiveRateCard(TENANT, CHANNEL_ID, "AP", "CNY", DATE))
             .thenReturn(Map.of("id", "rc-ap", "status", "ACTIVE"));
         when(repo.findRemoteLevel(TENANT, CHANNEL_ID, "US", null)).thenReturn("NONE");
-        when(repo.findTier(eq(TENANT), eq("rc-ar"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-ar"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-ar", new BigDecimal("25.0")));
-        when(repo.findTier(eq(TENANT), eq("rc-ap"), eq("ZONE_A"), any(BigDecimal.class), isNull()))
+        when(repo.findTier(eq(TENANT), eq("rc-ap"), eq("US-Z005"), any(BigDecimal.class), isNull()))
             .thenReturn(baseTier("line-ap", new BigDecimal("20.0"))); // 成本 20/kg
 
         Quote q = engine.quote(TENANT, baseRequest(new BigDecimal("5")));
@@ -463,7 +463,7 @@ class RateEngineTests {
             .thenReturn("NONE");
         Map<String, Object> tier = baseTier("line-a4", new BigDecimal("10.0"));
         tier.put("min_weight_per_box", new BigDecimal("3.000")); // 单箱 3kg 底
-        when(repo.findTier(eq(TENANT), eq("rc-a4"), eq("ZONE_A"), any(BigDecimal.class), any()))
+        when(repo.findTier(eq(TENANT), eq("rc-a4"), eq("US-Z005"), any(BigDecimal.class), any()))
             .thenReturn(tier);
 
         // 2 箱 × 实重 1kg = 2kg。单箱最低 3kg → 总 6kg。 6 × 10 = 60
@@ -483,7 +483,7 @@ class RateEngineTests {
             .thenReturn("NONE");
         Map<String, Object> tier = baseTier("line-a4b", new BigDecimal("5.0"));
         tier.put("min_amount_per_box", new BigDecimal("30.00")); // 单箱 30 元底
-        when(repo.findTier(eq(TENANT), eq("rc-a4b"), eq("ZONE_A"), any(BigDecimal.class), any()))
+        when(repo.findTier(eq(TENANT), eq("rc-a4b"), eq("US-Z005"), any(BigDecimal.class), any()))
             .thenReturn(tier);
 
         // 1 箱 × 2kg × 5元/kg = 10 元，被单箱最低 30 元拉到 30
@@ -504,7 +504,7 @@ class RateEngineTests {
             .thenReturn("NONE");
         Map<String, Object> tier = baseTier("line-cbm", new BigDecimal("3000.0"));
         tier.put("calculation_type", "PER_CBM");
-        when(repo.findTier(eq(TENANT), eq("rc-cbm"), eq("ZONE_A"), any(BigDecimal.class), any()))
+        when(repo.findTier(eq(TENANT), eq("rc-cbm"), eq("US-Z005"), any(BigDecimal.class), any()))
             .thenReturn(tier);
 
         // 0.5 cbm × 3000元/cbm = 1500

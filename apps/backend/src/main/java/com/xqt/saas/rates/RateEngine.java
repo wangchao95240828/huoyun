@@ -33,7 +33,10 @@ public class RateEngine {
     private static final DateTimeFormatter YEAR_MONTH = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final int MONEY_SCALE = 2;
     private static final BigDecimal CBM_TO_CM3 = new BigDecimal("1000000");
-    private static final String DEFAULT_ZONE = "ZONE_A";
+    // 默认 zone：UPS 体系按 zip 算出 zone（US-Z002 ~ US-Z008 本土，US-Z044/045/046 远程）。
+    // 当 RateQuoteRequest 未传入 zoneCode 时默认查 US-Z005（美国中部），与 ACC 默认中区一致。
+    // 长期方案：增加 zip prefix → zone 映射表（参考 UPS 分区表）。
+    private static final String DEFAULT_ZONE = "US-Z005";
 
     private final RateRepository repository;
     private final JdbcTemplate jdbc;
