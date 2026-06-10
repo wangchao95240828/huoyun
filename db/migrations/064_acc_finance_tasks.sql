@@ -7,8 +7,9 @@
 -- =============================================================================
 -- 1) A1: customers.salesman_id（业务员关联）
 -- =============================================================================
+-- alair 原版引用 employees，但 XQT 表名是 acc_employees（alair 分支当时未 sync）
 ALTER TABLE customers
-  ADD COLUMN IF NOT EXISTS salesman_id uuid REFERENCES employees(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS salesman_id uuid REFERENCES acc_employees(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS customers_salesman_idx ON customers (salesman_id);
 
