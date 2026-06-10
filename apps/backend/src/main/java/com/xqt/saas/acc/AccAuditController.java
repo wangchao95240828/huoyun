@@ -3,9 +3,13 @@ package com.xqt.saas.acc;
 import java.util.List;
 import java.util.Map;
 
+import java.util.Set;
+
 import com.xqt.saas.auth.AuthPrincipal;
 import com.xqt.saas.common.ApiException;
 import com.xqt.saas.framework.audit.AuditService;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -72,6 +76,8 @@ public class AccAuditController {
         Map.entry("supplier-refunds", "acc_finance_txns"),
         Map.entry("customer-rebates", "acc_finance_txns"),
         Map.entry("supplier-rebates", "acc_finance_txns"),
+        Map.entry("customer-sponsors", "acc_finance_txns"),
+        Map.entry("supplier-sponsors", "acc_finance_txns"),
         Map.entry("expense-categories", "acc_expense_categories"),
         Map.entry("fee-item-types", "acc_fee_item_types"),
         // 025 资金管理（banks 复用 financial_accounts）
@@ -113,10 +119,21 @@ public class AccAuditController {
         Map.entry("templates", "acc_message_templates")
     );
 
-    private final AuditService auditService;
+    /**
+     * 哪些表有 verify_status 字段（一审之上的二审门槛，064 加的）：
+     * - acc_finance_txns：金额 > 1000 须先二审（B1 任务）
+     * - acc_transfers：金额 > 10w 须先二审（C2 任务）
+     */
+    private static final Set<String> VERIFY_TABLES = Set.of(
+        "acc_finance_txns", "acc_transfers"
+    );
 
-    public AccAuditController(AuditService auditService) {
+    private final AuditService auditService;
+    private final JdbcTemplate jdbc;
+
+    public AccAuditController(AuditService auditService, JdbcTemplate jdbc) {
         this.auditService = auditService;
+        this.jdbc = jdbc;
     }
 
     @PostMapping("/{tab}/{id}/audit-biz")
@@ -154,6 +171,66 @@ public class AccAuditController {
                                        @RequestParam(defaultValue = "20") int limit) {
         String table = resolveTable(tab);
         return Map.of("data", auditService.history(table, id, limit));
+    }
+
+    /**
+     * 二审通过 — 把 verify_status 切到 'VERIFIED'。
+     * acc_transfers > 10w / acc_finance_txns > 1000 这些金额触发的二审门槛由前置 SQL 检查；
+     * 这个端点是二审员的"通过"按钮（独立于一审操作）。
+     */
+    @PostMapping("/{tab}/{id}/verify-biz")
+    public Map<String, Object> verify(@PathVariable String tab, @PathVariable String id) {
+        String table = resolveTable(tab);
+        if (!VERIFY_TABLES.contains(table)) {
+            throw ApiException.badRequest(tab + " 不支持二审（仅 transfers / 客户调账系列）");
+        }
+        AuthPrincipal p = currentPrincipal();
+        int n;
+        try {
+            n = jdbc.update(String.format("""
+                UPDATE %s SET verify_status = 'VERIFIED', verified_at = now(), verify_name = ?
+                WHERE id = ?::uuid
+                  AND coalesce(verify_status, 'PENDING') IN ('PENDING','REJECTED')
+                """, table), p.username(), id);
+        } catch (DataAccessException ex) {
+            throw ApiException.badRequest("二审失败：" + ex.getMostSpecificCause().getMessage());
+        }
+        if (n == 0) {
+            throw ApiException.badRequest("记录不存在或已二审通过");
+        }
+        auditService.recordEvent(table, id, com.xqt.saas.framework.audit.AuditAction.UPDATE,
+            p.username(), java.util.Map.of("verify_status", "PENDING"),
+            java.util.Map.of("verify_status", "VERIFIED"));
+        return Map.of("id", id, "verified", true);
+    }
+
+    /**
+     * 二审反审 / 拒绝 — 把 verify_status 切回 'REJECTED'，需一审还没通过。
+     * 一审通过的记录不能反二审（必须先 undo 一审）。
+     */
+    @PostMapping("/{tab}/{id}/reject-verify")
+    public Map<String, Object> rejectVerify(@PathVariable String tab, @PathVariable String id) {
+        String table = resolveTable(tab);
+        if (!VERIFY_TABLES.contains(table)) {
+            throw ApiException.badRequest(tab + " 不支持二审");
+        }
+        AuthPrincipal p = currentPrincipal();
+        int n;
+        try {
+            n = jdbc.update(String.format("""
+                UPDATE %s SET verify_status = 'REJECTED', verified_at = now(), verify_name = ?
+                WHERE id = ?::uuid
+                  AND coalesce(audit_status, 'PENDING') <> 'AUDITED'
+                """, table), p.username(), id);
+        } catch (DataAccessException ex) {
+            throw ApiException.badRequest("拒绝二审失败：" + ex.getMostSpecificCause().getMessage());
+        }
+        if (n == 0) {
+            throw ApiException.badRequest("记录不存在或一审已通过（须先反一审）");
+        }
+        auditService.recordEvent(table, id, com.xqt.saas.framework.audit.AuditAction.UPDATE,
+            p.username(), java.util.Map.of(), java.util.Map.of("verify_status", "REJECTED"));
+        return Map.of("id", id, "rejected", true);
     }
 
     private String resolveTable(String tab) {
