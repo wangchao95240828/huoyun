@@ -52,6 +52,7 @@ public class CustomerApiService {
     private final com.xqt.saas.webhook.WebhookService webhook;
     private final com.xqt.saas.labels.LabelStorage labelStorage;
     private final com.xqt.saas.labels.LabelRepository labelRepository;
+    private final SubmitValidator submitValidator;
 
     /** 生产应为 true：报价失败直接阻断 Submit，不退化为简化估算。 */
     @org.springframework.beans.factory.annotation.Value("${app.rates.strict-quote:false}")
@@ -63,7 +64,8 @@ public class CustomerApiService {
                               SubmitCompensationService compensationService,
                               com.xqt.saas.webhook.WebhookService webhook,
                               com.xqt.saas.labels.LabelStorage labelStorage,
-                              com.xqt.saas.labels.LabelRepository labelRepository) {
+                              com.xqt.saas.labels.LabelRepository labelRepository,
+                              SubmitValidator submitValidator) {
         this.repository = repository;
         this.json = json;
         this.jdbc = jdbc;
@@ -73,6 +75,7 @@ public class CustomerApiService {
         this.webhook = webhook;
         this.labelStorage = labelStorage;
         this.labelRepository = labelRepository;
+        this.submitValidator = submitValidator;
     }
 
     @Transactional(readOnly = true)
@@ -266,6 +269,11 @@ public class CustomerApiService {
 
         // 按 channel 路由到合适 gateway。ACC: getPlugin($Code)。
         CarrierGateway gateway = carrierGateways.forChannel(principal.tenantId(), channelCode);
+
+        // ACC 对齐：gateway.submit 前先做字段级校验（HSCode/品名/姓名/地址/省州 等），
+        // 拦不合规的请求避免无意义的承运商 API 调用，且给中文错误消息（而非 UPS 英文 errors 透传）
+        submitValidator.validate(channelCode, gateway.gatewayKey(), accCompat, weight, piece);
+
         CarrierGateway.Issuance issuance;
         try {
             issuance = gateway.submit(new CarrierGateway.SubmitContext(

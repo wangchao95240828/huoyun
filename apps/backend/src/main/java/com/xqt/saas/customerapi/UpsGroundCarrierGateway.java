@@ -76,10 +76,10 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
 
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                String errBody = resp.body();
                 System.err.println("[UpsGroundCarrierGateway] ship failed " + resp.statusCode()
-                    + " body=" + resp.body().substring(0, Math.min(500, resp.body().length())));
-                throw ApiException.badRequest("UPS API 返回 " + resp.statusCode() + ": "
-                    + resp.body().substring(0, Math.min(200, resp.body().length())));
+                    + " body=" + errBody.substring(0, Math.min(500, errBody.length())));
+                throw ApiException.badRequest(localizeUpsError(resp.statusCode(), errBody));
             }
 
             @SuppressWarnings("unchecked")
@@ -197,6 +197,47 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
             "LabelSpecification", labelSpec
         ));
         return shipReq;
+    }
+
+    /**
+     * UPS API 错误码 → 中文消息映射（ACC UPS_New.php L313-334 同款表）。
+     * 解析响应里的 errors[].code，匹配映射就用中文；不匹配就用 UPS 返回的英文 message。
+     */
+    @SuppressWarnings("unchecked")
+    private String localizeUpsError(int httpStatus, String body) {
+        // 映射表（ACC L313-334 + 实测追加 120202 / 120100 等）
+        Map<String, String> CN = Map.ofEntries(
+            Map.entry("120100", "发件人姓名格式错误"),
+            Map.entry("120202", "收件人地址行格式错误（Address Line 缺失或非法）"),
+            Map.entry("120213", "收件人电话号码少于 10 位"),
+            Map.entry("120307", "发件人邮编超长或格式错误"),
+            Map.entry("121036", "包裹超出 70kg 重量上限"),
+            Map.entry("121210", "所选 UPS 服务在该地区/账号不可用"),
+            Map.entry("128039", "申报产品种类过多（UPS 限 ≤ 100）"),
+            Map.entry("128097", "进口商地址第 2 行无效"),
+            Map.entry("128100", "进口商州/省代码无效"),
+            Map.entry("128101", "收件人邮编格式无效"),
+            Map.entry("128115", "进口商电话格式无效或缺失"),
+            Map.entry("120021", "该订单已提交过，不能重复创建（UPS 拒重复提交）")
+        );
+
+        try {
+            Map<String, Object> parsed = json.readValue(body, Map.class);
+            Map<String, Object> response = (Map<String, Object>) parsed.get("response");
+            if (response != null && response.get("errors") instanceof List<?> errs && !errs.isEmpty()) {
+                Map<String, Object> first = (Map<String, Object>) errs.get(0);
+                String code = (String) first.get("code");
+                String msg = (String) first.get("message");
+                String cn = CN.get(code);
+                if (cn != null) {
+                    return "UPS 拒单 [" + code + "]：" + cn + (msg == null ? "" : "（" + msg + "）");
+                }
+                return "UPS 拒单 [" + code + "]：" + (msg == null ? "未知错误" : msg);
+            }
+        } catch (Exception ignored) {
+            // body 不是 JSON 或结构不对 → 退化
+        }
+        return "UPS API 返回 " + httpStatus + "：" + body.substring(0, Math.min(200, body.length()));
     }
 
     /** UPS 服务码映射. */

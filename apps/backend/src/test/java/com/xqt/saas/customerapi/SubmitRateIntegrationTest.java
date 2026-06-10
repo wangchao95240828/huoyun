@@ -75,7 +75,7 @@ class SubmitRateIntegrationTest {
             mock(SubmitCompensationService.class),
             mock(com.xqt.saas.webhook.WebhookService.class),
             mock(com.xqt.saas.labels.LabelStorage.class),
-            mock(com.xqt.saas.labels.LabelRepository.class));
+            mock(com.xqt.saas.labels.LabelRepository.class), mock(com.xqt.saas.customerapi.SubmitValidator.class));
     }
 
     private Quote fullQuote() {
