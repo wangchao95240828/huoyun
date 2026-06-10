@@ -43,15 +43,18 @@ public class AccOrdersController {
     private final FieldGate fieldGate;
     private final BranchAccessFilter branchAccess;
     private final CustomerApiService customerApiService;
+    private final OrderNoGenerator orderNoGenerator;
 
     public AccOrdersController(JdbcTemplate jdbc, JsonSupport json,
                                CascadeChecker cascadeChecker, FieldGate fieldGate,
                                BranchAccessFilter branchAccess,
-                               CustomerApiService customerApiService) {
+                               CustomerApiService customerApiService,
+                               OrderNoGenerator orderNoGenerator) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
+        this.orderNoGenerator = orderNoGenerator;
         this.branchAccess = branchAccess;
         this.customerApiService = customerApiService;
     }
@@ -315,14 +318,16 @@ public class AccOrdersController {
     @SuppressWarnings("unchecked")
     public Map<String, Object> createFull(@RequestBody Map<String, Object> body) {
         String orderNo = strOrNull(body.get("orderNo"));
-        String customerRef = strOrDefault(body.get("customerRef"), orderNo);
         String customerId = strOrNull(body.get("customerId"));
-        if (orderNo == null || orderNo.isBlank()) {
-            throw ApiException.badRequest("orderNo 必填");
-        }
         if (customerId == null) {
             throw ApiException.badRequest("customerId 必填");
         }
+        // ACC 对齐：前端不传 orderNo 就走 OrderNoGenerator 生成
+        // (CompanyNo 风格：YYYYMMDD + 3 位大写字母，DB 唯一约束抢占防并发冲突)
+        if (orderNo == null || orderNo.isBlank()) {
+            orderNo = orderNoGenerator.generate("ORDER");
+        }
+        String customerRef = strOrDefault(body.get("customerRef"), orderNo);
         // 业务字段 → metadata.acc_compat（与 customer-api submit 同结构）
         Map<String, Object> accCompat = new LinkedHashMap<>();
         accCompat.put("product", strOrNull(body.get("product")));
