@@ -168,4 +168,55 @@ public class AccBorrowingsController {
         out.put("auditName", row.get("audit_name"));
         return out;
     }
+
+    /**
+     * ACC Borrowing.php → 还款业务动作。
+     * 累加 repaid_amount；若 ≥ amount 则切到 REPAID，否则 PARTIAL。
+     * 要求 audit_status='AUDITED'。
+     */
+    @PostMapping("/{id}/repay")
+    public Map<String, Object> repay(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        java.math.BigDecimal payAmount;
+        try {
+            payAmount = new java.math.BigDecimal(body.get("amount").toString());
+        } catch (Exception ex) {
+            throw ApiException.badRequest("amount 必填且为数字");
+        }
+        if (payAmount.signum() <= 0) {
+            throw ApiException.badRequest("还款金额必须大于零");
+        }
+
+        Map<String, Object> row;
+        try {
+            row = jdbc.queryForMap(
+                "SELECT amount, repaid_amount, audit_status, repayment_status FROM acc_borrowings WHERE id = ?::uuid", id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("借款记录不存在");
+        }
+        if (!"AUDITED".equals(row.get("audit_status"))) {
+            throw ApiException.badRequest("借款未审核，无法还款");
+        }
+        if ("REPAID".equals(row.get("repayment_status"))) {
+            throw ApiException.badRequest("借款已结清");
+        }
+
+        java.math.BigDecimal total  = (java.math.BigDecimal) row.get("amount");
+        java.math.BigDecimal repaid = (java.math.BigDecimal) row.get("repaid_amount");
+        java.math.BigDecimal afterRepaid = repaid.add(payAmount);
+        if (afterRepaid.compareTo(total) > 0) {
+            throw ApiException.badRequest("本次还款金额超过未还余额（剩 " + total.subtract(repaid) + "）");
+        }
+
+        String newStatus = afterRepaid.compareTo(total) >= 0 ? "REPAID" : "PARTIAL";
+        jdbc.update(
+            "UPDATE acc_borrowings SET repaid_amount = ?, repayment_status = ? WHERE id = ?::uuid",
+            afterRepaid, newStatus, id);
+
+        return Map.of(
+            "id", id,
+            "repaidAmount", afterRepaid,
+            "repaymentStatus", newStatus,
+            "remaining", total.subtract(afterRepaid)
+        );
+    }
 }

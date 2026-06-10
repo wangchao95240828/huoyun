@@ -106,6 +106,7 @@ public class FinanceTxnAuditSideEffect implements AuditSideEffect {
         return switch (txnType == null ? "" : txnType) {
             case "REFUND" -> "REFUND";
             case "REBATE" -> "REBATE";
+            case "SPONSOR" -> "SPONSOR";
             default -> "ADJUST";
         };
     }

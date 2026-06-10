@@ -161,6 +161,51 @@ public class AccWagesController {
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));
+        out.put("payStatus", row.get("pay_status"));
+        out.put("paidAt", json.value(row.get("paid_at")));
+        out.put("paidName", row.get("paid_name"));
         return out;
+    }
+
+    /**
+     * ACC Wage.php → 发工资业务动作。
+     * 要求：audit_status='AUDITED' 且 pay_status='PENDING'。把状态切到 PAID。
+     */
+    @PostMapping("/{id}/pay")
+    public Map<String, Object> pay(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        String operator = body == null ? null : (String) body.get("operator");
+        int n = jdbc.update("""
+            UPDATE acc_wages
+            SET pay_status = 'PAID', paid_at = now(), paid_name = coalesce(?, 'system')
+            WHERE id = ?::uuid
+              AND audit_status = 'AUDITED'
+              AND pay_status = 'PENDING'
+            """, operator, id);
+        if (n == 0) {
+            // 诊断当前状态给清楚错误
+            Map<String, Object> row = jdbc.queryForMap(
+                "SELECT audit_status, pay_status FROM acc_wages WHERE id = ?::uuid", id);
+            String aud = (String) row.get("audit_status");
+            String pay = (String) row.get("pay_status");
+            if (!"AUDITED".equals(aud)) {
+                throw ApiException.badRequest("工资未审核，请先审核（当前 " + aud + "）");
+            }
+            if (!"PENDING".equals(pay)) {
+                throw ApiException.badRequest("工资已发放或已作废（当前 " + pay + "）");
+            }
+            throw ApiException.badRequest("工资发放失败");
+        }
+        return Map.of("id", id, "paid", true);
+    }
+
+    /** 作废已发放（仅限当月，且无资金流向变更时） */
+    @PostMapping("/{id}/void-pay")
+    public Map<String, Object> voidPay(@PathVariable String id) {
+        int n = jdbc.update("""
+            UPDATE acc_wages SET pay_status = 'VOIDED'
+            WHERE id = ?::uuid AND pay_status = 'PAID'
+            """, id);
+        if (n == 0) throw ApiException.badRequest("仅可作废已发放状态的工资");
+        return Map.of("id", id, "voided", true);
     }
 }
