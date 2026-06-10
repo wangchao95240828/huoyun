@@ -73,7 +73,9 @@ class SubmitRateIntegrationTest {
             new CarrierGatewayRegistry(List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc),
             engine,
             mock(SubmitCompensationService.class),
-            mock(com.xqt.saas.webhook.WebhookService.class));
+            mock(com.xqt.saas.webhook.WebhookService.class),
+            mock(com.xqt.saas.labels.LabelStorage.class),
+            mock(com.xqt.saas.labels.LabelRepository.class));
     }
 
     private Quote fullQuote() {

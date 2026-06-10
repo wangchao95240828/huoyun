@@ -50,6 +50,8 @@ public class CustomerApiService {
     private final RateEngine rateEngine;
     private final SubmitCompensationService compensationService;
     private final com.xqt.saas.webhook.WebhookService webhook;
+    private final com.xqt.saas.labels.LabelStorage labelStorage;
+    private final com.xqt.saas.labels.LabelRepository labelRepository;
 
     /** 生产应为 true：报价失败直接阻断 Submit，不退化为简化估算。 */
     @org.springframework.beans.factory.annotation.Value("${app.rates.strict-quote:false}")
@@ -59,7 +61,9 @@ public class CustomerApiService {
                               JdbcTemplate jdbc, CarrierGatewayRegistry carrierGateways,
                               RateEngine rateEngine,
                               SubmitCompensationService compensationService,
-                              com.xqt.saas.webhook.WebhookService webhook) {
+                              com.xqt.saas.webhook.WebhookService webhook,
+                              com.xqt.saas.labels.LabelStorage labelStorage,
+                              com.xqt.saas.labels.LabelRepository labelRepository) {
         this.repository = repository;
         this.json = json;
         this.jdbc = jdbc;
@@ -67,6 +71,8 @@ public class CustomerApiService {
         this.rateEngine = rateEngine;
         this.compensationService = compensationService;
         this.webhook = webhook;
+        this.labelStorage = labelStorage;
+        this.labelRepository = labelRepository;
     }
 
     @Transactional(readOnly = true)
@@ -272,10 +278,37 @@ public class CustomerApiService {
             throw ApiException.badRequest("渠道取号失败: " + ex.getMessage());
         }
 
+        // ACC 对齐：createOrder 成功后立即把承运商返回的 label PDF 落盘 + INSERT label_files。
+        // 这样制单成功用户就能立刻下载/打印面单，不用再单独调 LabelService.generate。
+        // 落盘后从 raw 移除 label_base64，避免 cartons.carrier_evidence 字段塞几百 KB 大文本。
+        Map<String, Object> rawForEvidence = issuance.raw();
+        if (rawForEvidence != null && rawForEvidence.get("label_base64") instanceof String b64 && !b64.isBlank()) {
+            try {
+                byte[] labelBytes = java.util.Base64.getDecoder().decode(b64);
+                String ext = (String) rawForEvidence.getOrDefault("label_format", "pdf");
+                com.xqt.saas.labels.LabelStorage.StoredFile stored =
+                    labelStorage.save(principal.tenantId(), labelBytes, ext.toLowerCase());
+                labelRepository.insertLabelFile(
+                    principal.tenantId(), shipmentId, issuance.carrierTrackingNo(),
+                    "PDF".equalsIgnoreCase(ext) ? "PDF" : "IMAGE",
+                    stored.fileHash(), stored.fileExt(), stored.storagePath(), stored.fileSize(),
+                    "SUBMIT", null
+                );
+                // 把大字段抹掉，只在 raw 里留个引用，cartons.carrier_evidence 就轻量了
+                rawForEvidence = new LinkedHashMap<>(rawForEvidence);
+                rawForEvidence.remove("label_base64");
+                rawForEvidence.put("label_stored_hash", stored.fileHash());
+            } catch (Exception labelEx) {
+                // label 落盘失败不阻断制单（tracking 已生成），日志 + 继续
+                System.err.println("[CustomerApiService] label storage failed for tracking="
+                    + issuance.carrierTrackingNo() + " : " + labelEx.getMessage());
+            }
+        }
+
         // provider 的 request/response 完整落到 cartons.carrier_evidence，
         // 便于运维/客服在前端运单详情看到取号的真实证据（任务5 文档要求）
-        String carrierEvidenceJson = issuance.raw() == null || issuance.raw().isEmpty()
-            ? null : json.toJson(issuance.raw());
+        String carrierEvidenceJson = rawForEvidence == null || rawForEvidence.isEmpty()
+            ? null : json.toJson(rawForEvidence);
         try {
             repository.insertCarton(
                 principal.tenantId(), shipmentId, "001",

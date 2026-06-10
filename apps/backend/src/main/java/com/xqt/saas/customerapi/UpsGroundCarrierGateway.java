@@ -143,10 +143,14 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
         shipTo.put("Name", strOr(recv.get("name"), recv.get("consignee"), "Receiver"));
         shipTo.put("Phone", Map.of("Number", strOr(recv.get("phone"), "0000000000")));
         Map<String, Object> shipToAddr = new LinkedHashMap<>();
-        shipToAddr.put("AddressLine", List.of(strOr(recv.get("address"), "")));
+        // 表单普遍用 address1 (+ 可选 address2)；旧字段 address 留作 fallback
+        String line1 = strOr(recv.get("address1"), recv.get("address"), "");
+        String line2 = strOr(recv.get("address2"), "");
+        List<String> addrLines = line2.isEmpty() ? List.of(line1) : List.of(line1, line2);
+        shipToAddr.put("AddressLine", addrLines);
         shipToAddr.put("City", strOr(recv.get("city"), ""));
-        shipToAddr.put("StateProvinceCode", strOr(recv.get("province"), ""));
-        shipToAddr.put("PostalCode", strOr(recv.get("postcode"), ""));
+        shipToAddr.put("StateProvinceCode", strOr(recv.get("province"), recv.get("state"), ""));
+        shipToAddr.put("PostalCode", strOr(recv.get("postcode"), recv.get("zip"), ""));
         shipToAddr.put("CountryCode", strOr(recv.get("country"), ctx.country() == null ? "US" : ctx.country()));
         shipTo.put("Address", shipToAddr);
 
@@ -239,9 +243,11 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
         raw.put("provider", "UPS");
         raw.put("shipment_id", masterTracking);
         if (labelBase64 != null) {
+            // ACC 对齐：createOrder 成功立即落盘 label。完整 base64 透传给 service 层，
+            // service 用 LabelStorage 存盘 + INSERT label_files 后会把这个 key 抹掉，
+            // 避免 cartons.carrier_evidence 字段被塞进几百 KB 的 base64。
             raw.put("label_format", "PDF");
-            raw.put("label_base64_truncated", labelBase64.substring(0, Math.min(60, labelBase64.length())) + "...");
-            // 完整 base64 不放 raw（太大）；调用方用 LabelService 单独存
+            raw.put("label_base64", labelBase64);
             raw.put("label_base64_len", labelBase64.length());
         }
         raw.put("submittedAt", Instant.now().toString());
