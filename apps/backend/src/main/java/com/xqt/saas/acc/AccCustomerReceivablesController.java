@@ -58,7 +58,7 @@ public class AccCustomerReceivablesController {
             JOIN customers c ON c.id = ch.customer_id AND c.deleted_at IS NULL
             LEFT JOIN customer_balance_accounts cb
               ON cb.customer_id = c.id AND cb.currency = ch.currency
-            LEFT JOIN employees e ON e.id = c.salesman_id
+            LEFT JOIN acc_employees e ON e.id = c.salesman_id
             LEFT JOIN LATERAL (
               SELECT max(settled_at) AS last_payment_at
               FROM receivable_settlements
