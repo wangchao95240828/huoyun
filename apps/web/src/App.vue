@@ -3967,6 +3967,34 @@ async function doUndoAudit(id: any) {
   }
 }
 
+// 下载面单 PDF（GET /api/acc/labels/by-order/{orderId}）
+// Submit 时 UPS 返回的 PDF 已落盘到 label_files；按 order_id 取最新一张
+async function doDownloadLabel(row: any) {
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/labels/by-order/${row.id}`);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      bizMessage.value = `下载面单失败: ${j.error || j.message || res.status}`;
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    // 浏览器另存 — 文件名取 tracking_no 或 orderNo
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${row.trackingNo || row.orderNo || row.id}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+    bizMessage.value = `面单已下载: ${a.download}`;
+  } catch (e: any) {
+    bizMessage.value = `下载面单失败: ${e.message}`;
+  } finally {
+    bizLoading.value = false;
+    setTimeout(() => { bizMessage.value = ''; }, 3000);
+  }
+}
+
 // 申请作废订单（对应 ACC 制单中心「申请作废」按钮）
 // audit_status → PENDING，进入「作废订单」队列等待审核
 async function doRequestVoid(row: any) {
@@ -5065,6 +5093,13 @@ async function doReloadBill(id: number) {
                   </button>
                   <button class="action-btn" v-if="accTab === 'bills'" @click="doReloadBill(row.id)" title="重算" :disabled="bizLoading">
                     <Calculator :size="12" />
+                  </button>
+                  <!-- 下载面单：订单已提交（有 tracking）即可下载 -->
+                  <button class="action-btn"
+                          v-if="(accTab === 'orders' || accTab === 'orders-history') && row.status === 'SUBMITTED'"
+                          @click="doDownloadLabel(row)" title="下载面单 PDF" :disabled="bizLoading"
+                          style="color:#0ea5e9">
+                    <FileText :size="12" />
                   </button>
                   <!-- ACC 制单中心：申请作废 + 恢复（仅订单 tab）-->
                   <button class="action-btn"
