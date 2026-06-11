@@ -44,7 +44,7 @@ public class AccCustomerReceivablesController {
             SELECT
               c.code              AS code,
               c.name              AS name,
-              c.contact_name      AS contact_name,
+              c.contacts          AS contact_name,
               c.account_mode      AS settlement_method,
               c.default_currency  AS default_currency,
               c.credit_limit      AS credit_amount,
@@ -67,7 +67,7 @@ public class AccCustomerReceivablesController {
             WHERE ch.side = 'AR' AND ch.settlement_status <> 'VOID'
               AND (?::text IS NULL OR c.name ILIKE ? OR c.code ILIKE ?)
               AND (?::text IS NULL OR ch.currency = ?)
-            GROUP BY c.code, c.name, c.contact_name, c.account_mode,
+            GROUP BY c.code, c.name, c.contacts, c.account_mode,
                      c.default_currency, c.credit_limit, ch.currency,
                      cb.balance, rs.last_payment_at, e.name
             ORDER BY unpaid_amount DESC NULLS LAST
