@@ -17,6 +17,28 @@ public class RateRepository {
         this.jdbc = jdbc;
     }
 
+    /**
+     * 根据收件人邮编前 3 位查 UPS zone（US-Z002 等）。
+     * 数据源 ups_zone_mappings 表（070 migration 灌的，905 条美西 91745 origin）。
+     * 返回 null 表示未命中，调用方应退回 DEFAULT_ZONE。
+     */
+    public String resolveZoneByPostcode(String tenantId, String originPrefix, String postcode) {
+        if (postcode == null || postcode.length() < 3) return null;
+        String destPrefix = postcode.substring(0, 3);
+        try {
+            return jdbc.queryForObject("""
+                SELECT zone_code FROM ups_zone_mappings
+                 WHERE tenant_id = ?::uuid
+                   AND origin_prefix = ?
+                   AND dest_prefix = ?
+                   AND service = 'GROUND'
+                 LIMIT 1
+                """, String.class, tenantId, originPrefix, destPrefix);
+        } catch (EmptyResultDataAccessException ex) {
+            return null;
+        }
+    }
+
     public Map<String, Object> findChannelByCode(String tenantId, String channelCode) {
         try {
             return jdbc.queryForMap("""

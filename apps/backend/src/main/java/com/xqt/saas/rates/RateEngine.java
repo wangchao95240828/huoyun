@@ -33,10 +33,13 @@ public class RateEngine {
     private static final DateTimeFormatter YEAR_MONTH = DateTimeFormatter.ofPattern("yyyy-MM");
     private static final int MONEY_SCALE = 2;
     private static final BigDecimal CBM_TO_CM3 = new BigDecimal("1000000");
-    // 默认 zone：UPS 体系按 zip 算出 zone（US-Z002 ~ US-Z008 本土，US-Z044/045/046 远程）。
-    // 当 RateQuoteRequest 未传入 zoneCode 时默认查 US-Z005（美国中部），与 ACC 默认中区一致。
-    // 长期方案：增加 zip prefix → zone 映射表（参考 UPS 分区表）。
+    // Fallback zone：当 ups_zone_mappings 表查不到 dest_prefix → 用 US-Z005（中区）兜底。
+    // 美西 91745 origin 的 ZIP→Ground zone 映射在 070 migration 灌了 905 条。
     private static final String DEFAULT_ZONE = "US-Z005";
+
+    // UPS 账号 J602B0 绑定的发件地址 1451 W Holt Blvd, Ontario CA 91762 → origin prefix '917'
+    // TODO: 后续按 channel/account 配置 origin，不再硬编码
+    private static final String UPS_ORIGIN_PREFIX = "917";
 
     private final RateRepository repository;
     private final JdbcTemplate jdbc;
@@ -128,12 +131,17 @@ public class RateEngine {
             chosenRateCardId = (String) baseCard.get("id");
         }
 
+        // ─── 解析 UPS zone（按 dest_prefix 查 ups_zone_mappings）───
+        String resolvedZone = repository.resolveZoneByPostcode(
+            tenantId, UPS_ORIGIN_PREFIX, request.postalCode());
+        if (resolvedZone == null) resolvedZone = DEFAULT_ZONE;
+
         // ─── 取价表行（含邮编精确匹配优先级）───
         Map<String, Object> tier = repository.findTier(
-            tenantId, chosenRateCardId, DEFAULT_ZONE, chargeable, request.postalCode());
+            tenantId, chosenRateCardId, resolvedZone, chargeable, request.postalCode());
         if (tier == null) {
             throw ApiException.notFound("no rate tier covers " + chargeable
-                + " kg in zone " + DEFAULT_ZONE);
+                + " kg in zone " + resolvedZone);
         }
         String postalPriorityLabel = formatPostalPriority(tier);
 
@@ -235,7 +243,7 @@ public class RateEngine {
         if (apCard != null) {
             costRateCardId = (String) apCard.get("id");
             Map<String, Object> apTier = repository.findTier(
-                tenantId, costRateCardId, DEFAULT_ZONE, chargeable, request.postalCode());
+                tenantId, costRateCardId, resolvedZone, chargeable, request.postalCode());
             if (apTier != null) {
                 costFreight = calculateFreight(apTier, chargeable, request.pieces(), request.volumeCbm());
                 costFuel = costFreight.multiply(fuelRate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
