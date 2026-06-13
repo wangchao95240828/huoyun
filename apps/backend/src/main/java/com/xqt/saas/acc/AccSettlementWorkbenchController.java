@@ -719,7 +719,7 @@ public class AccSettlementWorkbenchController {
         Long total = jdbc.queryForObject("SELECT count(*) FROM acc_commissions", Long.class);
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT co.id::text AS id, co.employee_id::text AS employee_id,
-                   e.name AS employee_name, e.code AS employee_code,
+                   e.name AS employee_name, e.emp_no AS employee_code,
                    co.the_month, co.amount, co.currency, co.sales_amount, co.profit_amount,
                    co.status, co.audit_status, co.audited_at, co.audit_name, co.remark, co.created_at
               FROM acc_commissions co
