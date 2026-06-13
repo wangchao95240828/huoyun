@@ -202,6 +202,21 @@ const openedTabs = ref<string[]>(["dashboard"]);
 // ACC sub-module state
 const accTab = ref("orders");
 const accData = ref<any[]>([]);
+const fwbBalance = ref<any>(null);
+const fwbSelectedCustomer = ref<string>('');
+const fwbSelectedCurrency = ref<string>('USD');
+
+async function fetchFwbBalance() {
+  fwbBalance.value = null;
+  if (accTab.value !== 'fwb-prepay' || !fwbSelectedCustomer.value) return;
+  const url = new URL(`${API}/api/acc/finance-workbench/customer-balance`, location.origin);
+  url.searchParams.set('customerId', fwbSelectedCustomer.value);
+  url.searchParams.set('currency', fwbSelectedCurrency.value || 'USD');
+  try {
+    const res = await apiFetch(url.toString());
+    if (res.ok) fwbBalance.value = await res.json();
+  } catch {}
+}
 const accTotal = ref(0);
 const accAggregations = ref<Record<string, any> | null>(null);
 const accPage = ref(1);
@@ -3039,6 +3054,11 @@ watch(accTab, () => {
   if (accTab.value === 'orders-change-customer') {
     loadSelectOptions([{ type: 'select', ref: 'customers' } as any]);
   }
+  // 财务工作台 — 预扣明细页 预加载客户下拉 + 重置选中
+  if (accTab.value === 'fwb-prepay') {
+    loadSelectOptions([{ type: 'select', ref: 'customers' } as any]);
+    fwbBalance.value = null;
+  }
   // 批量页面 / 批量打印页不需要拉列表数据
   if (!batchPageSet.has(accTab.value) && accTab.value !== 'orders-batch-print') {
     fetchAccData();
@@ -4835,6 +4855,17 @@ async function doReloadBill(id: number) {
           </button>
           <!-- 财务工作台 - 预扣明细 tab 工具栏 -->
           <template v-if="accTab === 'fwb-prepay'">
+            <select v-model="fwbSelectedCustomer" @change="fetchFwbBalance"
+                    style="padding:4px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;">
+              <option value="">— 选客户看余额 —</option>
+              <option v-for="c in (selectOptions['customers'] ?? [])" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select>
+            <select v-model="fwbSelectedCurrency" @change="fetchFwbBalance"
+                    style="padding:4px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;">
+              <option value="USD">USD</option>
+              <option value="CNY">CNY</option>
+              <option value="EUR">EUR</option>
+            </select>
             <button class="secondary sm" @click="doExportPrepayCsv" :disabled="bizLoading">
               <FileText :size="13" /> 导出客户对账 CSV
             </button>
@@ -5163,6 +5194,27 @@ async function doReloadBill(id: number) {
         <!-- API 文档：内嵌 Swagger UI -->
         <div v-if="isApiDocsPage" style="background:#fff;border:1px solid #cbd5e1;border-radius:4px;margin-top:8px;height:calc(100vh - 220px);overflow:hidden">
           <iframe :src="apiDocsUrl" style="width:100%;height:100%;border:0" title="API Documentation"></iframe>
+        </div>
+
+        <!-- 财务工作台 - 客户余额三段卡 (只在 fwb-prepay tab 选了客户时显示) -->
+        <div v-if="accTab === 'fwb-prepay' && fwbBalance"
+             style="margin: 12px 0; display:flex; gap:12px; flex-wrap:wrap;">
+          <div style="background:#f8fafc; padding:10px 14px; border-radius:6px; border-left:4px solid #10b981; min-width:180px;">
+            <div style="font-size:11px; color:#64748b;">可打单余额</div>
+            <div style="font-size:18px; font-weight:600; color:#10b981; margin-top:2px;">{{ fwbBalance.usableBalance }} {{ fwbBalance.currency }}</div>
+          </div>
+          <div style="background:#f8fafc; padding:10px 14px; border-radius:6px; border-left:4px solid #f59e0b; min-width:180px;">
+            <div style="font-size:11px; color:#64748b;">预扣明细余额</div>
+            <div style="font-size:18px; font-weight:600; color:#f59e0b; margin-top:2px;">{{ fwbBalance.prepayDeductions }} {{ fwbBalance.currency }}</div>
+          </div>
+          <div style="background:#f8fafc; padding:10px 14px; border-radius:6px; border-left:4px solid #6366f1; min-width:180px;">
+            <div style="font-size:11px; color:#64748b;">总账户 = 可打单 + 预扣</div>
+            <div style="font-size:18px; font-weight:600; color:#6366f1; margin-top:2px;">{{ fwbBalance.totalAccount }} {{ fwbBalance.currency }}</div>
+          </div>
+          <div style="background:#f8fafc; padding:10px 14px; border-radius:6px; border-left:4px solid #ef4444; min-width:180px;">
+            <div style="font-size:11px; color:#64748b;">已出账未付</div>
+            <div style="font-size:18px; font-weight:600; color:#ef4444; margin-top:2px;">{{ fwbBalance.invoicedUnpaid }} {{ fwbBalance.currency }}</div>
+          </div>
         </div>
 
         <!-- Data table (非批量页/打印页/API文档页才显示) -->

@@ -517,6 +517,91 @@ public class AccFinanceWorkbenchController {
             .body(body);
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    //  客户账户余额三段公式：可打单余额 + 预扣明细 = 总账户
+    //  对应用户描述："充值 200 → 预扣 10 → 可打单 190 / 预扣 10 / 总 200"
+    // ════════════════════════════════════════════════════════════════════════
+    @GetMapping("/customer-balance")
+    public Map<String, Object> customerBalance(
+        @RequestParam String customerId,
+        @RequestParam(required = false, defaultValue = "USD") String currency
+    ) {
+        // 1) 可打单余额：financial_accounts.balance
+        BigDecimal usable = BigDecimal.ZERO;
+        String accountId = null;
+        try {
+            Map<String, Object> acc = jdbc.queryForMap("""
+                SELECT id::text AS id, balance FROM financial_accounts
+                 WHERE owner_type='CUSTOMER' AND owner_id = ?::uuid AND currency = ?
+                 LIMIT 1
+                """, customerId, currency);
+            usable = (BigDecimal) acc.get("balance");
+            accountId = (String) acc.get("id");
+        } catch (DataAccessException ignored) {
+            // 客户无账户 → usable=0
+        }
+
+        // 2) 预扣明细余额：未出账 ESTIMATED 的 charges 合计
+        BigDecimal prepay = jdbc.queryForObject("""
+            SELECT coalesce(sum(amount), 0) FROM charges ch
+            WHERE ch.side='AR' AND ch.status='ESTIMATED'::charge_status
+              AND ch.customer_id = ?::uuid AND ch.currency = ?
+              AND NOT EXISTS (SELECT 1 FROM customer_invoice_lines il WHERE il.charge_id = ch.id)
+            """, BigDecimal.class, customerId, currency);
+        if (prepay == null) prepay = BigDecimal.ZERO;
+
+        // 3) 已出账未付：customer_invoices.unpaid_amount 合计
+        BigDecimal invoicedUnpaid = jdbc.queryForObject("""
+            SELECT coalesce(sum(unpaid_amount), 0) FROM customer_invoices
+             WHERE customer_id = ?::uuid AND currency = ? AND status <> 'VOID'
+            """, BigDecimal.class, customerId, currency);
+        if (invoicedUnpaid == null) invoicedUnpaid = BigDecimal.ZERO;
+
+        BigDecimal totalAccount = usable.add(prepay);
+
+        return Map.of(
+            "customerId", customerId,
+            "currency", currency,
+            "accountId", accountId == null ? "" : accountId,
+            "usableBalance", usable,         // 可打单余额（财务账户余额）
+            "prepayDeductions", prepay,      // 预扣明细余额（已扣未出账）
+            "totalAccount", totalAccount,    // 总账户 = 可打单 + 预扣
+            "invoicedUnpaid", invoicedUnpaid // 已出账未付（独立于上面）
+        );
+    }
+
+    /** balance_ledger + invoice 时间线（统一时间轴）。 */
+    @GetMapping("/customer-balance-history")
+    public Map<String, Object> customerBalanceHistory(
+        @RequestParam String customerId,
+        @RequestParam(required = false, defaultValue = "USD") String currency,
+        @RequestParam(required = false, defaultValue = "30") Integer limit
+    ) {
+        if (limit == null || limit < 1) limit = 30;
+        if (limit > 200) limit = 200;
+
+        // balance_ledger（流水）
+        List<Map<String, Object>> ledger = jdbc.queryForList("""
+            SELECT
+              bl.created_at,
+              bl.biz_type::text AS biz_type,
+              bl.direction::text AS direction,
+              bl.amount,
+              bl.balance_before,
+              bl.balance_after,
+              bl.source_ref,
+              bl.operator,
+              bl.remark
+            FROM balance_ledger bl
+            WHERE bl.owner_type='CUSTOMER' AND bl.owner_id = ?::uuid
+              AND bl.currency = ?
+            ORDER BY bl.created_at DESC
+            LIMIT ?
+            """, customerId, currency, limit);
+
+        return Map.of("data", ledger);
+    }
+
     private static String escape(Object o) {
         if (o == null) return "";
         String s = o.toString();
