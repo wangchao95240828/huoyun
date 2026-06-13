@@ -40,22 +40,24 @@ public class AccFinanceWorkbenchController {
         String custFilter = customerId == null || customerId.isBlank() ? null : customerId;
         String curFilter = currency == null || currency.isBlank() ? null : currency;
 
+        // charges 表无 invoice_id 列，账单关联走 customer_invoice_lines 中间表
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT
               CASE
-                WHEN invoice_id IS NULL AND status = 'ESTIMATED'::charge_status THEN 'prepay'
-                WHEN invoice_id IS NULL AND status = 'ADJUSTED'::charge_status  THEN 'pending'
-                WHEN invoice_id IS NOT NULL                                      THEN 'invoiced'
+                WHEN il.invoice_id IS NULL AND ch.status = 'ESTIMATED'::charge_status THEN 'prepay'
+                WHEN il.invoice_id IS NULL AND ch.status = 'ADJUSTED'::charge_status  THEN 'pending'
+                WHEN il.invoice_id IS NOT NULL                                         THEN 'invoiced'
                 ELSE 'other'
               END                                              AS bucket,
               count(*)                                         AS row_count,
-              coalesce(sum(amount), 0)                         AS total_amount,
-              coalesce(sum(amount - paid_amount), 0)           AS unpaid_amount
-            FROM charges
-            WHERE side = 'AR'
-              AND status <> 'VOID'::charge_status
-              AND (?::text IS NULL OR customer_id = ?::uuid)
-              AND (?::text IS NULL OR currency = ?)
+              coalesce(sum(ch.amount), 0)                      AS total_amount,
+              coalesce(sum(ch.amount - ch.paid_amount), 0)     AS unpaid_amount
+            FROM charges ch
+            LEFT JOIN customer_invoice_lines il ON il.charge_id = ch.id
+            WHERE ch.side = 'AR'
+              AND ch.status <> 'VOID'::charge_status
+              AND (?::text IS NULL OR ch.customer_id = ?::uuid)
+              AND (?::text IS NULL OR ch.currency = ?)
             GROUP BY bucket
             """, custFilter, custFilter, curFilter, curFilter);
 
@@ -112,8 +114,8 @@ public class AccFinanceWorkbenchController {
 
         Long total = jdbc.queryForObject("""
             SELECT count(*) FROM charges ch
+            JOIN customer_invoice_lines il ON il.charge_id = ch.id
             WHERE ch.side = 'AR' AND ch.status <> 'VOID'::charge_status
-              AND ch.invoice_id IS NOT NULL
               AND (?::text IS NULL OR ch.customer_id = ?::uuid)
               AND (?::text IS NULL OR ch.currency = ?)
             """, Long.class, custFilter, custFilter, curFilter, curFilter);
@@ -134,11 +136,11 @@ public class AccFinanceWorkbenchController {
               ci.invoice_no        AS invoice_no,
               ci.id::text          AS invoice_id
             FROM charges ch
+            JOIN customer_invoice_lines il ON il.charge_id = ch.id
+            JOIN customer_invoices ci      ON ci.id = il.invoice_id
             LEFT JOIN orders o    ON o.id  = ch.order_id
             LEFT JOIN customers c ON c.id  = ch.customer_id
-            LEFT JOIN customer_invoices ci ON ci.id = ch.invoice_id
             WHERE ch.side = 'AR' AND ch.status <> 'VOID'::charge_status
-              AND ch.invoice_id IS NOT NULL
               AND (?::text IS NULL OR ch.customer_id = ?::uuid)
               AND (?::text IS NULL OR ch.currency = ?)
             ORDER BY ch.created_at DESC
@@ -158,7 +160,7 @@ public class AccFinanceWorkbenchController {
         Long total = jdbc.queryForObject("""
             SELECT count(*) FROM charges ch
             WHERE ch.side = 'AR' AND ch.status = ?::charge_status
-              AND ch.invoice_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM customer_invoice_lines il WHERE il.charge_id = ch.id)
               AND (?::text IS NULL OR ch.customer_id = ?::uuid)
               AND (?::text IS NULL OR ch.currency = ?)
             """, Long.class, status, custFilter, custFilter, curFilter, curFilter);
@@ -180,7 +182,7 @@ public class AccFinanceWorkbenchController {
             LEFT JOIN orders o    ON o.id  = ch.order_id
             LEFT JOIN customers c ON c.id  = ch.customer_id
             WHERE ch.side = 'AR' AND ch.status = ?::charge_status
-              AND ch.invoice_id IS NULL
+              AND NOT EXISTS (SELECT 1 FROM customer_invoice_lines il WHERE il.charge_id = ch.id)
               AND (?::text IS NULL OR ch.customer_id = ?::uuid)
               AND (?::text IS NULL OR ch.currency = ?)
             ORDER BY ch.created_at DESC
