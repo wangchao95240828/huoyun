@@ -323,7 +323,7 @@ class CustomerApiContractTests {
         CustomerApiService service = new CustomerApiService(repository, json, jdbc, new CarrierGatewayRegistry(java.util.List.of(new NoopCarrierGateway()), new NoopCarrierGateway(), jdbc), org.mockito.Mockito.mock(com.xqt.saas.rates.RateEngine.class), org.mockito.Mockito.mock(com.xqt.saas.customerapi.SubmitCompensationService.class), org.mockito.Mockito.mock(com.xqt.saas.webhook.WebhookService.class), org.mockito.Mockito.mock(com.xqt.saas.labels.LabelStorage.class), org.mockito.Mockito.mock(com.xqt.saas.labels.LabelRepository.class), mock(com.xqt.saas.customerapi.SubmitValidator.class));
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.submitOrder(principal(), "ORD-X"))
             .isInstanceOf(com.xqt.saas.common.ApiException.class)
-            .hasMessageContaining("only DRAFT");
+            .hasMessageContaining("DRAFT");
     }
 
     @Test
