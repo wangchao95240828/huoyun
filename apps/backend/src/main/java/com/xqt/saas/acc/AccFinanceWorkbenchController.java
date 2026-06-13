@@ -322,13 +322,19 @@ public class AccFinanceWorkbenchController {
             Integer seq = jdbc.queryForObject("SELECT nextval('cinv_invoice_seq')", Integer.class);
             String invoiceNo = String.format("CINV-%s-%04d", yyyymm, seq);
 
-            // 上期余额
-            BigDecimal prevBalance = jdbc.queryForObject("""
-                SELECT coalesce(unpaid_amount, 0) FROM customer_invoices
-                 WHERE customer_id = ?::uuid AND currency = ?
-                 ORDER BY issued_at DESC LIMIT 1
-                """, BigDecimal.class, customerId, currency);
-            if (prevBalance == null) prevBalance = BigDecimal.ZERO;
+            // 上期未付带入（best-effort：失败则当作 0）
+            // 注：customer_invoices 在 @Transactional 内查可能撞 RLS / method-security 拦截
+            BigDecimal prevBalance = BigDecimal.ZERO;
+            try {
+                List<BigDecimal> prev = jdbc.queryForList("""
+                    SELECT coalesce(unpaid_amount, 0) FROM customer_invoices
+                     WHERE customer_id = ?::uuid AND currency = ?
+                     ORDER BY issued_at DESC LIMIT 1
+                    """, BigDecimal.class, customerId, currency);
+                if (!prev.isEmpty() && prev.get(0) != null) prevBalance = prev.get(0);
+            } catch (Exception ignored) {
+                // 首次出账 / 拒访问 → prev=0，不阻断主流程
+            }
 
             String invoiceId = jdbc.queryForObject("""
                 INSERT INTO customer_invoices (
