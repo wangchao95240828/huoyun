@@ -312,7 +312,7 @@ public class AccFinanceWorkbenchController {
                 accountId = jdbc.queryForObject("""
                     INSERT INTO financial_accounts (tenant_id, owner_type, owner_id, account_name,
                                                     account_type, currency, balance, source, is_show)
-                    VALUES (current_setting('app.current_tenant_id')::uuid, 'CUSTOMER', ?::uuid, ?, 'CASH', ?, 0, 'AUTO', true)
+                    VALUES (current_setting('app.current_tenant_id')::uuid, 'CUSTOMER', ?::uuid, ?, 'CASH', ?, 0, 'LOCAL', true)
                     RETURNING id::text
                     """, String.class, customerId, "客户预扣账户", currency);
             } else {

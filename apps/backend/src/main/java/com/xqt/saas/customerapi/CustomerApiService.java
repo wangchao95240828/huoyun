@@ -261,7 +261,7 @@ public class CustomerApiService {
                         shellAcctId = jdbc.queryForObject("""
                             INSERT INTO financial_accounts (tenant_id, owner_type, owner_id, account_name,
                                                             account_type, currency, balance, source, is_show)
-                            VALUES (?::uuid, 'CUSTOMER', ?::uuid, ?, 'CASH', ?, 0, 'AUTO', true)
+                            VALUES (?::uuid, 'CUSTOMER', ?::uuid, ?, 'CASH', ?, 0, 'LOCAL', true)
                             RETURNING id::text
                             """, String.class, principal.tenantId(), principal.customerId(),
                             principal.customerCode() + " (预扣账户)", prepayCurrency);
