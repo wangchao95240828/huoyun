@@ -281,7 +281,7 @@ class CustomerApiContractTests {
         when(jdbc.queryForObject(any(String.class), any(Class.class), any(Object[].class))).thenReturn("tenant-1");
 
         String metadataJson = """
-            {"acc_compat":{"product":"EU-AIR-UPS","country":"US","weight":"1.5","piece":1,"currency":"CNY","declare":[{"name":"Toy","price":"5.00","quantity":"2","hsCode":"9503"}]}}
+            {"acc_compat":{"product":"EU-AIR-UPS","country":"US","weight":"1.5","piece":1,"currency":"CNY","declare":[{"name":"Toy","price":"5.00","quantity":"2","hsCode":"95030000"}]}}
             """;
         when(repository.findOrderForCustomerApi("tenant-1", "cust-1", "ORD-S1"))
             .thenReturn(new java.util.HashMap<>(Map.of(
