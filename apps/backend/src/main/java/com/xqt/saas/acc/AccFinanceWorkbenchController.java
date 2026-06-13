@@ -581,13 +581,14 @@ public class AccFinanceWorkbenchController {
         }
 
         // 从 audit_events 找最近一条 UPDATE before_state 里的 amount
+        // 注：JDBC PreparedStatement 把 jsonb `?` 操作符误识为参数占位符 → 改用 jsonb_exists 函数
         BigDecimal originalAmount;
         try {
             originalAmount = jdbc.queryForObject("""
                 SELECT (before_state->>'amount')::numeric
                   FROM audit_events
                  WHERE entity_type = 'charges' AND entity_id = ? AND action = 'UPDATE'
-                   AND before_state ? 'amount'
+                   AND jsonb_exists(before_state, 'amount')
                  ORDER BY occurred_at DESC LIMIT 1
                 """, BigDecimal.class, id);
         } catch (DataAccessException ex) {
