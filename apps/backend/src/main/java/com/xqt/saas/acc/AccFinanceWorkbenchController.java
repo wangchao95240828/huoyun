@@ -518,6 +518,207 @@ public class AccFinanceWorkbenchController {
     }
 
     // ════════════════════════════════════════════════════════════════════════
+    //  撤销 charge 调整 — 把已 ADJUSTED 的回到 ESTIMATED（用 audit_events 找回原始值）
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/charges/{id}/unadjust")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> unadjust(@PathVariable String id) {
+        Map<String, Object> ch;
+        try {
+            ch = jdbc.queryForMap(
+                "SELECT amount, status::text AS status FROM charges WHERE id = ?::uuid", id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("charge 不存在");
+        }
+        if (!"ADJUSTED".equals(ch.get("status"))) {
+            throw ApiException.badRequest("仅 ADJUSTED 状态可撤销，当前 " + ch.get("status"));
+        }
+        if (EXISTS_INVOICE_LINE(id)) {
+            throw ApiException.badRequest("已出账的 charge 不能撤销调整");
+        }
+
+        // 从 audit_events 找最近一条 UPDATE before_state 里的 amount
+        BigDecimal originalAmount;
+        try {
+            originalAmount = jdbc.queryForObject("""
+                SELECT (before_state->>'amount')::numeric
+                  FROM audit_events
+                 WHERE entity_type = 'charges' AND entity_id = ? AND action = 'UPDATE'
+                   AND before_state ? 'amount'
+                 ORDER BY occurred_at DESC LIMIT 1
+                """, BigDecimal.class, id);
+        } catch (DataAccessException ex) {
+            throw ApiException.badRequest("找不到原始金额（audit_events 无记录）");
+        }
+        BigDecimal currentAmount = (BigDecimal) ch.get("amount");
+        jdbc.update("""
+            UPDATE charges SET amount = ?, status = 'ESTIMATED'::charge_status, audit_status = 'PENDING'
+             WHERE id = ?::uuid
+            """, originalAmount, id);
+
+        jdbc.update("""
+            INSERT INTO audit_events (tenant_id, entity_type, entity_id, action, actor_name, before_state, after_state, remark)
+            VALUES (current_setting('app.current_tenant_id')::uuid, 'charges', ?, 'UPDATE', current_user,
+                    jsonb_build_object('amount', ?, 'status', 'ADJUSTED'),
+                    jsonb_build_object('amount', ?, 'status', 'ESTIMATED'),
+                    '撤销调整')
+            """, id, currentAmount, originalAmount);
+
+        return Map.of(
+            "id", id,
+            "newAmount", originalAmount,
+            "previousAmount", currentAmount,
+            "status", "ESTIMATED"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  作废账单 — 把账单切到 VOID 并解关联 charges（回到待审核 ADJUSTED）
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/invoices/{id}/void")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> voidInvoice(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> inv;
+        try {
+            inv = jdbc.queryForMap(
+                "SELECT status, invoice_no, paid_amount FROM customer_invoices WHERE id = ?::uuid", id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("账单不存在");
+        }
+        if ("PAID".equals(inv.get("status"))) {
+            throw ApiException.badRequest("已付账单不能直接作废，请先反核销");
+        }
+        if ("VOID".equals(inv.get("status"))) {
+            throw ApiException.badRequest("账单已是 VOID");
+        }
+
+        // 1) 解关联 charges 回到 ADJUSTED + PENDING
+        int unlinked = jdbc.update("""
+            UPDATE charges SET audit_status = 'PENDING'
+             WHERE id IN (SELECT charge_id FROM customer_invoice_lines WHERE invoice_id = ?::uuid)
+            """, id);
+        jdbc.update("DELETE FROM customer_invoice_lines WHERE invoice_id = ?::uuid", id);
+
+        // 2) 账单标 VOID
+        jdbc.update("""
+            UPDATE customer_invoices SET status = 'VOID', writeoff_status = 'VOID'
+             WHERE id = ?::uuid
+            """, id);
+
+        String reason = body != null && body.get("reason") != null ? body.get("reason").toString() : "";
+        jdbc.update("""
+            INSERT INTO audit_events (tenant_id, entity_type, entity_id, action, actor_name, before_state, after_state, remark)
+            VALUES (current_setting('app.current_tenant_id')::uuid, 'customer_invoices', ?, 'UPDATE', current_user,
+                    jsonb_build_object('status', ?),
+                    jsonb_build_object('status', 'VOID'),
+                    ?)
+            """, id, inv.get("status"), "作废账单: " + reason);
+
+        return Map.of(
+            "id", id,
+            "invoiceNo", inv.get("invoice_no"),
+            "unlinkedCharges", unlinked,
+            "status", "VOID"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  阶段 ④ 核销/扣减确认 — 财务手动 mark 账单已付
+    //  动作：customer_invoices PAID + charges SETTLED + balance_ledger RECEIPT
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/invoices/{id}/mark-paid")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> markInvoicePaid(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        BigDecimal paidAmount = null;
+        if (body != null && body.get("amount") != null) {
+            try { paidAmount = new BigDecimal(body.get("amount").toString()); }
+            catch (Exception ex) { throw ApiException.badRequest("amount 格式错"); }
+        }
+        String remark = body == null || body.get("remark") == null ? null : body.get("remark").toString();
+
+        Map<String, Object> inv;
+        try {
+            inv = jdbc.queryForMap("""
+                SELECT id::text AS id, customer_id::text AS customer_id, currency,
+                       total_amount, paid_amount, unpaid_amount, status
+                  FROM customer_invoices WHERE id = ?::uuid
+                """, id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("账单不存在");
+        }
+        if ("VOID".equals(inv.get("status"))) {
+            throw ApiException.badRequest("已作废账单不能标记已付");
+        }
+        if ("PAID".equals(inv.get("status"))) {
+            throw ApiException.badRequest("账单已是 PAID 状态");
+        }
+
+        BigDecimal totalAmount = (BigDecimal) inv.get("total_amount");
+        BigDecimal alreadyPaid = (BigDecimal) inv.get("paid_amount");
+        BigDecimal unpaidBefore = (BigDecimal) inv.get("unpaid_amount");
+        BigDecimal payNow = paidAmount == null ? unpaidBefore : paidAmount;
+        BigDecimal newPaid = alreadyPaid.add(payNow);
+        BigDecimal newUnpaid = totalAmount.subtract(newPaid);
+        if (newUnpaid.signum() < 0) {
+            throw ApiException.badRequest("支付金额超过未付金额");
+        }
+        String newStatus = newUnpaid.signum() == 0 ? "PAID" : "PARTIAL_PAID";
+
+        // 1) 更新账单状态
+        jdbc.update("""
+            UPDATE customer_invoices
+               SET paid_amount = ?, unpaid_amount = ?, status = ?,
+                   confirmed_at = CASE WHEN ?='PAID' THEN now() ELSE confirmed_at END,
+                   last_payment_at = now()
+             WHERE id = ?::uuid
+            """, newPaid, newUnpaid, newStatus, newStatus, id);
+
+        // 2) 全额付清 → 联动 charges 标 SETTLED
+        if ("PAID".equals(newStatus)) {
+            jdbc.update("""
+                UPDATE charges SET settlement_status = 'SETTLED', paid_amount = amount
+                 WHERE id IN (SELECT charge_id FROM customer_invoice_lines WHERE invoice_id = ?::uuid)
+                """, id);
+        }
+
+        // 3) balance_ledger RECEIPT 留痕（best-effort）
+        try {
+            String customerId = (String) inv.get("customer_id");
+            String currency = (String) inv.get("currency");
+            String accountId = jdbc.queryForObject("""
+                SELECT id::text FROM financial_accounts
+                 WHERE owner_type='CUSTOMER' AND owner_id=?::uuid AND currency=? LIMIT 1
+                """, String.class, customerId, currency);
+            if (accountId != null) {
+                BigDecimal balBefore = jdbc.queryForObject(
+                    "SELECT balance FROM financial_accounts WHERE id=?::uuid", BigDecimal.class, accountId);
+                BigDecimal balAfter = balBefore.add(payNow);
+                jdbc.update("UPDATE financial_accounts SET balance = ? WHERE id = ?::uuid", balAfter, accountId);
+                jdbc.update("""
+                    INSERT INTO balance_ledger (
+                      account_id, owner_type, owner_id, biz_type, source_type, source_id, source_ref,
+                      currency, direction, amount, balance_before, balance_after, operator, remark
+                    ) VALUES (
+                      ?::uuid, 'CUSTOMER', ?::uuid, 'RECEIPT'::balance_ledger_biz_type,
+                      'customer_invoices', ?::uuid, ?,
+                      ?, 'CREDIT'::balance_ledger_direction, ?, ?, ?, current_user, ?
+                    )
+                    """, accountId, customerId, id, (String) inv.get("id"),
+                         currency, payNow, balBefore, balAfter, remark);
+            }
+        } catch (Exception ignored) {
+            // 客户无 prepay 账户 → 不阻断业务（只记 invoice）
+        }
+
+        return Map.of(
+            "id", id,
+            "status", newStatus,
+            "paidAmount", newPaid,
+            "unpaidAmount", newUnpaid
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
     //  客户账户余额三段公式：可打单余额 + 预扣明细 = 总账户
     //  对应用户描述："充值 200 → 预扣 10 → 可打单 190 / 预扣 10 / 总 200"
     // ════════════════════════════════════════════════════════════════════════

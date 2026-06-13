@@ -247,6 +247,33 @@ public class CustomerApiService {
                     "PREPAY", "order", orderNo, prepayCurrency, "DEBIT",
                     prepayAmount, balBefore, balBefore.subtract(prepayAmount),
                     principal.customerCode(), "下单预扣");
+            } else {
+                // 无 prepay 账户也强制写一条留痕（balance_before=after=0），
+                // 让 customer-balance-history 看得见这单预扣，account_id 用占位 NULL → 用 0 UUID
+                try {
+                    String shellAcctId = jdbc.queryForObject("""
+                        SELECT id::text FROM financial_accounts
+                         WHERE owner_type='CUSTOMER' AND owner_id=?::uuid AND currency=?
+                         LIMIT 1
+                        """, String.class, principal.customerId(), prepayCurrency);
+                    if (shellAcctId == null) {
+                        // 自动建影子账户（balance=0）
+                        shellAcctId = jdbc.queryForObject("""
+                            INSERT INTO financial_accounts (tenant_id, owner_type, owner_id, account_name,
+                                                            account_type, currency, balance, source, is_show)
+                            VALUES (?::uuid, 'CUSTOMER', ?::uuid, ?, 'CASH', ?, 0, 'AUTO', true)
+                            RETURNING id::text
+                            """, String.class, principal.tenantId(), principal.customerId(),
+                            principal.customerCode() + " (预扣账户)", prepayCurrency);
+                    }
+                    repository.recordBalanceLedger(
+                        principal.tenantId(), shellAcctId, "CUSTOMER", principal.customerId(),
+                        "PREPAY", "order", orderNo, prepayCurrency, "DEBIT",
+                        prepayAmount, BigDecimal.ZERO, prepayAmount.negate(),
+                        principal.customerCode(), "下单预扣(影子账户留痕)");
+                } catch (Exception ignored) {
+                    // ledger 留痕失败不阻断下单
+                }
             }
         }
 

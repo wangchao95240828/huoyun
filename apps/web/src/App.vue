@@ -4069,6 +4069,69 @@ async function doImportActualBill(ev: Event) {
   }
 }
 
+// 财务工作台 — 撤销 charge 调整（ADJUSTED → ESTIMATED）
+async function doUnadjustCharge(row: any) {
+  if (!confirm(`撤销调整 ${row.order_no || row.id}？金额会回到 audit_events 里的原始值。`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/charges/${row.id}/unadjust`, {
+      method: 'POST',
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '撤销失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `撤销成功：${j.previousAmount} → ${j.newAmount}（回到 ESTIMATED）`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '撤销失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
+// 财务工作台 — 作废账单（charges 回到 ADJUSTED + PENDING）
+async function doVoidInvoice(row: any) {
+  const invoiceId = row.invoice_id;
+  if (!invoiceId) { bizMessage.value = '该行没有 invoice_id'; return; }
+  const reason = prompt(`作废账单 ${row.invoice_no}\n关联的 charges 会回到待审核。\n请输入作废原因：`);
+  if (reason === null) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/invoices/${invoiceId}/void`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '作废失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `账单 ${j.invoiceNo} 已作废，${j.unlinkedCharges} 条 charge 回到待审核`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '作废失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
+// 财务工作台 — 标记账单已付 (手动核销扣减确认)
+async function doMarkInvoicePaid(row: any) {
+  const invoiceId = row.invoice_id;
+  if (!invoiceId) { bizMessage.value = '该行没有 invoice_id'; return; }
+  const v = prompt(`确认收款金额（订单 ${row.order_no || '-'}，账单 ${row.invoice_no}）\n留空表示全额付清，原金额 ${row.amount} ${row.currency}：`, '');
+  let amount: number | null = null;
+  if (v && v.trim() !== '') {
+    amount = Number(v);
+    if (!Number.isFinite(amount) || amount <= 0) { bizMessage.value = '金额无效'; return; }
+  }
+  const remark = prompt('备注（可选）：') || '';
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/invoices/${invoiceId}/mark-paid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(amount !== null ? { amount, remark } : { remark }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '核销失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `账单状态 → ${j.status} | 已付 ${j.paidAmount} | 未付 ${j.unpaidAmount}`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '核销失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
 // 财务工作台 — 单条调金额
 async function doAdjustCharge(row: any) {
   const cur = row.amount;
@@ -5300,6 +5363,27 @@ async function doReloadBill(id: number) {
                           @click="doAdjustCharge(row)" title="调整金额（实际成本入账）" :disabled="bizLoading"
                           style="color:#f59e0b">
                     <Calculator :size="12" />
+                  </button>
+                  <!-- 财务工作台 已出账：标记已付（手动核销扣减）-->
+                  <button class="action-btn"
+                          v-if="accTab === 'fwb-invoiced' && row.settlement_status !== 'SETTLED'"
+                          @click="doMarkInvoicePaid(row)" title="标记已付 / 执行扣减确认" :disabled="bizLoading"
+                          style="color:#10b981">
+                    <CheckCircle :size="12" />
+                  </button>
+                  <!-- 财务工作台 已出账：作废账单 -->
+                  <button class="action-btn"
+                          v-if="accTab === 'fwb-invoiced' && row.settlement_status !== 'SETTLED'"
+                          @click="doVoidInvoice(row)" title="作废账单" :disabled="bizLoading"
+                          style="color:#dc2626">
+                    <XCircle :size="12" />
+                  </button>
+                  <!-- 财务工作台 待审核：撤销调整 -->
+                  <button class="action-btn"
+                          v-if="accTab === 'fwb-pending'"
+                          @click="doUnadjustCharge(row)" title="撤销调整（回到 ESTIMATED）" :disabled="bizLoading"
+                          style="color:#6366f1">
+                    <Undo2 :size="12" />
                   </button>
                   <!-- ACC 制单中心：申请作废 + 恢复（仅订单 tab）-->
                   <button class="action-btn"
