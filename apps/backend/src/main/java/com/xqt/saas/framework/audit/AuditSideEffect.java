@@ -24,4 +24,12 @@ public interface AuditSideEffect {
     /** 反审核后执行（冲正）。默认不做事。 */
     default void onUndone(String table, String entityId, String tenantId, String actorName) {
     }
+
+    /**
+     * 审核前置校验。在 UPDATE audit_status 之前执行。
+     * 抛 ApiException 即阻断本次审核，错误消息透传到前端。
+     * 用于对齐 ACC「审核业务规则」(渠道未启用 / 找不到关联 / 状态机不合法 等)。
+     */
+    default void beforeAudit(String table, String entityId, String tenantId, String actorName) {
+    }
 }

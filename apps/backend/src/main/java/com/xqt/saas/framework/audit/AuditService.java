@@ -97,11 +97,17 @@ public class AuditService {
         setTenant(tenantId);
         Map<String, Object> before = snapshot(table, entityId);
         if (before.isEmpty()) {
-            throw ApiException.notFound(table + " not found: " + entityId);
+            throw ApiException.notFound("找不到该" + table + ": " + entityId);
         }
         String current = (String) before.get("audit_status");
         if ("AUDITED".equals(current)) {
-            throw ApiException.badRequest("already audited");
+            throw ApiException.badRequest("该单已经审核入账，无需重复审核");
+        }
+        // ACC 审核前置校验：渠道激活 / 出货明细 / 币种 / 余额等业务规则
+        for (AuditSideEffect effect : sideEffects) {
+            if (effect.supports(table)) {
+                effect.beforeAudit(table, entityId, tenantId, actorName);
+            }
         }
         int rows = jdbc.update(
             "UPDATE " + table
@@ -109,7 +115,7 @@ public class AuditService {
                 + " WHERE id::text = ? AND audit_status <> 'AUDITED'",
             actorName, entityId);
         if (rows == 0) {
-            throw ApiException.badRequest("audit state changed concurrently");
+            throw ApiException.badRequest("审核状态被并发修改，请刷新重试");
         }
         Map<String, Object> after = snapshot(table, entityId);
         recordEvent(table, entityId, AuditAction.AUDIT, actorName, before, after);
@@ -122,11 +128,11 @@ public class AuditService {
         setTenant(tenantId);
         Map<String, Object> before = snapshot(table, entityId);
         if (before.isEmpty()) {
-            throw ApiException.notFound(table + " not found: " + entityId);
+            throw ApiException.notFound("找不到该" + table + ": " + entityId);
         }
         String current = (String) before.get("audit_status");
         if (!"AUDITED".equals(current)) {
-            throw ApiException.badRequest("not audited, cannot undo");
+            throw ApiException.badRequest("该单未审核入账，无需撤销");
         }
         int rows = jdbc.update(
             "UPDATE " + table
@@ -134,7 +140,7 @@ public class AuditService {
                 + " WHERE id::text = ? AND audit_status = 'AUDITED'",
             actorName, entityId);
         if (rows == 0) {
-            throw ApiException.badRequest("undo audit state changed concurrently");
+            throw ApiException.badRequest("反审核状态被并发修改，请刷新重试");
         }
         Map<String, Object> after = snapshot(table, entityId);
         recordEvent(table, entityId, AuditAction.UNDO_AUDIT, actorName, before, after);
