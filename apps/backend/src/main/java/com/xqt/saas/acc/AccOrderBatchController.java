@@ -134,7 +134,7 @@ public class AccOrderBatchController {
     @SuppressWarnings("unchecked")
     public Map<String, Object> batchTrack(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
         List<Map<String, Object>> rows = new java.util.ArrayList<>();
         for (String id : ids) {
             Map<String, Object> base = lookupOrder(id);
@@ -174,7 +174,7 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchSubmit(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
         int updated = 0, skipped = 0;
         for (String id : ids) {
             int n = jdbc.update(
@@ -189,7 +189,7 @@ public class AccOrderBatchController {
     @SuppressWarnings("unchecked")
     public Map<String, Object> batchQuery(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
         // 占位：实际生产应该调 carrier track API 拉最新事件
         List<Map<String, Object>> results = ids.stream().map(id -> {
             try {
@@ -215,7 +215,7 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchVoid(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
         String reason = (String) body.getOrDefault("reason", "批量作废");
         int voided = 0, skipped = 0;
         for (String id : ids) {
@@ -238,7 +238,7 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchAuditVoid(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
         int approved = 0, skipped = 0;
         for (String id : ids) {
             int n = jdbc.update(
@@ -264,7 +264,7 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchRestore(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
         int restored = 0, skipped = 0;
         for (String id : ids) {
             int n = jdbc.update(
@@ -289,7 +289,7 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchHardDelete(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
         int deleted = 0, skipped = 0;
         for (String id : ids) {
             int n = jdbc.update(
@@ -305,7 +305,7 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchRecharge(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
         boolean applyCurrentTime = Boolean.TRUE.equals(body.get("applyCurrentTime"));
         boolean overrideAudited = Boolean.TRUE.equals(body.get("overrideAudited"));
         int rerated = 0, skipped = 0;
@@ -372,7 +372,36 @@ public class AccOrderBatchController {
     public Map<String, Object> batchChangeCustomer(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
         String newCustomerId = (String) body.get("customerId");
-        if (ids.isEmpty() || newCustomerId == null) throw ApiException.badRequest("ids 和 customerId 必填");
+        // ACC ExpressBatch.php L1789: 请至少选择一项
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
+        if (newCustomerId == null || newCustomerId.isBlank()) {
+            // ACC L1563/L1799: 找不到指定的客户
+            throw ApiException.badRequest("找不到指定的客户，请选择");
+        }
+        // ACC L1799: 客户必须存在
+        Integer custExists = jdbc.queryForObject(
+            "SELECT count(*) FROM customers WHERE id = ?::uuid", Integer.class, newCustomerId);
+        if (custExists == null || custExists == 0) {
+            throw ApiException.badRequest("找不到指定的客户: " + newCustomerId);
+        }
+        // ACC ExpressBatch.php L1818: 部分快件存在已审核的费用
+        List<String> badOrders = jdbc.queryForList("""
+            SELECT o.order_no FROM orders o
+              JOIN charges ch ON ch.order_id = o.id
+             WHERE o.id = ANY(?::uuid[]) AND ch.audit_status = 'AUDITED'
+            """, String.class, (Object) ids.toArray(new String[0]));
+        if (!badOrders.isEmpty()) {
+            throw ApiException.badRequest(
+                "部分快件存在已审核的费用，无法更换客户: " + String.join(",", badOrders));
+        }
+        // ACC L1820: 检测客户没变化（避免无意义操作）
+        Integer sameCount = jdbc.queryForObject("""
+            SELECT count(*) FROM orders
+             WHERE id = ANY(?::uuid[]) AND customer_id = ?::uuid
+            """, Integer.class, (Object) ids.toArray(new String[0]), newCustomerId);
+        if (sameCount != null && sameCount == ids.size()) {
+            throw ApiException.badRequest("所选快件的客户没有变化，无需操作");
+        }
         int updated = 0;
         for (String id : ids) {
             int n = jdbc.update(

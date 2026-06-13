@@ -228,6 +228,71 @@ public class CustomerApiService {
             }
         }
 
+        // ═══ ACC Online.php L1326-L1390 + Online2.php：发票/装箱单行级校验 ═══
+        Object declareRaw = accCompat.get("declare");
+        if (declareRaw instanceof List<?> declareList && !declareList.isEmpty()) {
+            int rowIdx = 0;
+            for (Object item : declareList) {
+                rowIdx++;
+                if (!(item instanceof Map<?, ?> rowMap)) continue;
+                Map<String, Object> row = (Map<String, Object>) rowMap;
+                // ACC L1326: 货物描述不能为空（英文品名 OR 中文品名）
+                String nameEn = row.get("name") == null ? null : row.get("name").toString().trim();
+                String nameCn = row.get("cnName") == null ? null : row.get("cnName").toString().trim();
+                if ((nameEn == null || nameEn.isEmpty()) && (nameCn == null || nameCn.isEmpty())) {
+                    throw ApiException.badRequest("发票第 " + rowIdx + " 行的货物描述不能为空");
+                }
+                // ACC L1384/L1386: 装箱单英文/中文品名（单语言至少一个）
+                // 上面合并校验过
+
+                // ACC L1329: 数量必须为数字
+                Object qty = row.get("quantity");
+                if (qty != null) {
+                    try {
+                        BigDecimal q = new BigDecimal(qty.toString());
+                        if (q.signum() <= 0) {
+                            throw ApiException.badRequest("发票第 " + rowIdx + " 行的数量必须大于零");
+                        }
+                    } catch (NumberFormatException ex) {
+                        throw ApiException.badRequest("发票第 " + rowIdx + " 行的数量必须为数字");
+                    }
+                }
+                // ACC L1332: 价格必须为数字
+                Object price = row.get("price");
+                if (price != null) {
+                    try {
+                        BigDecimal p = new BigDecimal(price.toString());
+                        if (p.signum() < 0) {
+                            throw ApiException.badRequest("发票第 " + rowIdx + " 行的价格不能为负");
+                        }
+                    } catch (NumberFormatException ex) {
+                        throw ApiException.badRequest("发票第 " + rowIdx + " 行的价格必须为数字");
+                    }
+                }
+                // ACC L1388/L1390: 海关编码（HS Code）必须 8/10 位数字（若提供）
+                Object hsRaw = row.get("hsCode");
+                if (hsRaw != null) {
+                    String hs = hsRaw.toString().trim();
+                    if (!hs.isEmpty() && !hs.matches("\\d{8,10}")) {
+                        throw ApiException.badRequest(
+                            "发票第 " + rowIdx + " 行：海关编码 [" + hs + "] 必须为 8-10 位数字，当前 " + hs.length() + " 位");
+                    }
+                }
+                // ACC L1381/L1255: 装箱单毛重必须为大于零
+                Object grossRaw = row.get("grossWeight");
+                if (grossRaw != null) {
+                    try {
+                        BigDecimal gw = new BigDecimal(grossRaw.toString());
+                        if (gw.signum() <= 0) {
+                            throw ApiException.badRequest("装箱单第 " + rowIdx + " 行：毛重必须为大于零的数字");
+                        }
+                    } catch (NumberFormatException ex) {
+                        throw ApiException.badRequest("装箱单第 " + rowIdx + " 行：毛重必须为数字");
+                    }
+                }
+            }
+        }
+
         // ═══ ACC Express.php L706: 找不到该配送地区 ═══
         String country = stringOrNull(accCompat.get("country"));
         if (country == null || country.isBlank()) {

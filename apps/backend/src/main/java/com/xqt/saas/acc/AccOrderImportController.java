@@ -67,11 +67,13 @@ public class AccOrderImportController {
     @PostMapping("/import-excel")
     @Transactional
     public Map<String, Object> importExcel(@RequestParam("file") MultipartFile file) {
-        if (file == null || file.isEmpty()) throw ApiException.badRequest("file 必填");
+        if (file == null || file.isEmpty()) throw ApiException.badRequest("导入文件必填");
         String name = file.getOriginalFilename();
         long size = file.getSize();
         int created = 0, failed = 0;
         java.util.List<String> errors = new java.util.ArrayList<>();
+        // ACC ExpressBatch.php L1573: 文件内单号重复检测（CSV 第 2 列 customerNo）
+        java.util.Map<String, Integer> seenNos = new java.util.HashMap<>();
         try (InputStream is = new ByteArrayInputStream(file.getBytes());
              java.io.BufferedReader r = new java.io.BufferedReader(
                  new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8))) {
@@ -87,6 +89,16 @@ public class AccOrderImportController {
                     failed++;
                     errors.add("第 " + rowIdx + " 行：列数不足 (期望 18 列)");
                     continue;
+                }
+                // ACC L1573: 单号本批内重复
+                String custNo = cells[1].trim();
+                if (!custNo.isEmpty()) {
+                    Integer prev = seenNos.put(custNo.toLowerCase(), rowIdx);
+                    if (prev != null) {
+                        failed++;
+                        errors.add("第 " + rowIdx + " 行：单号 [" + custNo + "] 与第 " + prev + " 行重复");
+                        continue;
+                    }
                 }
                 try {
                     insertOrder(cells);
