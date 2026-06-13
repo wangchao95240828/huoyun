@@ -221,10 +221,72 @@ public class CustomerApiService {
                 if (rowWeight.signum() <= 0) {
                     throw ApiException.badRequest("第 " + rowIdx + " 行的重量为零，请检查");
                 }
+                // ACC Online.php L1404-L1408: 长宽高若填了必须 > 0
+                String[] dims = {"length", "width", "height"};
+                String[] zhDims = {"长度", "宽度", "高度"};
+                for (int d = 0; d < 3; d++) {
+                    Object dRaw = row.get(dims[d]);
+                    if (dRaw != null && !dRaw.toString().isBlank()) {
+                        try {
+                            BigDecimal dv = new BigDecimal(dRaw.toString());
+                            if (dv.signum() <= 0) {
+                                throw ApiException.badRequest(
+                                    "装箱单第 " + rowIdx + " 行：" + zhDims[d] + "必须为大于零的数字");
+                            }
+                        } catch (NumberFormatException ex) {
+                            throw ApiException.badRequest(
+                                "装箱单第 " + rowIdx + " 行：" + zhDims[d] + "必须为数字");
+                        }
+                    }
+                }
             }
             // ACC L673: 如果有追踪号，则所有货物都需要追踪号
             if (withTracking > 0 && withoutTracking > 0) {
                 throw ApiException.badRequest("如果有追踪号，则所有货物都需要追踪号");
+            }
+            // ACC Online.php L1663: 装箱单货件数量与填写件数不一致
+            Object pieceRaw = accCompat.get("piece");
+            if (pieceRaw != null) {
+                try {
+                    int declaredPiece = Integer.parseInt(pieceRaw.toString());
+                    // 统计 packageList 各行 piece 之和
+                    int sumPiece = 0;
+                    for (Object item : packageList) {
+                        if (item instanceof Map<?, ?> rm) {
+                            Object p = ((Map<String, Object>) rm).get("piece");
+                            if (p instanceof Number n) sumPiece += n.intValue();
+                            else if (p != null) {
+                                try { sumPiece += Integer.parseInt(p.toString()); } catch (Exception ignored) {}
+                            }
+                        }
+                    }
+                    if (declaredPiece > 0 && sumPiece != declaredPiece) {
+                        throw ApiException.badRequest(
+                            "装箱单的货件数量 " + sumPiece + " 与填写的件数 " + declaredPiece + " 不一致");
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+            // ACC Online.php L1489: 总重量与装箱单合计不一致 (±0.1kg)
+            Object weightSum = accCompat.get("weight");
+            if (weightSum != null) {
+                try {
+                    BigDecimal declaredWeight = new BigDecimal(weightSum.toString());
+                    BigDecimal sumWeight = BigDecimal.ZERO;
+                    for (Object item : packageList) {
+                        if (item instanceof Map<?, ?> rm) {
+                            Object w = ((Map<String, Object>) rm).get("weight");
+                            if (w != null) {
+                                try { sumWeight = sumWeight.add(new BigDecimal(w.toString())); }
+                                catch (Exception ignored) {}
+                            }
+                        }
+                    }
+                    BigDecimal diff = declaredWeight.subtract(sumWeight).abs();
+                    if (declaredWeight.signum() > 0 && diff.compareTo(new BigDecimal("0.1")) > 0) {
+                        throw ApiException.badRequest(
+                            "填写的总重量 " + declaredWeight + " 与装箱单货件重量合计 " + sumWeight + " 不一致");
+                    }
+                } catch (NumberFormatException ignored) {}
             }
         }
 
