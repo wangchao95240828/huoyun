@@ -389,13 +389,42 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchUpdateTracking(@RequestBody Map<String, Object> body) {
         List<Map<String, Object>> rows = (List<Map<String, Object>>) body.getOrDefault("rows", List.of());
-        if (rows.isEmpty()) throw ApiException.badRequest("rows 必填");
+        if (rows.isEmpty()) throw ApiException.badRequest("请至少添加一票件");
+        // 行级校验 — 对齐 ACC Orders.php L1770-L1780
+        java.util.Map<String, Integer> seen = new java.util.HashMap<>();
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> r = rows.get(i);
+            int line = i + 1;
+            String id = (String) r.get("id");
+            String tn = (String) r.get("trackingNo");
+            // ACC L1770
+            if (tn == null || tn.isBlank()) {
+                throw ApiException.badRequest("第 " + line + " 行：追踪号不能为空");
+            }
+            // ACC L1772：批量内重复检测（大小写不敏感）
+            String key = tn.toLowerCase();
+            Integer prev = seen.put(key, line);
+            if (prev != null) {
+                throw ApiException.badRequest("第 " + line + " 行：追踪号与第 " + prev + " 行重复");
+            }
+            // ACC L1246/L1252：跨快件占用
+            if (id != null) {
+                Integer dup = jdbc.queryForObject("""
+                    SELECT count(*) FROM cartons ct
+                      JOIN shipment_order_links sol ON sol.shipment_id = ct.shipment_id
+                     WHERE (ct.tracking_no = ? OR ct.carrier_master_tracking_no = ?)
+                       AND sol.order_id <> ?::uuid
+                    """, Integer.class, tn, tn, id);
+                if (dup != null && dup > 0) {
+                    throw ApiException.badRequest("第 " + line + " 行：追踪号 [" + tn + "] 已被其它快件占用");
+                }
+            }
+        }
         int updated = 0;
         for (Map<String, Object> r : rows) {
             String id = (String) r.get("id");
             String newTrackingNo = (String) r.get("trackingNo");
-            if (id == null || newTrackingNo == null) continue;
-            // 更新关联的 shipment.customer_ref（作为外部 tracking 号载体）
+            if (id == null) continue;
             int n = jdbc.update(
                 "UPDATE shipments SET customer_ref = ?"
                 + " WHERE id IN ("
@@ -411,21 +440,44 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchUpdateWeight(@RequestBody Map<String, Object> body) {
         List<Map<String, Object>> rows = (List<Map<String, Object>>) body.getOrDefault("rows", List.of());
-        if (rows.isEmpty()) throw ApiException.badRequest("rows 必填");
+        if (rows.isEmpty()) throw ApiException.badRequest("请至少添加一票件");
+        // 行级校验 — 对齐 ACC Orders.php L1774-L1780
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> r = rows.get(i);
+            int line = i + 1;
+            String id = (String) r.get("id");
+            if (id == null || id.isBlank()) {
+                throw ApiException.badRequest("第 " + line + " 行：订单 ID 不能为空");
+            }
+            // ACC L1774：实重必须为大于0的数字
+            Object w = r.get("chargeableKg");
+            if (!(w instanceof Number wn) || wn.doubleValue() <= 0) {
+                throw ApiException.badRequest("第 " + line + " 行：实重必须为大于 0 的数字");
+            }
+            // ACC L1776/L1778/L1780：长度/宽度/高度要么为空，要么大于 0
+            String[] dimensions = {"length", "width", "height"};
+            String[] zhNames    = {"长度", "宽度", "高度"};
+            for (int d = 0; d < 3; d++) {
+                Object val = r.get(dimensions[d]);
+                if (val != null && val.toString().length() > 0) {
+                    if (!(val instanceof Number dn) || dn.doubleValue() <= 0) {
+                        throw ApiException.badRequest(
+                            "第 " + line + " 行：" + zhNames[d] + "要么为空，要么必须为大于 0 的数字");
+                    }
+                }
+            }
+        }
         int updated = 0;
         for (Map<String, Object> r : rows) {
             String id = (String) r.get("id");
             Object w = r.get("chargeableKg");
-            if (id == null || !(w instanceof Number n)) continue;
-            // 找 shipment 下所有 cartons 等比例分配，或直接更新 cartons.chargeable_weight_kg 第一行
-            // 简化处理：写 metadata，等核算用
             jdbc.update(
                 "UPDATE orders SET"
                 + "  metadata = coalesce(metadata,'{}'::jsonb) || jsonb_build_object("
                 + "    'manual_chargeable_kg', ?::numeric),"
                 + "  updated_at = now()"
                 + " WHERE id = ?::uuid",
-                n.doubleValue(), id);
+                ((Number) w).doubleValue(), id);
             updated++;
         }
         return Map.of("updated", updated, "total", rows.size());
