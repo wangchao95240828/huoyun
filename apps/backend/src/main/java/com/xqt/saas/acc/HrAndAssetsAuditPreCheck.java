@@ -44,10 +44,12 @@ public class HrAndAssetsAuditPreCheck implements AuditSideEffect {
         // 通用：amount > 0
         String amountCol = pickAmountColumn(table);
         String currencyCol = hasCurrency(table) ? ", currency" : "";
+        String extraCol = "acc_expenses".equals(table)
+            ? ", expense_category_id::text AS expense_category_id, financial_account_id::text AS financial_account_id" : "";
         Map<String, Object> rec;
         try {
             rec = jdbc.queryForMap(
-                "SELECT " + amountCol + " AS amount" + currencyCol
+                "SELECT " + amountCol + " AS amount" + currencyCol + extraCol
                 + " FROM " + table + " WHERE id = ?::uuid",
                 entityId);
         } catch (EmptyResultDataAccessException ex) {
@@ -61,6 +63,26 @@ public class HrAndAssetsAuditPreCheck implements AuditSideEffect {
             String currency = (String) rec.get("currency");
             if (currency == null || currency.length() != 3) {
                 throw ApiException.badRequest("找不到" + zhTable(table) + "的币种");
+            }
+        }
+        // ACC Expenses.php L1336/L1383: 费用单分类必填 + 账户余额校验
+        if ("acc_expenses".equals(table)) {
+            if (rec.get("expense_category_id") == null) {
+                throw ApiException.badRequest("该费用单未选择分类，无法审核");
+            }
+            String accountId = (String) rec.get("financial_account_id");
+            if (accountId != null) {
+                BigDecimal bal;
+                try {
+                    bal = jdbc.queryForObject(
+                        "SELECT balance FROM financial_accounts WHERE id = ?::uuid",
+                        BigDecimal.class, accountId);
+                } catch (EmptyResultDataAccessException ex) {
+                    throw ApiException.badRequest("找不到费用资金账号");
+                }
+                if (bal == null || bal.compareTo(amount) < 0) {
+                    throw ApiException.badRequest("费用账户余额不足: " + bal + " < " + amount);
+                }
             }
         }
     }
