@@ -120,12 +120,13 @@ public class AccAuditController {
     );
 
     /**
-     * 哪些表有 verify_status 字段（一审之上的二审门槛，064 加的）：
+     * 哪些表有 verify_status 字段（一审之上的二审门槛，064/071 加的）：
      * - acc_finance_txns：金额 > 1000 须先二审（B1 任务）
      * - acc_transfers：金额 > 10w 须先二审（C2 任务）
+     * - customer_invoices：金额 > 5w mark-paid 须先二审（071）
      */
     private static final Set<String> VERIFY_TABLES = Set.of(
-        "acc_finance_txns", "acc_transfers"
+        "acc_finance_txns", "acc_transfers", "customer_invoices"
     );
 
     private final AuditService auditService;

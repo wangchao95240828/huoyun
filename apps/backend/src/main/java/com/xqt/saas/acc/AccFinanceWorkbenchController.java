@@ -337,6 +337,129 @@ public class AccFinanceWorkbenchController {
     // ════════════════════════════════════════════════════════════════════════
     //  阶段 ② → ③ 批量审核 + 生成账单：把选中的 charges 合一期 customer_invoice
     // ════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════
+    //  一审通过（只 AUDIT 不出账）— ACC 流程：会计审核 → audit_status=AUDITED
+    //  后续主管再单独发起 create-invoice 出账
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/audit-charges")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> auditCharges(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("chargeIds");
+        if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        int n = jdbc.update("""
+            UPDATE charges SET audit_status = 'AUDITED', audited_at = now()
+             WHERE id = ANY(?::uuid[])
+               AND audit_status = 'PENDING'
+               AND status <> 'VOID'::charge_status
+            """, (Object) ids.toArray(new String[0]));
+        return Map.of("auditedCount", n);
+    }
+
+    /** 反一审 — AUDITED → PENDING（出账过的不允许）。 */
+    @PostMapping("/unaudit-charges")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> unauditCharges(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("chargeIds");
+        if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        // 出账过的不允许反一审
+        Long invoiced = jdbc.queryForObject("""
+            SELECT count(*) FROM customer_invoice_lines WHERE charge_id = ANY(?::uuid[])
+            """, Long.class, (Object) ids.toArray(new String[0]));
+        if (invoiced != null && invoiced > 0) {
+            throw ApiException.badRequest("含已出账的 charge，请先作废账单");
+        }
+        int n = jdbc.update("""
+            UPDATE charges SET audit_status = 'PENDING', audited_at = NULL
+             WHERE id = ANY(?::uuid[])
+               AND audit_status = 'AUDITED'
+            """, (Object) ids.toArray(new String[0]));
+        return Map.of("unauditedCount", n);
+    }
+
+    /** 把已 AUDITED 但未出账的 charges 合一期账单（不再做一审，只出账）。 */
+    @PostMapping("/create-invoice")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> createInvoice(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("chargeIds");
+        if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        // 校验：全部 AUDITED，未出账，非 VOID
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT id::text AS id, customer_id::text AS customer_id, currency, amount,
+                   status::text AS status, audit_status
+              FROM charges WHERE id = ANY(?::uuid[])
+            """, (Object) ids.toArray(new String[0]));
+        if (rows.size() != ids.size()) throw ApiException.badRequest("部分 charge 不存在");
+        for (Map<String, Object> r : rows) {
+            if (!"AUDITED".equals(r.get("audit_status"))) {
+                throw ApiException.badRequest("含未一审通过 charge: " + r.get("id"));
+            }
+            if (EXISTS_INVOICE_LINE((String) r.get("id"))) {
+                throw ApiException.badRequest("含已出账 charge: " + r.get("id"));
+            }
+        }
+        return generateInvoicesByCustomer(rows, body.get("invoiceDate") == null
+            ? LocalDate.now().toString() : body.get("invoiceDate").toString());
+    }
+
+    /** 共用：把 charges 按 customer+currency 分组生成 customer_invoices + lines。 */
+    private Map<String, Object> generateInvoicesByCustomer(List<Map<String, Object>> rows, String invoiceDate) {
+        Map<String, List<Map<String, Object>>> byCustCur = new LinkedHashMap<>();
+        for (Map<String, Object> r : rows) {
+            String key = r.get("customer_id") + "|" + r.get("currency");
+            byCustCur.computeIfAbsent(key, k -> new ArrayList<>()).add(r);
+        }
+        List<Map<String, Object>> created = new ArrayList<>();
+        for (Map.Entry<String, List<Map<String, Object>>> e : byCustCur.entrySet()) {
+            String customerId = e.getKey().split("\\|")[0];
+            String currency = e.getKey().split("\\|")[1];
+            List<Map<String, Object>> group = e.getValue();
+            BigDecimal total = group.stream()
+                .map(r -> (BigDecimal) r.get("amount"))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            String yyyymm = LocalDate.parse(invoiceDate).toString().substring(0, 7).replace("-", "");
+            Integer seq = jdbc.queryForObject("SELECT nextval('cinv_invoice_seq')", Integer.class);
+            String invoiceNo = String.format("CINV-%s-%04d", yyyymm, seq);
+
+            BigDecimal prevBalance = BigDecimal.ZERO;
+            try {
+                List<BigDecimal> prev = jdbc.queryForList("""
+                    SELECT coalesce(unpaid_amount, 0) FROM customer_invoices
+                     WHERE customer_id = ?::uuid AND currency = ? AND status <> 'VOID'
+                     ORDER BY issued_at DESC LIMIT 1
+                    """, BigDecimal.class, customerId, currency);
+                if (!prev.isEmpty() && prev.get(0) != null) prevBalance = prev.get(0);
+            } catch (Exception ignored) {}
+
+            String invoiceId = jdbc.queryForObject("""
+                INSERT INTO customer_invoices (
+                  tenant_id, customer_id, invoice_no, currency,
+                  total_amount, paid_amount, unpaid_amount,
+                  line_count, previous_balance, status, invoice_date, issued_at
+                ) VALUES (
+                  current_setting('app.current_tenant_id')::uuid,
+                  ?::uuid, ?, ?, ?, 0, ?, ?, ?, 'DRAFT', ?::date, now()
+                ) RETURNING id::text
+                """, String.class, customerId, invoiceNo, currency, total, total,
+                     group.size(), prevBalance, invoiceDate);
+            for (Map<String, Object> r : group) {
+                jdbc.update("""
+                    INSERT INTO customer_invoice_lines (tenant_id, invoice_id, charge_id, amount)
+                    VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid, ?)
+                    """, invoiceId, r.get("id"), r.get("amount"));
+            }
+            created.add(Map.of(
+                "invoiceId", invoiceId, "invoiceNo", invoiceNo,
+                "customerId", customerId, "currency", currency,
+                "totalAmount", total, "lineCount", group.size(),
+                "previousBalance", prevBalance
+            ));
+        }
+        return Map.of("ok", true, "invoiceCount", created.size(), "chargeCount", rows.size(), "invoices", created);
+    }
+
     @PostMapping("/audit-and-invoice")
     @Transactional(rollbackFor = Exception.class)
     @SuppressWarnings("unchecked")

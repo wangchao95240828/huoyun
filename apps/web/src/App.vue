@@ -4214,6 +4214,44 @@ async function doAdjustCharge(row: any) {
   finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
 }
 
+// 财务工作台 — 仅一审通过（不出账）
+async function doAuditCharges() {
+  if (selectedIds.value.size === 0) { bizMessage.value = '请先勾选'; return; }
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/audit-charges`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value) }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '一审失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `一审通过 ${j.auditedCount} 条（audit_status=AUDITED）`;
+    selectedIds.value.clear();
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '一审失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
+// 财务工作台 — 出账已审（已 AUDITED 的合一期）
+async function doCreateInvoiceOnly() {
+  if (selectedIds.value.size === 0) { bizMessage.value = '请先勾选'; return; }
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/create-invoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value) }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '出账失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `生成 ${j.invoiceCount} 张账单（${j.chargeCount} 条 charge）`;
+    selectedIds.value.clear();
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '出账失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
 // 财务工作台 — 批量审核并出账
 async function doAuditAndInvoice() {
   if (selectedIds.value.size === 0) { bizMessage.value = '请先勾选'; return; }
@@ -4996,9 +5034,17 @@ async function doReloadBill(id: number) {
               <input type="file" accept=".csv" @change="doImportActualBill" style="display:none" :disabled="bizLoading" />
             </label>
           </template>
-          <!-- 财务工作台 - 待审核 tab 工具栏 -->
+          <!-- 财务工作台 - 待审核 tab 工具栏（一审 / 出账 / 合并 三选一）-->
           <template v-if="accTab === 'fwb-pending'">
-            <button class="primary sm" @click="doAuditAndInvoice" :disabled="bizLoading || selectedIds.size === 0">
+            <button class="secondary sm" @click="doAuditCharges" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 一审通过({{ selectedIds.size }})
+            </button>
+            <button class="secondary sm" @click="doCreateInvoiceOnly" :disabled="bizLoading || selectedIds.size === 0"
+                    title="选中行须已一审通过">
+              <ReceiptText :size="13" /> 出账已审({{ selectedIds.size }})
+            </button>
+            <button class="primary sm" @click="doAuditAndInvoice" :disabled="bizLoading || selectedIds.size === 0"
+                    title="一审 + 出账一步到位">
               <CheckCircle :size="13" /> 审核并出账({{ selectedIds.size }})
             </button>
           </template>
