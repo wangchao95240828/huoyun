@@ -152,7 +152,12 @@ public class AccFinanceWorkbenchController {
               c.code               AS customer_code,
               c.name               AS customer_name,
               ci.invoice_no        AS invoice_no,
-              ci.id::text          AS invoice_id
+              ci.id::text          AS invoice_id,
+              ci.status            AS invoice_status,
+              ci.total_amount      AS invoice_total,
+              ci.paid_amount       AS invoice_paid,
+              ci.unpaid_amount     AS invoice_unpaid,
+              ci.verify_status     AS invoice_verify_status
             FROM charges ch
             JOIN customer_invoice_lines il ON il.charge_id = ch.id
             JOIN customer_invoices ci      ON ci.id = il.invoice_id
@@ -1018,6 +1023,193 @@ public class AccFinanceWorkbenchController {
             "paidAmount", newPaid,
             "unpaidAmount", newUnpaid
         );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  退款 — 已 PAID/PARTIAL_PAID 账单退回客户余额（balance_ledger REFUND）
+    //  - customer_invoices.paid_amount 减；status 按新 paid 重算
+    //  - charges 不动（保留历史），只生成 ledger 流水
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/invoices/{id}/refund")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> refundInvoice(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        BigDecimal refundAmount;
+        try { refundAmount = new BigDecimal(body.get("amount").toString()); }
+        catch (Exception ex) { throw ApiException.badRequest("amount 必填且为数字"); }
+        if (refundAmount.signum() <= 0) throw ApiException.badRequest("退款金额必须 > 0");
+        String reason = body.get("reason") == null ? null : body.get("reason").toString();
+
+        Map<String, Object> inv;
+        try {
+            inv = jdbc.queryForMap("""
+                SELECT id::text AS id, customer_id::text AS customer_id, currency,
+                       total_amount, paid_amount, status
+                  FROM customer_invoices WHERE id = ?::uuid
+                """, id);
+        } catch (DataAccessException ex) { throw ApiException.notFound("账单不存在"); }
+
+        String s = (String) inv.get("status");
+        if (!"PAID".equals(s) && !"PARTIAL_PAID".equals(s)) {
+            throw ApiException.badRequest("仅 PAID/PARTIAL_PAID 状态可退款，当前 " + s);
+        }
+        BigDecimal alreadyPaid = (BigDecimal) inv.get("paid_amount");
+        if (refundAmount.compareTo(alreadyPaid) > 0) {
+            throw ApiException.badRequest("退款金额超过已付（已付 " + alreadyPaid + "）");
+        }
+        BigDecimal totalAmount = (BigDecimal) inv.get("total_amount");
+        BigDecimal newPaid = alreadyPaid.subtract(refundAmount);
+        BigDecimal newUnpaid = totalAmount.subtract(newPaid);
+        String newStatus = newPaid.signum() == 0 ? "PENDING"
+            : newUnpaid.signum() == 0 ? "PAID" : "PARTIAL_PAID";
+
+        jdbc.update("""
+            UPDATE customer_invoices SET paid_amount = ?, unpaid_amount = ?, status = ?
+             WHERE id = ?::uuid
+            """, newPaid, newUnpaid, newStatus, id);
+
+        // 退款也要回滚 charges 的 SETTLED 状态（如果之前 PAID 了的话）
+        if ("PAID".equals(s)) {
+            jdbc.update("""
+                UPDATE charges SET settlement_status = 'UNSETTLED', paid_amount = 0
+                 WHERE id IN (SELECT charge_id FROM customer_invoice_lines WHERE invoice_id = ?::uuid)
+                """, id);
+        }
+
+        // balance_ledger REFUND CREDIT — 客户余额加回退款金额
+        writeLedger(
+            (String) inv.get("customer_id"), (String) inv.get("currency"),
+            refundAmount, "CREDIT", "REFUND",
+            "customer_invoices", id, (String) inv.get("id"),
+            "system",
+            "退款 " + refundAmount + (reason == null ? "" : "（" + reason + "）")
+        );
+
+        jdbc.update("""
+            INSERT INTO audit_events (tenant_id, entity_type, entity_id, action, actor_name, before_state, after_state, remark)
+            VALUES (current_setting('app.current_tenant_id')::uuid, 'customer_invoices', ?, 'UPDATE', current_user,
+                    jsonb_build_object('paid_amount', ?, 'status', ?),
+                    jsonb_build_object('paid_amount', ?, 'status', ?),
+                    ?)
+            """, id, alreadyPaid, s, newPaid, newStatus,
+                 "退款" + (reason == null ? "" : ": " + reason));
+
+        return Map.of(
+            "id", id, "status", newStatus,
+            "refundedAmount", refundAmount,
+            "paidAmount", newPaid, "unpaidAmount", newUnpaid
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  批量 mark-paid（全额）/ 批量作废 / 批量退款
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/invoices/batch-mark-paid")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> batchMarkPaid(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("ids");
+        if (ids == null || ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        int ok = 0;
+        List<Map<String, Object>> failed = new ArrayList<>();
+        for (String id : ids) {
+            try {
+                markInvoicePaid(id, java.util.Collections.singletonMap("remark", "批量核销"));
+                ok++;
+            } catch (Exception ex) {
+                failed.add(Map.of("id", id, "reason", ex.getMessage()));
+            }
+        }
+        return Map.of("success", ok, "failed", failed.size(), "failedDetails", failed);
+    }
+
+    @PostMapping("/invoices/batch-void")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> batchVoid(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("ids");
+        String reason = body.get("reason") == null ? "批量作废" : body.get("reason").toString();
+        if (ids == null || ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        int ok = 0;
+        List<Map<String, Object>> failed = new ArrayList<>();
+        for (String id : ids) {
+            try {
+                voidInvoice(id, java.util.Collections.singletonMap("reason", reason));
+                ok++;
+            } catch (Exception ex) {
+                failed.add(Map.of("id", id, "reason", ex.getMessage()));
+            }
+        }
+        return Map.of("success", ok, "failed", failed.size(), "failedDetails", failed);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  二审待办 — total_amount 超 5w 且 verify_status=PENDING 的账单
+    // ════════════════════════════════════════════════════════════════════════
+    @GetMapping("/needs-verify")
+    public Map<String, Object> needsVerify(
+        @RequestParam(required = false, defaultValue = "50000") BigDecimal threshold,
+        @RequestParam(required = false) Integer page,
+        @RequestParam(required = false) Integer pageSize
+    ) {
+        int limit = AccPaging.pageSize(pageSize);
+        int offset = AccPaging.offset(page, pageSize);
+        Long total = jdbc.queryForObject("""
+            SELECT count(*) FROM customer_invoices ci
+             WHERE ci.total_amount > ?
+               AND coalesce(ci.verify_status, 'PENDING') = 'PENDING'
+               AND ci.status NOT IN ('VOID')
+            """, Long.class, threshold);
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT ci.id::text AS id, ci.invoice_no, ci.currency, ci.total_amount,
+                   ci.paid_amount, ci.unpaid_amount, ci.status, ci.verify_status,
+                   ci.issued_at AS created_at,
+                   c.code AS customer_code, c.name AS customer_name
+              FROM customer_invoices ci
+              LEFT JOIN customers c ON c.id = ci.customer_id
+             WHERE ci.total_amount > ?
+               AND coalesce(ci.verify_status, 'PENDING') = 'PENDING'
+               AND ci.status NOT IN ('VOID')
+             ORDER BY ci.total_amount DESC
+             LIMIT ? OFFSET ?
+            """, threshold, limit, offset);
+        return AccPaging.result(rows, total == null ? 0 : total);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  孤立 charges 清理 — 订单 CANCELLED 但 charges 还挂在预扣
+    //  动作：charges SET status=VOID + 反向 ledger
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/cleanup-orphan-charges")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> cleanupOrphanCharges() {
+        // 找所有"订单已取消但 charge 还在 ESTIMATED/ADJUSTED 未出账"的孤儿
+        List<Map<String, Object>> orphans = jdbc.queryForList("""
+            SELECT ch.id::text AS id, ch.amount, ch.currency, ch.customer_id::text AS customer_id,
+                   ch.order_id::text AS order_id, ch.status::text AS status
+              FROM charges ch
+              JOIN orders o ON o.id = ch.order_id
+             WHERE ch.side = 'AR'
+               AND ch.status IN ('ESTIMATED'::charge_status, 'ADJUSTED'::charge_status)
+               AND o.status = 'CANCELLED'
+               AND NOT EXISTS (SELECT 1 FROM customer_invoice_lines il WHERE il.charge_id = ch.id)
+            """);
+        int n = 0;
+        for (Map<String, Object> ch : orphans) {
+            jdbc.update("""
+                UPDATE charges SET status='VOID'::charge_status, audit_status='UNAUDITED'
+                 WHERE id = ?::uuid
+                """, ch.get("id"));
+            // 反向 ledger：之前 PREPAY/ADJUST DEBIT，现在 VOID CREDIT 退回
+            writeLedger(
+                (String) ch.get("customer_id"), (String) ch.get("currency"),
+                (BigDecimal) ch.get("amount"), "CREDIT", "VOID",
+                "charges", (String) ch.get("id"), (String) ch.get("order_id"),
+                "system",
+                "订单已取消，回退预扣（原状态 " + ch.get("status") + "）"
+            );
+            n++;
+        }
+        return Map.of("cleanedCount", n);
     }
 
     // ════════════════════════════════════════════════════════════════════════

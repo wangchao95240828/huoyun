@@ -518,6 +518,7 @@ const accTabs = [
   { key: "fwb-prepay",   label: "预扣明细", icon: Wallet, api: "finance-workbench/prepay-details" },
   { key: "fwb-pending",  label: "待财务审核", icon: AlertCircle, api: "finance-workbench/pending-audit" },
   { key: "fwb-invoiced", label: "已出账", icon: ReceiptText, api: "finance-workbench/invoiced" },
+  { key: "fwb-needs-verify", label: "待二审账单", icon: AlertCircle, api: "finance-workbench/needs-verify" },
   { key: "bills", label: "客户账单", icon: ReceiptText, api: "bills" },
   { key: "payments", label: "供应商付款", icon: Landmark, api: "payments" },
   { key: "receiveds", label: "客户收款", icon: Coins, api: "receiveds" },
@@ -1043,10 +1044,23 @@ Object.assign(accColumns, {
     { key: "customer_code", label: "客户编码" },
     { key: "customer_name", label: "客户" },
     { key: "amount",        label: "出账金额", fmt: "money" },
+    { key: "invoice_status",label: "账单状态" },
+    { key: "invoice_paid",  label: "账单已付", fmt: "money" },
+    { key: "invoice_unpaid",label: "账单未付", fmt: "money" },
+    { key: "currency",      label: "币种" },
+    { key: "settlement_status", label: "charge 结算" },
+    { key: "created_at",    label: "时间", fmt: "datetime" },
+  ],
+  "fwb-needs-verify": [
+    { key: "invoice_no",    label: "账单号" },
+    { key: "customer_code", label: "客户编码" },
+    { key: "customer_name", label: "客户" },
+    { key: "total_amount",  label: "账单金额", fmt: "money" },
     { key: "paid_amount",   label: "已付", fmt: "money" },
     { key: "currency",      label: "币种" },
-    { key: "settlement_status", label: "结算" },
-    { key: "created_at",    label: "时间", fmt: "datetime" },
+    { key: "status",        label: "状态" },
+    { key: "verify_status", label: "二审" },
+    { key: "created_at",    label: "出账时间", fmt: "datetime" },
   ],
   bills: [
     { key: "no", label: "账单号" },
@@ -1889,7 +1903,7 @@ const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'custome
   // alair: 应收款项目（只读视图）
   'customer-receivables',
   // 财务工作台 3 视图都只读
-  'fwb-prepay', 'fwb-pending', 'fwb-invoiced']);
+  'fwb-prepay', 'fwb-pending', 'fwb-invoiced', 'fwb-needs-verify']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
@@ -3749,7 +3763,7 @@ async function doBatchConfirm() {
 // 行复选框：批量审核 OR 批量汇款 OR 订单批量操作 OR 批量页面 OR 财务工作台待审核
 const canSelect = computed(() => canBatchAudit.value || canBatchRemit.value || canOrdersBatch.value
   || batchPageSet.has(accTab.value)
-  || accTab.value === 'fwb-pending');
+  || ['fwb-pending', 'fwb-invoiced', 'fwb-needs-verify'].includes(accTab.value));
 
 // ═══ 制单中心批量按钮 ═══
 async function callOrdersBatch(endpoint: string, extra: Record<string, any> = {}) {
@@ -4121,6 +4135,125 @@ async function doUnadjustCharge(row: any) {
     fetchAccData();
   } catch (e: any) { bizMessage.value = '撤销失败: ' + e.message; }
   finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
+// 财务工作台 — 退款（PAID/PARTIAL → 减 paid_amount + ledger REFUND）
+async function doRefundInvoice(row: any) {
+  const invoiceId = row.invoice_id;
+  if (!invoiceId) { bizMessage.value = '该行没有 invoice_id'; return; }
+  const maxRefund = Number(row.invoice_paid || row.paid_amount || 0);
+  const v = prompt(`退款金额（账单 ${row.invoice_no}）\n已付 ${maxRefund} ${row.currency}，输入退款金额：`, String(maxRefund));
+  if (!v) return;
+  const amount = Number(v);
+  if (!Number.isFinite(amount) || amount <= 0) { bizMessage.value = '金额无效'; return; }
+  if (amount > maxRefund) { bizMessage.value = `退款金额不能超过已付 ${maxRefund}`; return; }
+  const reason = prompt('退款原因：') || '';
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/invoices/${invoiceId}/refund`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, reason }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '退款失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `退款 ${j.refundedAmount} 成功 → 账单 ${j.status}，已付 ${j.paidAmount} 未付 ${j.unpaidAmount}`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '退款失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
+}
+
+// 财务工作台 — 批量核销
+async function doBatchMarkPaid() {
+  if (selectedIds.value.size === 0) { bizMessage.value = '请先勾选'; return; }
+  if (!confirm(`批量标记 ${selectedIds.value.size} 张账单已付（全额）？`)) return;
+  bizLoading.value = true;
+  try {
+    // 收集 invoice_id（按行查 row.invoice_id，不是 charge_id）
+    const ids = accData.value.filter((r: any) => selectedIds.value.has(r.id))
+      .map((r: any) => r.invoice_id).filter(Boolean);
+    if (!ids.length) { bizMessage.value = '选中的行没有 invoice_id'; return; }
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/invoices/batch-mark-paid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '批量核销失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `成功 ${j.success}，失败 ${j.failed}`;
+    selectedIds.value.clear();
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '批量核销失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
+}
+
+// 财务工作台 — 批量作废
+async function doBatchVoid() {
+  if (selectedIds.value.size === 0) { bizMessage.value = '请先勾选'; return; }
+  const reason = prompt(`批量作废 ${selectedIds.value.size} 张账单，输入原因：`);
+  if (reason === null) return;
+  bizLoading.value = true;
+  try {
+    const ids = accData.value.filter((r: any) => selectedIds.value.has(r.id))
+      .map((r: any) => r.invoice_id).filter(Boolean);
+    if (!ids.length) { bizMessage.value = '选中的行没有 invoice_id'; return; }
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/invoices/batch-void`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, reason }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '批量作废失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `成功 ${j.success}，失败 ${j.failed}`;
+    selectedIds.value.clear();
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '批量作废失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
+}
+
+// 财务工作台 — 清理孤立 charges（订单 CANCELLED 但 charges 还挂预扣）
+async function doCleanupOrphan() {
+  if (!confirm('扫描订单已取消但 charges 还挂在预扣的孤儿，将它们标 VOID 并回退余额，继续？')) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/cleanup-orphan-charges`, { method: 'POST' });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '清理失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `已清理 ${j.cleanedCount} 条孤立 charge`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '清理失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
+// 财务工作台 — 二审通过单张账单（>5w 阈值）
+async function doVerifyOneBill(row: any) {
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/bills/${row.id}/verify-biz`, { method: 'POST' });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '二审失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `账单 ${row.invoice_no} 二审通过`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '二审失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 4000); }
+}
+
+// 财务工作台 — 批量二审
+async function doBatchVerifyBills() {
+  if (selectedIds.value.size === 0) { bizMessage.value = '请先勾选'; return; }
+  bizLoading.value = true;
+  let ok = 0, fail = 0;
+  for (const id of Array.from(selectedIds.value)) {
+    try {
+      const res = await apiFetch(`${API}/api/acc/bills/${id}/verify-biz`, { method: 'POST' });
+      if (res.ok) ok++; else fail++;
+    } catch { fail++; }
+  }
+  bizMessage.value = `二审通过 ${ok}，失败 ${fail}`;
+  selectedIds.value.clear();
+  bizLoading.value = false;
+  fetchAccData();
+  setTimeout(()=>bizMessage.value='', 5000);
 }
 
 // 财务工作台 — 反核销 (PAID/PARTIAL → PENDING，charges 回 UNSETTLED，ledger 反扣)
@@ -5034,6 +5167,26 @@ async function doReloadBill(id: number) {
               <input type="file" accept=".csv" @change="doImportActualBill" style="display:none" :disabled="bizLoading" />
             </label>
           </template>
+          <!-- 财务工作台 - 已出账 批量工具栏 -->
+          <template v-if="accTab === 'fwb-invoiced'">
+            <button class="secondary sm" @click="doBatchMarkPaid" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 批量核销({{ selectedIds.size }})
+            </button>
+            <button class="secondary sm" @click="doBatchVoid" :disabled="bizLoading || selectedIds.size === 0"
+                    style="color:#dc2626">
+              <XCircle :size="13" /> 批量作废({{ selectedIds.size }})
+            </button>
+            <button class="secondary sm" @click="doCleanupOrphan" :disabled="bizLoading"
+                    title="把订单已取消但 charges 仍挂在预扣的孤儿 VOID">
+              <RefreshCw :size="13" /> 清理孤立 charges
+            </button>
+          </template>
+          <!-- 财务工作台 - 待二审账单 工具栏 -->
+          <template v-if="accTab === 'fwb-needs-verify'">
+            <button class="primary sm" @click="doBatchVerifyBills" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 二审通过({{ selectedIds.size }})
+            </button>
+          </template>
           <!-- 财务工作台 - 待审核 tab 工具栏（一审 / 出账 / 合并 三选一）-->
           <template v-if="accTab === 'fwb-pending'">
             <button class="secondary sm" @click="doAuditCharges" :disabled="bizLoading || selectedIds.size === 0">
@@ -5478,10 +5631,24 @@ async function doReloadBill(id: number) {
                   </button>
                   <!-- 财务工作台 已出账：反核销（PAID/PARTIAL → PENDING） -->
                   <button class="action-btn"
-                          v-if="accTab === 'fwb-invoiced' && row.settlement_status === 'SETTLED'"
+                          v-if="accTab === 'fwb-invoiced' && (row.invoice_status === 'PAID' || row.invoice_status === 'PARTIAL_PAID')"
                           @click="doUnsettleInvoice(row)" title="反核销（撤销已付）" :disabled="bizLoading"
                           style="color:#f59e0b">
                     <Undo2 :size="12" />
+                  </button>
+                  <!-- 财务工作台 已出账：退款（PAID/PARTIAL → 减 paid_amount + ledger REFUND）-->
+                  <button class="action-btn"
+                          v-if="accTab === 'fwb-invoiced' && (row.invoice_status === 'PAID' || row.invoice_status === 'PARTIAL_PAID')"
+                          @click="doRefundInvoice(row)" title="退款" :disabled="bizLoading"
+                          style="color:#a855f7">
+                    <Coins :size="12" />
+                  </button>
+                  <!-- 财务工作台 待二审：二审通过（>5w 强制） -->
+                  <button class="action-btn"
+                          v-if="accTab === 'fwb-needs-verify' && row.verify_status !== 'VERIFIED'"
+                          @click="doVerifyOneBill(row)" title="二审通过此账单" :disabled="bizLoading"
+                          style="color:#10b981">
+                    <CheckCircle :size="12" />
                   </button>
                   <!-- 财务工作台 已出账：作废账单 -->
                   <button class="action-btn"
