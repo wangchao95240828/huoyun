@@ -1,5 +1,6 @@
 package com.xqt.saas.acc;
 
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -287,6 +288,69 @@ public class AccOrdersController {
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT * FROM orders WHERE id = ?::uuid LIMIT 1", id);
         return rows.isEmpty() ? Map.of() : json.row(rows.get(0));
+    }
+
+    /**
+     * 订单财务详情：本单 charges + balance_ledger + 客户余额。
+     * 给制单 UI 行内"看财务"按钮用，让 OP 知道这单扣了多少 / 客户余额够不够。
+     */
+    @GetMapping("/{id}/finance")
+    public Map<String, Object> finance(@PathVariable String id) {
+        // 1) 本单 charges
+        List<Map<String, Object>> charges = jdbc.queryForList("""
+            SELECT ch.id::text AS id, ch.side, ch.amount, ch.currency,
+                   ch.status::text AS status, ch.audit_status, ch.settlement_status,
+                   ch.paid_amount, ch.created_at,
+                   ci.invoice_no AS invoice_no, ci.id::text AS invoice_id
+              FROM charges ch
+              LEFT JOIN customer_invoice_lines il ON il.charge_id = ch.id
+              LEFT JOIN customer_invoices ci ON ci.id = il.invoice_id
+             WHERE ch.order_id = ?::uuid
+             ORDER BY ch.side, ch.created_at
+            """, id);
+
+        // 2) 本单相关 ledger
+        List<Map<String, Object>> ledger = jdbc.queryForList("""
+            SELECT created_at, biz_type::text AS biz_type, direction::text AS direction,
+                   amount, balance_before, balance_after, remark
+              FROM balance_ledger
+             WHERE source_id IN (
+                SELECT id FROM charges WHERE order_id = ?::uuid
+             )
+                OR (source_type = 'order' AND source_ref = (SELECT order_no FROM orders WHERE id = ?::uuid))
+             ORDER BY created_at DESC LIMIT 30
+            """, id, id);
+
+        // 3) 客户余额（按订单 currency 拿）
+        Map<String, Object> balance = Map.of();
+        try {
+            Map<String, Object> ord = jdbc.queryForMap("""
+                SELECT customer_id::text AS customer_id,
+                       metadata->'acc_compat'->>'currency' AS currency
+                  FROM orders WHERE id = ?::uuid
+                """, id);
+            if (ord.get("customer_id") != null) {
+                String currency = (String) ord.get("currency");
+                if (currency == null || currency.isBlank()) currency = "USD";
+                BigDecimal usable = BigDecimal.ZERO;
+                List<BigDecimal> bs = jdbc.queryForList("""
+                    SELECT balance FROM financial_accounts
+                     WHERE owner_type='CUSTOMER' AND owner_id=?::uuid AND currency=? LIMIT 1
+                    """, BigDecimal.class, ord.get("customer_id"), currency);
+                if (!bs.isEmpty()) usable = bs.get(0);
+                balance = Map.of(
+                    "customerId", ord.get("customer_id"),
+                    "currency", currency,
+                    "usableBalance", usable
+                );
+            }
+        } catch (Exception ignored) {}
+
+        return Map.of(
+            "charges", charges,
+            "ledger", ledger,
+            "balance", balance
+        );
     }
 
     @PostMapping

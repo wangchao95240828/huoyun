@@ -54,9 +54,76 @@ public class OrderVoidAuditSideEffect implements AuditSideEffect {
                 WHERE id = ?::uuid AND tenant_id = ?::uuid
                 """, entityId, tenantId);
             LOGGER.info("order {} → VOID (audit_status=AUDITED), rows={}", entityId, n);
+
+            // 3) 财务联动：未出账的 charges 标 VOID + 反向 ledger CREDIT
+            voidUnInvoicedChargesAndReverseLedger(entityId, tenantId);
         } catch (DataAccessException ex) {
             LOGGER.warn("OrderVoidAuditSideEffect.onAudited failed: {}", ex.getMessage());
         }
+    }
+
+    /**
+     * 订单作废通过 → 本单未出账的 charges 自动 VOID，每条都写一笔反向 ledger。
+     * 已出账（关联 customer_invoice_lines）的不动 — 财务需手动反核销 / 退款。
+     */
+    private void voidUnInvoicedChargesAndReverseLedger(String orderId, String tenantId) {
+        java.util.List<java.util.Map<String, Object>> charges = jdbc.queryForList("""
+            SELECT ch.id::text AS id, ch.amount, ch.currency,
+                   ch.customer_id::text AS customer_id, ch.status::text AS status
+              FROM charges ch
+             WHERE ch.order_id = ?::uuid
+               AND ch.side = 'AR'
+               AND ch.status IN ('ESTIMATED'::charge_status, 'ADJUSTED'::charge_status)
+               AND NOT EXISTS (SELECT 1 FROM customer_invoice_lines il WHERE il.charge_id = ch.id)
+            """, orderId);
+        if (charges.isEmpty()) return;
+
+        for (java.util.Map<String, Object> ch : charges) {
+            jdbc.update("""
+                UPDATE charges SET status='VOID'::charge_status, audit_status='UNAUDITED'
+                 WHERE id = ?::uuid
+                """, ch.get("id"));
+            // 反向 ledger（影子账户找/建 + 反向 CREDIT 回退余额）
+            try {
+                jdbc.execute("SELECT set_config('app.current_tenant_id', '" + tenantId + "', true)");
+                java.util.List<String> accIds = jdbc.queryForList("""
+                    SELECT id::text FROM financial_accounts
+                     WHERE owner_type='CUSTOMER' AND owner_id=?::uuid AND currency=? LIMIT 1
+                    """, String.class, ch.get("customer_id"), ch.get("currency"));
+                String accountId;
+                if (accIds.isEmpty()) {
+                    accountId = jdbc.queryForObject("""
+                        INSERT INTO financial_accounts (tenant_id, owner_type, owner_id, account_name,
+                                                        account_type, currency, balance, source, is_show)
+                        VALUES (?::uuid, 'CUSTOMER', ?::uuid, '客户预扣账户', 'CASH', ?, 0, 'LOCAL', true)
+                        RETURNING id::text
+                        """, String.class, tenantId, ch.get("customer_id"), ch.get("currency"));
+                } else {
+                    accountId = accIds.get(0);
+                }
+                java.math.BigDecimal balBefore = jdbc.queryForObject(
+                    "SELECT balance FROM financial_accounts WHERE id=?::uuid",
+                    java.math.BigDecimal.class, accountId);
+                java.math.BigDecimal amt = (java.math.BigDecimal) ch.get("amount");
+                java.math.BigDecimal balAfter = balBefore.add(amt);
+                jdbc.update("UPDATE financial_accounts SET balance = ? WHERE id = ?::uuid", balAfter, accountId);
+                jdbc.update("""
+                    INSERT INTO balance_ledger (
+                      account_id, owner_type, owner_id, biz_type, source_type, source_id, source_ref,
+                      currency, direction, amount, balance_before, balance_after, operator, remark
+                    ) VALUES (
+                      ?::uuid, 'CUSTOMER', ?::uuid, 'VOID'::balance_ledger_biz_type,
+                      'charges', ?::uuid, ?, ?, 'CREDIT'::balance_ledger_direction,
+                      ?, ?, ?, current_user, ?
+                    )
+                    """, accountId, ch.get("customer_id"), ch.get("id"), orderId,
+                         ch.get("currency"), amt, balBefore, balAfter,
+                         "订单作废自动回退（原状态 " + ch.get("status") + "）");
+            } catch (Exception ex) {
+                LOGGER.warn("ledger reverse failed for charge {}: {}", ch.get("id"), ex.getMessage());
+            }
+        }
+        LOGGER.info("order {} void: {} charges → VOID + ledger reversed", orderId, charges.size());
     }
 
     @Override

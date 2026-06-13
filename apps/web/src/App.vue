@@ -4151,6 +4151,38 @@ async function doUnadjustCharge(row: any) {
   finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
 }
 
+// 订单 → 财务详情弹窗（charges + ledger + 客户余额）
+async function doViewOrderFinance(row: any) {
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/${row.id}/finance`);
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '查询失败: ' + (j.error || res.status); return; }
+    const chs = (j.charges || []) as any[];
+    const lg = (j.ledger || []) as any[];
+    const bal = j.balance || {};
+    const lines: string[] = [];
+    lines.push(`订单 ${row.orderNo || row.id}`);
+    if (bal.currency) {
+      lines.push(`客户可打单余额: ${bal.usableBalance} ${bal.currency}`);
+    }
+    lines.push('');
+    lines.push(`Charges (${chs.length} 条):`);
+    chs.forEach((c: any) => {
+      const tag = c.invoice_no ? `账单 ${c.invoice_no}` : '未出账';
+      lines.push(`  ${c.side} ${c.amount} ${c.currency}  status=${c.status} settle=${c.settlement_status}  [${tag}]`);
+    });
+    lines.push('');
+    lines.push(`Ledger (${lg.length} 条):`);
+    lg.forEach((l: any) => {
+      const t = (l.created_at || '').slice(0, 19).replace('T', ' ');
+      lines.push(`  ${t}  ${l.biz_type} ${l.direction} ${l.amount}  (${l.balance_before}→${l.balance_after})  ${l.remark || ''}`);
+    });
+    alert(lines.join('\n'));
+  } catch (e: any) { bizMessage.value = '查询失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 3000); }
+}
+
 // 财务工作台 — 打印账单（弹新窗口浏览器 Ctrl+P 另存 PDF）
 function doPrintInvoice(row: any) {
   const invoiceId = row.invoice_id;
@@ -5675,6 +5707,13 @@ async function doReloadBill(id: number) {
                           @click="doDownloadLabel(row)" title="下载面单 PDF" :disabled="bizLoading"
                           style="color:#0ea5e9">
                     <FileText :size="12" />
+                  </button>
+                  <!-- 看订单财务：charges + ledger + 客户余额 -->
+                  <button class="action-btn"
+                          v-if="(accTab === 'orders' || accTab === 'orders-history' || accTab === 'orders-cancelled') && row.id"
+                          @click="doViewOrderFinance(row)" title="本单财务" :disabled="bizLoading"
+                          style="color:#a855f7">
+                    <Wallet :size="12" />
                   </button>
                   <!-- 财务工作台 预扣明细：调整金额 -->
                   <button class="action-btn"
