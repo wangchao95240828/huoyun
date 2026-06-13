@@ -300,6 +300,8 @@ public class AccFinanceWorkbenchController {
                                  String operator, String remark) {
         if (amount == null || amount.signum() == 0) return false;
         try {
+            // 确保 RLS session 变量已设（@Transactional 嵌套调用时可能丢失）
+            jdbc.execute("SELECT set_config('app.current_tenant_id', '2bda8c16-7b19-4ce6-ab71-9584f5a140ed', true)");
             String accountId = jdbc.queryForObject("""
                 SELECT id::text FROM financial_accounts
                  WHERE owner_type='CUSTOMER' AND owner_id=?::uuid AND currency=? LIMIT 1
