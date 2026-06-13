@@ -1832,6 +1832,39 @@ input, select, textarea { font: inherit; }
 .action-btn.history-btn { color: #2563eb; }
 .action-btn.history-btn:hover { background: rgba(37, 99, 235, 0.1); }
 
+/* ===== 显眼业务按钮（带文字 + 彩色背景）===== */
+.action-btn.fwb {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-width: 1px;
+  gap: 4px;
+}
+.action-btn.fwb-adjust    { color: #f59e0b; border-color: #f59e0b; background: #fff7ed; }
+.action-btn.fwb-adjust:hover    { background: #f59e0b; color: white; }
+.action-btn.fwb-undo      { color: #6366f1; border-color: #6366f1; background: #eef2ff; }
+.action-btn.fwb-undo:hover      { background: #6366f1; color: white; }
+.action-btn.fwb-pay       { color: #ffffff; border-color: #10b981; background: #10b981; }
+.action-btn.fwb-pay:hover       { background: #059669; border-color: #059669; }
+.action-btn.fwb-unsettle  { color: #f59e0b; border-color: #f59e0b; background: #fff7ed; }
+.action-btn.fwb-unsettle:hover  { background: #f59e0b; color: white; }
+.action-btn.fwb-refund    { color: #ffffff; border-color: #a855f7; background: #a855f7; }
+.action-btn.fwb-refund:hover    { background: #9333ea; border-color: #9333ea; }
+.action-btn.fwb-void      { color: #ffffff; border-color: #dc2626; background: #dc2626; }
+.action-btn.fwb-void:hover      { background: #b91c1c; border-color: #b91c1c; }
+.action-btn.fwb-print     { color: #ffffff; border-color: #0ea5e9; background: #0ea5e9; }
+.action-btn.fwb-print:hover     { background: #0284c7; border-color: #0284c7; }
+.action-btn.fwb-verify    { color: #ffffff; border-color: #10b981; background: #10b981; }
+.action-btn.fwb-verify:hover    { background: #059669; border-color: #059669; }
+.action-btn.fwb-history   { color: #64748b; border-color: #cbd5e1; background: #f8fafc; }
+.action-btn.fwb-history:hover   { background: #64748b; color: white; }
+.action-btn.fwb-label     { color: #ffffff; border-color: #0ea5e9; background: #0ea5e9; }
+.action-btn.fwb-label:hover     { background: #0284c7; border-color: #0284c7; }
+.action-btn.fwb-finance   { color: #ffffff; border-color: #a855f7; background: #a855f7; }
+.action-btn.fwb-finance:hover   { background: #9333ea; border-color: #9333ea; }
+/* 禁用态淡化（保持识别但点不动）*/
+.action-btn.fwb:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .audit-history-dialog { max-width: 560px; }
 .audit-history-timeline {
   position: relative;

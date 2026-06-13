@@ -5702,81 +5702,80 @@ async function doReloadBill(id: number) {
                     <Calculator :size="12" />
                   </button>
                   <!-- 下载面单：订单已提交（有 tracking）即可下载 -->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-label"
                           v-if="(accTab === 'orders' || accTab === 'orders-history') && row.status === 'SUBMITTED'"
-                          @click="doDownloadLabel(row)" title="下载面单 PDF" :disabled="bizLoading"
-                          style="color:#0ea5e9">
-                    <FileText :size="12" />
+                          @click="doDownloadLabel(row)" :disabled="bizLoading">
+                    <FileText :size="13" /> 下载面单
                   </button>
                   <!-- 看订单财务：charges + ledger + 客户余额 -->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-finance"
                           v-if="(accTab === 'orders' || accTab === 'orders-history' || accTab === 'orders-cancelled') && row.id"
-                          @click="doViewOrderFinance(row)" title="本单财务" :disabled="bizLoading"
-                          style="color:#a855f7">
-                    <Wallet :size="12" />
+                          @click="doViewOrderFinance(row)" :disabled="bizLoading">
+                    <Wallet :size="13" /> 看财务
                   </button>
                   <!-- 财务工作台 预扣明细：调整金额 -->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-adjust"
                           v-if="accTab === 'fwb-prepay'"
-                          @click="doAdjustCharge(row)" title="调整金额（实际成本入账）" :disabled="bizLoading"
-                          style="color:#f59e0b">
-                    <Calculator :size="12" />
+                          @click="doAdjustCharge(row)" :disabled="bizLoading"
+                          title="把报价金额改为实际成本（CSV 也可批量导入）">
+                    <Calculator :size="13" /> 调整金额
                   </button>
                   <!-- 财务工作台 已出账：标记已付（手动核销扣减）-->
-                  <button class="action-btn"
-                          v-if="accTab === 'fwb-invoiced' && row.settlement_status !== 'SETTLED'"
-                          @click="doMarkInvoicePaid(row)" title="标记已付 / 执行扣减确认" :disabled="bizLoading"
-                          style="color:#10b981">
-                    <CheckCircle :size="12" />
+                  <button class="action-btn fwb fwb-pay"
+                          v-if="accTab === 'fwb-invoiced' && row.invoice_status !== 'PAID'"
+                          @click="doMarkInvoicePaid(row)" :disabled="bizLoading"
+                          :title="row.invoice_status === 'PARTIAL_PAID' ? '继续付款（剩余 ' + row.invoice_unpaid + ')' : '收到客户付款 → 标记已付'">
+                    <CheckCircle :size="13" />
+                    {{ row.invoice_status === 'PARTIAL_PAID' ? '续付款' : '标记已付' }}
                   </button>
                   <!-- 财务工作台 已出账：反核销（PAID/PARTIAL → PENDING） -->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-unsettle"
                           v-if="accTab === 'fwb-invoiced' && (row.invoice_status === 'PAID' || row.invoice_status === 'PARTIAL_PAID')"
-                          @click="doUnsettleInvoice(row)" title="反核销（撤销已付）" :disabled="bizLoading"
-                          style="color:#f59e0b">
-                    <Undo2 :size="12" />
+                          @click="doUnsettleInvoice(row)" :disabled="bizLoading"
+                          title="撤销已付状态（标错了用）">
+                    <Undo2 :size="13" /> 反核销
                   </button>
                   <!-- 财务工作台 已出账：退款（PAID/PARTIAL → 减 paid_amount + ledger REFUND）-->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-refund"
                           v-if="accTab === 'fwb-invoiced' && (row.invoice_status === 'PAID' || row.invoice_status === 'PARTIAL_PAID')"
-                          @click="doRefundInvoice(row)" title="退款" :disabled="bizLoading"
-                          style="color:#a855f7">
-                    <Coins :size="12" />
+                          @click="doRefundInvoice(row)" :disabled="bizLoading"
+                          title="退钱给客户（写 ledger REFUND）">
+                    <Coins :size="13" /> 退款
                   </button>
                   <!-- 财务工作台 待二审：二审通过（>5w 强制） -->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-verify"
                           v-if="accTab === 'fwb-needs-verify' && row.verify_status !== 'VERIFIED'"
-                          @click="doVerifyOneBill(row)" title="二审通过此账单" :disabled="bizLoading"
-                          style="color:#10b981">
-                    <CheckCircle :size="12" />
+                          @click="doVerifyOneBill(row)" :disabled="bizLoading"
+                          title="主管二审通过（>5w 账单收款前必须）">
+                    <CheckCircle :size="13" /> 二审通过
                   </button>
                   <!-- 财务工作台 已出账：作废账单 -->
-                  <button class="action-btn"
-                          v-if="accTab === 'fwb-invoiced' && row.settlement_status !== 'SETTLED'"
-                          @click="doVoidInvoice(row)" title="作废账单" :disabled="bizLoading"
-                          style="color:#dc2626">
-                    <XCircle :size="12" />
+                  <button class="action-btn fwb fwb-void"
+                          v-if="accTab === 'fwb-invoiced' && row.invoice_status !== 'PAID' && row.invoice_status !== 'PARTIAL_PAID'"
+                          @click="doVoidInvoice(row)" :disabled="bizLoading"
+                          title="作废账单 → charges 回到待审核">
+                    <XCircle :size="13" /> 作废
                   </button>
                   <!-- 财务工作台 已出账：打印/PDF -->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-print"
                           v-if="accTab === 'fwb-invoiced' && row.invoice_id"
-                          @click="doPrintInvoice(row)" title="打印 / 另存 PDF" :disabled="bizLoading"
-                          style="color:#0ea5e9">
-                    <FileText :size="12" />
+                          @click="doPrintInvoice(row)" :disabled="bizLoading"
+                          title="打开打印页 → Ctrl+P 另存 PDF 发给客户">
+                    <FileText :size="13" /> 打印对账单
                   </button>
                   <!-- 财务工作台 待审核：撤销调整 -->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-undo"
                           v-if="accTab === 'fwb-pending'"
-                          @click="doUnadjustCharge(row)" title="撤销调整（回到 ESTIMATED）" :disabled="bizLoading"
-                          style="color:#6366f1">
-                    <Undo2 :size="12" />
+                          @click="doUnadjustCharge(row)" :disabled="bizLoading"
+                          title="撤销刚才的金额调整 → 回到 ESTIMATED">
+                    <Undo2 :size="13" /> 撤销调整
                   </button>
                   <!-- 财务工作台：charge 审计时间线 -->
-                  <button class="action-btn"
+                  <button class="action-btn fwb fwb-history"
                           v-if="(accTab === 'fwb-prepay' || accTab === 'fwb-pending') && row.id"
-                          @click="doViewChargeHistory(row)" title="审计时间线" :disabled="bizLoading"
-                          style="color:#64748b">
-                    <Clock :size="12" />
+                          @click="doViewChargeHistory(row)" :disabled="bizLoading"
+                          title="查看本条 charge 的全部变更记录">
+                    <Clock :size="13" /> 审计
                   </button>
                   <!-- ACC 制单中心：申请作废 + 恢复（仅订单 tab）-->
                   <button class="action-btn"
