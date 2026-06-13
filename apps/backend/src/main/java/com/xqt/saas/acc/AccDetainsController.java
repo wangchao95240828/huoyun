@@ -96,6 +96,31 @@ public AccDetainsController(JdbcTemplate jdbc, JsonSupport json,
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object shipmentRaw = body.get("shipment_id");
+        if (shipmentRaw == null || shipmentRaw.toString().isBlank()) {
+            throw ApiException.badRequest("找不到关联快件");
+        }
+        String shipmentId = shipmentRaw.toString();
+        // ACC Ask.php L1005/L1013: 该快件已放行/已退件/已申请退件，无法再扣件
+        String shipStatus;
+        try {
+            shipStatus = jdbc.queryForObject(
+                "SELECT status::text FROM shipments WHERE id = ?::uuid", String.class, shipmentId);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            throw ApiException.notFound("找不到关联快件: " + shipmentId);
+        }
+        if ("DELIVERED".equals(shipStatus) || "RETURNED".equals(shipStatus) || "CANCELLED".equals(shipStatus)) {
+            throw ApiException.badRequest("该快件已" + zhShipStatus(shipStatus) + "，无法扣件");
+        }
+        // 已存在未关闭的 detain 单 → 重复申请
+        Integer activeDetainCount = jdbc.queryForObject("""
+            SELECT count(*) FROM acc_detains
+             WHERE shipment_id = ?::uuid
+               AND status IN ('PENDING','HOLDING')
+            """, Integer.class, shipmentId);
+        if (activeDetainCount != null && activeDetainCount > 0) {
+            throw ApiException.badRequest("该快件已有未处理的扣件单，请先关闭旧的");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_detains (
               tenant_id, detain_no, customer_id, shipment_id, detain_type, status, reason, add_name
@@ -106,12 +131,21 @@ public AccDetainsController(JdbcTemplate jdbc, JsonSupport json,
             """, String.class,
             body.getOrDefault("no", body.get("detain_no")),
             body.get("customer_id"),
-            body.get("shipment_id"),
+            shipmentId,
             body.getOrDefault("type", body.get("detain_type")),
             body.getOrDefault("status", "PENDING"),
             body.get("reason"),
             body.getOrDefault("addName", body.get("add_name")));
         return Map.of("id", id);
+    }
+
+    private static String zhShipStatus(String s) {
+        return switch (s) {
+            case "DELIVERED" -> "签收";
+            case "RETURNED"  -> "退件";
+            case "CANCELLED" -> "取消";
+            default -> s;
+        };
     }
 
     @PutMapping("/{id}")

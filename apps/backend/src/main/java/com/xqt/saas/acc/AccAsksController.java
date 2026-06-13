@@ -100,6 +100,24 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object content = body.get("content");
+        if (content == null || content.toString().isBlank()) {
+            throw ApiException.badRequest("问题内容必填");
+        }
+        Object shipmentRaw = body.get("shipment_id");
+        Object askTypeRaw = body.getOrDefault("type", body.get("ask_type"));
+        // ACC Ask.php L600: 已存在未处理完成的同类型问题
+        if (shipmentRaw != null && askTypeRaw != null) {
+            Integer dup = jdbc.queryForObject("""
+                SELECT count(*) FROM acc_asks
+                 WHERE shipment_id = ?::uuid AND ask_type = ?
+                   AND status NOT IN ('CLOSED','RESOLVED')
+                """, Integer.class, shipmentRaw.toString(), askTypeRaw.toString());
+            if (dup != null && dup > 0) {
+                throw ApiException.badRequest(
+                    "该快件已有未处理的同类型问题 [" + askTypeRaw + "]，请先关闭旧的");
+            }
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_asks (
               tenant_id, shipment_id, customer_ref, content, source, ask_type, status, add_name
@@ -112,7 +130,7 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
             body.getOrDefault("expressNo", body.get("customer_ref")),
             body.get("content"),
             body.get("source"),
-            body.getOrDefault("type", body.get("ask_type")),
+            askTypeRaw,
             body.getOrDefault("status", "OPEN"),
             body.getOrDefault("addName", body.get("add_name")));
         return Map.of("id", id);
