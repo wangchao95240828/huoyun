@@ -427,7 +427,7 @@ public class AccFinanceWorkbenchController {
                 String currency = idxCurrency >= 0 && parts.length > idxCurrency
                     ? parts[idxCurrency].trim() : null;
 
-                // 按 tracking_no 找 charge (走 cartons 表)
+                // 按 tracking_no 找 charges (走 cartons 表) — 一个 shipment 可能多 charge_item（FREIGHT/FUEL/...）
                 List<Map<String, Object>> chRows = jdbc.queryForList("""
                     SELECT ch.id::text AS id, ch.amount, ch.currency, ch.status::text AS status
                       FROM charges ch
@@ -441,21 +441,49 @@ public class AccFinanceWorkbenchController {
                     skipped.add(Map.of("trackingNo", trackingNo, "reason", "找不到匹配的可调整 charge"));
                     continue;
                 }
-                // 累加可能多条（一个运单多个 charge_item）— 此处只调整 FREIGHT，简化为按差额按比例
-                // KISS：取第一条调整。后续可扩展
-                Map<String, Object> ch = chRows.get(0);
-                BigDecimal oldAmount = (BigDecimal) ch.get("amount");
-                jdbc.update("""
-                    UPDATE charges SET amount = ?, status = 'ADJUSTED'::charge_status, audit_status = 'PENDING'
-                     WHERE id = ?::uuid
-                    """, newAmount, ch.get("id"));
-                matched.add(Map.of(
-                    "trackingNo", trackingNo,
-                    "chargeId", ch.get("id"),
-                    "oldAmount", oldAmount,
-                    "newAmount", newAmount,
-                    "diff", newAmount.subtract(oldAmount)
-                ));
+                // 多 charge 按原 amount 比例分配新总额；只有 1 条直接覆盖
+                BigDecimal oldTotal = chRows.stream()
+                    .map(r -> (BigDecimal) r.get("amount"))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                if (oldTotal.signum() == 0) {
+                    // 原金额为 0 → 全部加给第一条
+                    Map<String, Object> first = chRows.get(0);
+                    jdbc.update("""
+                        UPDATE charges SET amount = ?, status = 'ADJUSTED'::charge_status, audit_status = 'PENDING'
+                         WHERE id = ?::uuid
+                        """, newAmount, first.get("id"));
+                    matched.add(Map.of(
+                        "trackingNo", trackingNo, "chargeIds", List.of(first.get("id")),
+                        "oldAmount", BigDecimal.ZERO, "newAmount", newAmount,
+                        "diff", newAmount, "rule", "first-only(old=0)"
+                    ));
+                } else {
+                    List<String> updatedIds = new ArrayList<>();
+                    BigDecimal allocated = BigDecimal.ZERO;
+                    for (int i = 0; i < chRows.size(); i++) {
+                        Map<String, Object> r = chRows.get(i);
+                        BigDecimal oldA = (BigDecimal) r.get("amount");
+                        BigDecimal newA;
+                        if (i == chRows.size() - 1) {
+                            // 最后一条吃掉余数，保证总额精确
+                            newA = newAmount.subtract(allocated);
+                        } else {
+                            newA = newAmount.multiply(oldA).divide(oldTotal, 2, java.math.RoundingMode.HALF_UP);
+                            allocated = allocated.add(newA);
+                        }
+                        jdbc.update("""
+                            UPDATE charges SET amount = ?, status = 'ADJUSTED'::charge_status, audit_status = 'PENDING'
+                             WHERE id = ?::uuid
+                            """, newA, r.get("id"));
+                        updatedIds.add((String) r.get("id"));
+                    }
+                    matched.add(Map.of(
+                        "trackingNo", trackingNo, "chargeIds", updatedIds,
+                        "oldAmount", oldTotal, "newAmount", newAmount,
+                        "diff", newAmount.subtract(oldTotal),
+                        "rule", chRows.size() + "-charges-pro-rated"
+                    ));
+                }
             }
         }
 
@@ -515,6 +543,21 @@ public class AccFinanceWorkbenchController {
             .header(HttpHeaders.CONTENT_DISPOSITION,
                 "attachment; filename=\"" + filename + "\"")
             .body(body);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  charge 审计历史 — 给行内"时间线"按钮用
+    // ════════════════════════════════════════════════════════════════════════
+    @GetMapping("/charges/{id}/audit-history")
+    public Map<String, Object> chargeAuditHistory(@PathVariable String id) {
+        List<Map<String, Object>> events = jdbc.queryForList("""
+            SELECT occurred_at, action, actor_name, before_state, after_state, remark
+              FROM audit_events
+             WHERE entity_type = 'charges' AND entity_id = ?
+             ORDER BY occurred_at DESC
+             LIMIT 100
+            """, id);
+        return Map.of("data", events);
     }
 
     // ════════════════════════════════════════════════════════════════════════

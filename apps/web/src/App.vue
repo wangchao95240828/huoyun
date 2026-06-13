@@ -4069,6 +4069,27 @@ async function doImportActualBill(ev: Event) {
   }
 }
 
+// 财务工作台 — charge 审计时间线弹窗
+async function doViewChargeHistory(row: any) {
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/charges/${row.id}/audit-history`);
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '取历史失败: ' + (j.error || res.status); return; }
+    const events = (j.data || []) as any[];
+    if (events.length === 0) { bizMessage.value = '该 charge 还没有审计记录'; return; }
+    const lines = events.map((e: any) => {
+      const t = (e.occurred_at || '').slice(0, 19).replace('T', ' ');
+      const before = JSON.stringify(e.before_state || {});
+      const after = JSON.stringify(e.after_state || {});
+      const remark = e.remark ? ` [${e.remark}]` : '';
+      return `${t}  ${e.action}  by ${e.actor_name || '-'}\n  before: ${before}\n  after:  ${after}${remark}`;
+    });
+    alert(`审计时间线 (${events.length} 条)\n订单: ${row.order_no || row.id}\n\n` + lines.join('\n\n'));
+  } catch (e: any) { bizMessage.value = '取历史失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 3000); }
+}
+
 // 财务工作台 — 撤销 charge 调整（ADJUSTED → ESTIMATED）
 async function doUnadjustCharge(row: any) {
   if (!confirm(`撤销调整 ${row.order_no || row.id}？金额会回到 audit_events 里的原始值。`)) return;
@@ -5384,6 +5405,13 @@ async function doReloadBill(id: number) {
                           @click="doUnadjustCharge(row)" title="撤销调整（回到 ESTIMATED）" :disabled="bizLoading"
                           style="color:#6366f1">
                     <Undo2 :size="12" />
+                  </button>
+                  <!-- 财务工作台：charge 审计时间线 -->
+                  <button class="action-btn"
+                          v-if="(accTab === 'fwb-prepay' || accTab === 'fwb-pending') && row.id"
+                          @click="doViewChargeHistory(row)" title="审计时间线" :disabled="bizLoading"
+                          style="color:#64748b">
+                    <Clock :size="12" />
                   </button>
                   <!-- ACC 制单中心：申请作废 + 恢复（仅订单 tab）-->
                   <button class="action-btn"

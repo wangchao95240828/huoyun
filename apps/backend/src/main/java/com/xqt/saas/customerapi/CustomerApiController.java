@@ -31,12 +31,15 @@ public class CustomerApiController {
     private final CustomerApiService service;
     private final RateEngine rateEngine;
     private final com.xqt.saas.tracking.TrackingAggregator trackingAggregator;
+    private final com.xqt.saas.acc.AccFinanceWorkbenchController financeView;
 
     public CustomerApiController(CustomerApiService service, RateEngine rateEngine,
-                                  com.xqt.saas.tracking.TrackingAggregator trackingAggregator) {
+                                  com.xqt.saas.tracking.TrackingAggregator trackingAggregator,
+                                  com.xqt.saas.acc.AccFinanceWorkbenchController financeView) {
         this.service = service;
         this.rateEngine = rateEngine;
         this.trackingAggregator = trackingAggregator;
+        this.financeView = financeView;
     }
 
     @GetMapping("/balance")
@@ -131,6 +134,22 @@ public class CustomerApiController {
     @GetMapping("/ping")
     public ApiResponse<ItemResponse<String>> ping() {
         return ApiResponse.ok(new ItemResponse<>(principal().customerCode()));
+    }
+
+    /** 客户端拉自己的余额三段（用 HMAC 鉴权，不能跨客户）。 */
+    @GetMapping("/finance/balance")
+    public ApiResponse<java.util.Map<String, Object>> myBalance(
+        @org.springframework.web.bind.annotation.RequestParam(required = false, defaultValue = "USD") String currency
+    ) {
+        return ApiResponse.ok(financeView.customerBalance(principal().customerId(), currency));
+    }
+
+    /** 客户端下载自己的预扣明细 CSV（用 HMAC 鉴权，不能跨客户）。 */
+    @GetMapping("/finance/prepay-details.csv")
+    public org.springframework.http.ResponseEntity<byte[]> myPrepayCsv(
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String currency
+    ) {
+        return financeView.exportPrepayDetails(principal().customerId(), currency);
     }
 
     private CustomerApiPrincipal principal() {
