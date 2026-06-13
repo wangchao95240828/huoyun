@@ -522,6 +522,11 @@ const accTabs = [
   { key: "costs-transit", label: "转运成本", icon: CreditCard, api: "costs", statusFilter: "TRANSIT" },
   { key: "costs-zhonggang", label: "中港成本", icon: CreditCard, api: "costs", statusFilter: "ZHONGGANG" },
   { key: "costs-air", label: "航空成本", icon: Plane, api: "costs", statusFilter: "AIR" },
+  // 核算工作台 — AP 三阶段 + 利润
+  { key: "swb-cost-pending", label: "待核成本 (UPS 单)", icon: AlertCircle, api: "settlement-workbench/cost-pending" },
+  { key: "swb-pending-pay",  label: "待付供应商",         icon: CreditCard,  api: "settlement-workbench/pending-pay" },
+  { key: "swb-paid",         label: "已付成本",           icon: ReceiptText, api: "settlement-workbench/paid" },
+  { key: "swb-profit",       label: "利润分析",           icon: BarChart3,   api: "settlement-workbench/profit-list" },
   // alair: 应收款项目（A1 财务任务）
   { key: "customer-receivables", label: "应收款项目", icon: TrendingUp, api: "customer-receivables" },
   // 财务工作台 — 一票货的 3 阶段视图
@@ -760,6 +765,11 @@ const accGroupAccounting = [
   T("costs-transit"),                    // 转运成本
   T("costs-zhonggang"),                  // 中港成本
   T("costs-air"),                        // 航空成本
+  // 核算工作台
+  T("swb-cost-pending"),
+  T("swb-pending-pay"),
+  T("swb-paid"),
+  T("swb-profit"),
   // 其余核算项
   T("bills"),
   T("profits"),
@@ -1071,6 +1081,47 @@ Object.assign(accColumns, {
     { key: "status",        label: "状态" },
     { key: "verify_status", label: "二审" },
     { key: "created_at",    label: "出账时间", fmt: "datetime" },
+  ],
+  // 核算工作台 — AP 三 bucket 共用列定义
+  "swb-cost-pending": [
+    { key: "order_no",      label: "订单号" },
+    { key: "tracking_no",   label: "运单号" },
+    { key: "channel_code",  label: "渠道" },
+    { key: "amount",        label: "预估成本", fmt: "money" },
+    { key: "currency",      label: "币种" },
+    { key: "status",        label: "状态" },
+    { key: "audit_status",  label: "审核" },
+    { key: "created_at",    label: "时间", fmt: "datetime" },
+  ],
+  "swb-pending-pay": [
+    { key: "order_no",      label: "订单号" },
+    { key: "tracking_no",   label: "运单号" },
+    { key: "channel_code",  label: "渠道" },
+    { key: "amount",        label: "应付金额", fmt: "money" },
+    { key: "currency",      label: "币种" },
+    { key: "status",        label: "状态" },
+    { key: "audit_status",  label: "审核" },
+    { key: "created_at",    label: "审核时间", fmt: "datetime" },
+  ],
+  "swb-paid": [
+    { key: "order_no",      label: "订单号" },
+    { key: "tracking_no",   label: "运单号" },
+    { key: "channel_code",  label: "渠道" },
+    { key: "amount",        label: "应付金额", fmt: "money" },
+    { key: "paid_amount",   label: "已付金额", fmt: "money" },
+    { key: "currency",      label: "币种" },
+    { key: "settlement_status", label: "结算" },
+    { key: "created_at",    label: "付款时间", fmt: "datetime" },
+  ],
+  "swb-profit": [
+    { key: "shipment_no",   label: "运单号" },
+    { key: "order_no",      label: "订单号" },
+    { key: "customer_code", label: "客户编码" },
+    { key: "customer_name", label: "客户" },
+    { key: "ar_total",      label: "应收 AR", fmt: "money" },
+    { key: "ap_total",      label: "应付 AP", fmt: "money" },
+    { key: "profit",        label: "利润",    fmt: "money" },
+    { key: "currency",      label: "币种" },
   ],
   bills: [
     { key: "no", label: "账单号" },
@@ -1905,6 +1956,8 @@ const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'custome
   'charges-history', 'charges-pending', 'charges-pending-return', 'charges-pending-reparation',
   'costs-pending', 'costs-estimate', 'costs-recent', 'costs-history',
   'costs-transit', 'costs-zhonggang', 'costs-air',
+  // 核算工作台 view tab 只读
+  'swb-cost-pending', 'swb-pending-pay', 'swb-paid', 'swb-profit',
   // 问题件/赔偿子页只读
   'asks-customer', 'asks-supplier', 'asks-processing', 'asks-pending', 'asks-history',
   'reparations-pending', 'reparations-history',
@@ -4097,6 +4150,77 @@ async function doImportActualBill(ev: Event) {
   }
 }
 
+// 核算工作台 — 导入 UPS 实际成本 CSV
+async function doImportActualCost(ev: Event) {
+  const input = ev.target as HTMLInputElement;
+  const file = input?.files?.[0];
+  if (!file) return;
+  bizLoading.value = true;
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/import-actual-cost`, {
+      method: 'POST', body: form,
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '导入失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `成本导入完成：匹配 ${j.matched} 条，跳过 ${j.skipped} 条`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '导入失败: ' + e.message; }
+  finally {
+    bizLoading.value = false; input.value = '';
+    setTimeout(()=>bizMessage.value='', 6000);
+  }
+}
+
+// 核算工作台 — 审核 AP charges
+async function doAuditCostCharges() {
+  if (selectedIds.value.size === 0) return;
+  if (!confirm(`将一审 ${selectedIds.value.size} 条 AP 成本（PENDING → AUDITED），确定？`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/audit-cost-charges`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value) }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '审核失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `已审核 ${j.auditedCount} 条 AP 成本`;
+    selectedIds.value.clear();
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '审核失败: ' + e.message; }
+  finally {
+    bizLoading.value = false;
+    setTimeout(()=>bizMessage.value='', 6000);
+  }
+}
+
+// 核算工作台 — 付供应商
+async function doPaySupplier() {
+  if (selectedIds.value.size === 0) return;
+  const remark = prompt('付款备注（如：UPS 2026-06 月结）', 'UPS 月结');
+  if (remark === null) return;
+  if (!confirm(`将给供应商付款 ${selectedIds.value.size} 条 AP 成本，写 PAYMENT 流水。确定？`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/pay-supplier`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value), remark }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '付款失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `已付 ${j.paidCount} 条 AP，写 ${j.groupCount} 条 ledger`;
+    selectedIds.value.clear();
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '付款失败: ' + e.message; }
+  finally {
+    bizLoading.value = false;
+    setTimeout(()=>bizMessage.value='', 6000);
+  }
+}
+
 // 财务工作台 — charge 审计时间线弹窗
 // 后端 audit_events.before_state/after_state 是 PG jsonb，Spring 序列化时会包成
 // {type:"jsonb", value:"...", null:false}。这里 unwrap 出真正的 JSON。
@@ -5249,6 +5373,22 @@ async function doReloadBill(id: number) {
           <template v-if="accTab === 'fwb-needs-verify'">
             <button class="primary sm" @click="doBatchVerifyBills" :disabled="bizLoading || selectedIds.size === 0">
               <CheckCircle :size="13" /> 二审通过({{ selectedIds.size }})
+            </button>
+          </template>
+          <!-- 核算工作台 - 待核成本 工具栏（导入 UPS 实际账单） -->
+          <template v-if="accTab === 'swb-cost-pending'">
+            <label class="secondary sm" style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+              <Upload :size="13" /> 导入 UPS 实际成本 CSV
+              <input type="file" accept=".csv" @change="doImportActualCost" style="display:none" :disabled="bizLoading" />
+            </label>
+          </template>
+          <!-- 核算工作台 - 待付成本 工具栏（审核 + 付供应商）-->
+          <template v-if="accTab === 'swb-pending-pay'">
+            <button class="secondary sm" @click="doAuditCostCharges" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 审核成本({{ selectedIds.size }})
+            </button>
+            <button class="primary sm" @click="doPaySupplier" :disabled="bizLoading || selectedIds.size === 0">
+              <Landmark :size="13" /> 付供应商({{ selectedIds.size }})
             </button>
           </template>
           <!-- 财务工作台 - 待审核 tab 工具栏（一审 / 出账 / 合并 三选一）-->
