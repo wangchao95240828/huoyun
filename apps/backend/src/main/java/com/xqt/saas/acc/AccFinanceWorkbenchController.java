@@ -246,10 +246,11 @@ public class AccFinanceWorkbenchController {
 
         // 记一笔 audit_events，给"调整前/后"留痕
         jdbc.update("""
-            INSERT INTO audit_events (tenant_id, table_name, entity_id, action, actor_name, old_values, new_values)
-            VALUES (current_setting('app.current_tenant_id')::uuid, 'charges', ?::uuid, 'UPDATE', current_user,
+            INSERT INTO audit_events (tenant_id, entity_type, entity_id, action, actor_name, before_state, after_state, remark)
+            VALUES (current_setting('app.current_tenant_id')::uuid, 'charges', ?, 'UPDATE', current_user,
                     jsonb_build_object('amount', ?, 'status', ?),
-                    jsonb_build_object('amount', ?, 'status', 'ADJUSTED', 'reason', ?))
+                    jsonb_build_object('amount', ?, 'status', 'ADJUSTED'),
+                    ?)
             """, id, oldAmount, ch.get("status"), newAmount, reason);
 
         return Map.of(
@@ -325,7 +326,7 @@ public class AccFinanceWorkbenchController {
             BigDecimal prevBalance = jdbc.queryForObject("""
                 SELECT coalesce(unpaid_amount, 0) FROM customer_invoices
                  WHERE customer_id = ?::uuid AND currency = ?
-                 ORDER BY created_at DESC LIMIT 1
+                 ORDER BY issued_at DESC LIMIT 1
                 """, BigDecimal.class, customerId, currency);
             if (prevBalance == null) prevBalance = BigDecimal.ZERO;
 
