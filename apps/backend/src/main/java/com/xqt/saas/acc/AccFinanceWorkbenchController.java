@@ -302,17 +302,21 @@ public class AccFinanceWorkbenchController {
         try {
             // 确保 RLS session 变量已设（@Transactional 嵌套调用时可能丢失）
             jdbc.execute("SELECT set_config('app.current_tenant_id', '2bda8c16-7b19-4ce6-ab71-9584f5a140ed', true)");
-            String accountId = jdbc.queryForObject("""
+            // 找/建影子账户（queryForList 处理 0 行场景，避免 EmptyResultDataAccessException 被外层 catch 吞掉）
+            List<String> accIds = jdbc.queryForList("""
                 SELECT id::text FROM financial_accounts
                  WHERE owner_type='CUSTOMER' AND owner_id=?::uuid AND currency=? LIMIT 1
                 """, String.class, customerId, currency);
-            if (accountId == null) {
+            String accountId;
+            if (accIds.isEmpty()) {
                 accountId = jdbc.queryForObject("""
                     INSERT INTO financial_accounts (tenant_id, owner_type, owner_id, account_name,
                                                     account_type, currency, balance, source, is_show)
                     VALUES (current_setting('app.current_tenant_id')::uuid, 'CUSTOMER', ?::uuid, ?, 'CASH', ?, 0, 'AUTO', true)
                     RETURNING id::text
                     """, String.class, customerId, "客户预扣账户", currency);
+            } else {
+                accountId = accIds.get(0);
             }
             BigDecimal balBefore = jdbc.queryForObject(
                 "SELECT balance FROM financial_accounts WHERE id=?::uuid", BigDecimal.class, accountId);
