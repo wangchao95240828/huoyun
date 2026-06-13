@@ -3726,8 +3726,10 @@ async function doBatchConfirm() {
   }
 }
 
-// 行复选框：批量审核 OR 批量汇款 OR 订单批量操作 OR 批量页面
-const canSelect = computed(() => canBatchAudit.value || canBatchRemit.value || canOrdersBatch.value || batchPageSet.has(accTab.value));
+// 行复选框：批量审核 OR 批量汇款 OR 订单批量操作 OR 批量页面 OR 财务工作台待审核
+const canSelect = computed(() => canBatchAudit.value || canBatchRemit.value || canOrdersBatch.value
+  || batchPageSet.has(accTab.value)
+  || accTab.value === 'fwb-pending');
 
 // ═══ 制单中心批量按钮 ═══
 async function callOrdersBatch(endpoint: string, extra: Record<string, any> = {}) {
@@ -4004,6 +4006,90 @@ async function doUndoAudit(id: any) {
     bizLoading.value = false;
     setTimeout(() => { bizMessage.value = ''; }, 3000);
   }
+}
+
+// 财务工作台 — 预扣明细 Excel/CSV 导出
+async function doExportPrepayCsv() {
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/prepay-details/export`);
+    if (!res.ok) { bizMessage.value = '导出失败 ' + res.status; return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `预扣明细_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    bizMessage.value = '已导出';
+  } catch (e: any) { bizMessage.value = '导出失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 3000); }
+}
+
+// 财务工作台 — UPS 账单 CSV 导入（tracking_no, actual_amount[, currency]）
+async function doImportActualBill(ev: Event) {
+  const input = ev.target as HTMLInputElement;
+  const file = input?.files?.[0];
+  if (!file) return;
+  bizLoading.value = true;
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/import-actual-bill`, {
+      method: 'POST', body: form,
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '导入失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `导入完成：匹配 ${j.matched} 条，跳过 ${j.skipped} 条`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '导入失败: ' + e.message; }
+  finally {
+    bizLoading.value = false; input.value = '';
+    setTimeout(()=>bizMessage.value='', 6000);
+  }
+}
+
+// 财务工作台 — 单条调金额
+async function doAdjustCharge(row: any) {
+  const cur = row.amount;
+  const v = prompt(`调整 charge 金额（订单 ${row.order_no || row.id}）\n原 ${cur} ${row.currency}，输入新金额：`, String(cur));
+  if (!v) return;
+  const newAmount = Number(v);
+  if (!Number.isFinite(newAmount) || newAmount < 0) { bizMessage.value = '金额无效'; return; }
+  const reason = prompt('调整原因（可选）：') || '';
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/charges/${row.id}/adjust`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount: newAmount, reason }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '调整失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `调整成功：${j.oldAmount} → ${j.newAmount}（差额 ${j.diff}）`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '调整失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
+// 财务工作台 — 批量审核并出账
+async function doAuditAndInvoice() {
+  if (selectedIds.value.size === 0) { bizMessage.value = '请先勾选'; return; }
+  if (!confirm(`将审核 ${selectedIds.value.size} 条 charge 并生成账单（按客户+币种自动分组），继续？`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/audit-and-invoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value) }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '出账失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `生成 ${j.invoiceCount} 张账单（${j.chargeCount} 条 charge）`;
+    selectedIds.value.clear();
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '出账失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
 }
 
 // 下载面单 PDF（GET /api/acc/labels/by-order/{orderId}）
@@ -4747,6 +4833,22 @@ async function doReloadBill(id: number) {
           <button class="secondary sm" v-if="canBatchAudit" @click="doBatchAudit" :disabled="bizLoading || selectedIds.size === 0">
             <CheckCircle :size="13" /> 批量审核({{ selectedIds.size }})
           </button>
+          <!-- 财务工作台 - 预扣明细 tab 工具栏 -->
+          <template v-if="accTab === 'fwb-prepay'">
+            <button class="secondary sm" @click="doExportPrepayCsv" :disabled="bizLoading">
+              <FileText :size="13" /> 导出客户对账 CSV
+            </button>
+            <label class="secondary sm" style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
+              <Upload :size="13" /> 导入 UPS 账单 CSV
+              <input type="file" accept=".csv" @change="doImportActualBill" style="display:none" :disabled="bizLoading" />
+            </label>
+          </template>
+          <!-- 财务工作台 - 待审核 tab 工具栏 -->
+          <template v-if="accTab === 'fwb-pending'">
+            <button class="primary sm" @click="doAuditAndInvoice" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 审核并出账({{ selectedIds.size }})
+            </button>
+          </template>
           <button class="secondary sm" v-if="canBatchRemit" @click="openBatchRemitDialog"
                   :disabled="bizLoading || selectedIds.size === 0" style="color:#0ea5e9">
             <Landmark :size="13" /> 批量汇款({{ selectedIds.size }})
@@ -5139,6 +5241,13 @@ async function doReloadBill(id: number) {
                           @click="doDownloadLabel(row)" title="下载面单 PDF" :disabled="bizLoading"
                           style="color:#0ea5e9">
                     <FileText :size="12" />
+                  </button>
+                  <!-- 财务工作台 预扣明细：调整金额 -->
+                  <button class="action-btn"
+                          v-if="accTab === 'fwb-prepay'"
+                          @click="doAdjustCharge(row)" title="调整金额（实际成本入账）" :disabled="bizLoading"
+                          style="color:#f59e0b">
+                    <Calculator :size="12" />
                   </button>
                   <!-- ACC 制单中心：申请作废 + 恢复（仅订单 tab）-->
                   <button class="action-btn"

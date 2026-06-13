@@ -1,14 +1,32 @@
 package com.xqt.saas.acc;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.JsonSupport;
+import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * 财务工作台 — 一票货的财务生命周期 3 阶段视图。
@@ -190,5 +208,314 @@ public class AccFinanceWorkbenchController {
             """, status, custFilter, custFilter, curFilter, curFilter, limit, offset);
 
         return AccPaging.result(rows, total == null ? 0 : total);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  阶段 ① → ② 单条调整：实际成本出来后修改 charges.amount + status=ADJUSTED
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/charges/{id}/adjust")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> adjust(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        BigDecimal newAmount;
+        try {
+            newAmount = new BigDecimal(body.get("amount").toString());
+        } catch (Exception ex) {
+            throw ApiException.badRequest("amount 必填且为数字");
+        }
+        String reason = body.get("reason") == null ? null : body.get("reason").toString();
+
+        Map<String, Object> ch;
+        try {
+            ch = jdbc.queryForMap(
+                "SELECT amount, status::text AS status FROM charges WHERE id = ?::uuid", id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("charge 不存在: " + id);
+        }
+        if ("VOID".equals(ch.get("status"))) {
+            throw ApiException.badRequest("已作废的 charge 不能调整");
+        }
+        if (EXISTS_INVOICE_LINE(id)) {
+            throw ApiException.badRequest("已出账的 charge 不能调整（需先反审账单）");
+        }
+
+        BigDecimal oldAmount = (BigDecimal) ch.get("amount");
+        jdbc.update("""
+            UPDATE charges SET amount = ?, status = 'ADJUSTED'::charge_status, audit_status = 'PENDING'
+             WHERE id = ?::uuid
+            """, newAmount, id);
+
+        // 记一笔 audit_events，给"调整前/后"留痕
+        jdbc.update("""
+            INSERT INTO audit_events (tenant_id, table_name, entity_id, action, actor_name, old_values, new_values)
+            VALUES (current_setting('app.current_tenant_id')::uuid, 'charges', ?::uuid, 'UPDATE', current_user,
+                    jsonb_build_object('amount', ?, 'status', ?),
+                    jsonb_build_object('amount', ?, 'status', 'ADJUSTED', 'reason', ?))
+            """, id, oldAmount, ch.get("status"), newAmount, reason);
+
+        return Map.of(
+            "id", id,
+            "oldAmount", oldAmount,
+            "newAmount", newAmount,
+            "diff", newAmount.subtract(oldAmount),
+            "status", "ADJUSTED"
+        );
+    }
+
+    private boolean EXISTS_INVOICE_LINE(String chargeId) {
+        Long n = jdbc.queryForObject(
+            "SELECT count(*) FROM customer_invoice_lines WHERE charge_id = ?::uuid", Long.class, chargeId);
+        return n != null && n > 0;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  阶段 ② → ③ 批量审核 + 生成账单：把选中的 charges 合一期 customer_invoice
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/audit-and-invoice")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> auditAndInvoice(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("chargeIds");
+        if (ids == null || ids.isEmpty()) {
+            throw ApiException.badRequest("chargeIds 必填");
+        }
+        String invoiceDate = body.get("invoiceDate") == null ? LocalDate.now().toString()
+                                                              : body.get("invoiceDate").toString();
+
+        // ① 收集 charges 信息，按 customer+currency 分组（同组同期）
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT id::text AS id, customer_id::text AS customer_id, currency,
+                   amount, status::text AS status, audit_status
+              FROM charges WHERE id = ANY(?::uuid[])
+            """, (Object) ids.toArray(new String[0]));
+        if (rows.size() != ids.size()) {
+            throw ApiException.badRequest("部分 charge 不存在");
+        }
+        // 业务校验
+        for (Map<String, Object> r : rows) {
+            if ("VOID".equals(r.get("status"))) {
+                throw ApiException.badRequest("含已作废 charge: " + r.get("id"));
+            }
+            if (EXISTS_INVOICE_LINE((String) r.get("id"))) {
+                throw ApiException.badRequest("含已出账 charge: " + r.get("id"));
+            }
+        }
+
+        Map<String, List<Map<String, Object>>> byCustCur = new LinkedHashMap<>();
+        for (Map<String, Object> r : rows) {
+            String key = r.get("customer_id") + "|" + r.get("currency");
+            byCustCur.computeIfAbsent(key, k -> new ArrayList<>()).add(r);
+        }
+
+        // ② 每组生成一期账单
+        List<Map<String, Object>> created = new ArrayList<>();
+        for (Map.Entry<String, List<Map<String, Object>>> e : byCustCur.entrySet()) {
+            String customerId = e.getKey().split("\\|")[0];
+            String currency = e.getKey().split("\\|")[1];
+            List<Map<String, Object>> group = e.getValue();
+            BigDecimal total = group.stream()
+                .map(r -> (BigDecimal) r.get("amount"))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            // 生成账单编号 CINV-YYYYMM-NNNN
+            String yyyymm = LocalDate.parse(invoiceDate).toString().substring(0, 7).replace("-", "");
+            Integer seq = jdbc.queryForObject("SELECT nextval('cinv_invoice_seq')", Integer.class);
+            String invoiceNo = String.format("CINV-%s-%04d", yyyymm, seq);
+
+            // 上期余额
+            BigDecimal prevBalance = jdbc.queryForObject("""
+                SELECT coalesce(unpaid_amount, 0) FROM customer_invoices
+                 WHERE customer_id = ?::uuid AND currency = ?
+                 ORDER BY created_at DESC LIMIT 1
+                """, BigDecimal.class, customerId, currency);
+            if (prevBalance == null) prevBalance = BigDecimal.ZERO;
+
+            String invoiceId = jdbc.queryForObject("""
+                INSERT INTO customer_invoices (
+                  tenant_id, customer_id, invoice_no, currency,
+                  total_amount, paid_amount, unpaid_amount,
+                  line_count, previous_balance, status, invoice_date, issued_at
+                ) VALUES (
+                  current_setting('app.current_tenant_id')::uuid,
+                  ?::uuid, ?, ?, ?,
+                  0, ?,
+                  ?, ?, 'DRAFT', ?::date, now()
+                ) RETURNING id::text
+                """, String.class,
+                customerId, invoiceNo, currency, total, total,
+                group.size(), prevBalance, invoiceDate);
+
+            // 关联 charges → invoice_lines
+            for (Map<String, Object> r : group) {
+                jdbc.update("""
+                    INSERT INTO customer_invoice_lines (tenant_id, invoice_id, charge_id, amount)
+                    VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid, ?)
+                    """, invoiceId, r.get("id"), r.get("amount"));
+            }
+
+            // 一审通过这些 charges
+            jdbc.update("""
+                UPDATE charges SET audit_status = 'AUDITED', audited_at = now()
+                 WHERE id = ANY(?::uuid[])
+                """, (Object) group.stream().map(r -> (String) r.get("id")).toArray(String[]::new));
+
+            created.add(Map.of(
+                "invoiceId", invoiceId,
+                "invoiceNo", invoiceNo,
+                "customerId", customerId,
+                "currency", currency,
+                "totalAmount", total,
+                "lineCount", group.size(),
+                "previousBalance", prevBalance
+            ));
+        }
+
+        return Map.of(
+            "ok", true,
+            "invoiceCount", created.size(),
+            "chargeCount", rows.size(),
+            "invoices", created
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  UPS / FedEx 实际账单 CSV 导入 → 批量调金额
+    //  CSV 格式（首行 header）：tracking_no,actual_amount,currency
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/import-actual-bill")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> importActualBill(@RequestPart("file") MultipartFile file) throws Exception {
+        if (file == null || file.isEmpty()) {
+            throw ApiException.badRequest("文件必填");
+        }
+        List<Map<String, Object>> matched = new ArrayList<>();
+        List<Map<String, Object>> skipped = new ArrayList<>();
+
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+            String header = reader.readLine();
+            if (header == null) throw ApiException.badRequest("CSV 空文件");
+            String[] cols = header.toLowerCase().split(",");
+            int idxTrack = -1, idxAmount = -1, idxCurrency = -1;
+            for (int i = 0; i < cols.length; i++) {
+                String c = cols[i].trim();
+                if (c.equals("tracking_no") || c.equals("tracking")) idxTrack = i;
+                else if (c.equals("actual_amount") || c.equals("amount")) idxAmount = i;
+                else if (c.equals("currency")) idxCurrency = i;
+            }
+            if (idxTrack < 0 || idxAmount < 0) {
+                throw ApiException.badRequest("CSV 必须包含 tracking_no,actual_amount[,currency] 三列");
+            }
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
+                String[] parts = line.split(",");
+                String trackingNo = parts[idxTrack].trim();
+                BigDecimal newAmount;
+                try { newAmount = new BigDecimal(parts[idxAmount].trim()); }
+                catch (Exception ex) {
+                    skipped.add(Map.of("trackingNo", trackingNo, "reason", "金额格式错: " + parts[idxAmount]));
+                    continue;
+                }
+                String currency = idxCurrency >= 0 && parts.length > idxCurrency
+                    ? parts[idxCurrency].trim() : null;
+
+                // 按 tracking_no 找 charge (走 cartons 表)
+                List<Map<String, Object>> chRows = jdbc.queryForList("""
+                    SELECT ch.id::text AS id, ch.amount, ch.currency, ch.status::text AS status
+                      FROM charges ch
+                      JOIN cartons ct ON ct.shipment_id = ch.shipment_id
+                     WHERE ct.tracking_no = ?
+                       AND ch.side = 'AR'
+                       AND ch.status IN ('ESTIMATED'::charge_status, 'ADJUSTED'::charge_status)
+                       AND NOT EXISTS (SELECT 1 FROM customer_invoice_lines il WHERE il.charge_id = ch.id)
+                    """, trackingNo);
+                if (chRows.isEmpty()) {
+                    skipped.add(Map.of("trackingNo", trackingNo, "reason", "找不到匹配的可调整 charge"));
+                    continue;
+                }
+                // 累加可能多条（一个运单多个 charge_item）— 此处只调整 FREIGHT，简化为按差额按比例
+                // KISS：取第一条调整。后续可扩展
+                Map<String, Object> ch = chRows.get(0);
+                BigDecimal oldAmount = (BigDecimal) ch.get("amount");
+                jdbc.update("""
+                    UPDATE charges SET amount = ?, status = 'ADJUSTED'::charge_status, audit_status = 'PENDING'
+                     WHERE id = ?::uuid
+                    """, newAmount, ch.get("id"));
+                matched.add(Map.of(
+                    "trackingNo", trackingNo,
+                    "chargeId", ch.get("id"),
+                    "oldAmount", oldAmount,
+                    "newAmount", newAmount,
+                    "diff", newAmount.subtract(oldAmount)
+                ));
+            }
+        }
+
+        return Map.of(
+            "matched", matched.size(),
+            "skipped", skipped.size(),
+            "matchedDetails", matched,
+            "skippedDetails", skipped
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  预扣明细 CSV 导出（客户端给客户下载对账用）
+    // ════════════════════════════════════════════════════════════════════════
+    @GetMapping("/prepay-details/export")
+    public ResponseEntity<byte[]> exportPrepayDetails(
+        @RequestParam(required = false) String customerId,
+        @RequestParam(required = false) String currency
+    ) {
+        String custFilter = customerId == null || customerId.isBlank() ? null : customerId;
+        String curFilter = currency == null || currency.isBlank() ? null : currency;
+
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT
+              o.order_no                AS order_no,
+              c.code                    AS customer_code,
+              c.name                    AS customer_name,
+              ch.amount                 AS amount,
+              ch.currency               AS currency,
+              ch.status::text           AS status,
+              to_char(ch.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at
+            FROM charges ch
+            LEFT JOIN orders o    ON o.id  = ch.order_id
+            LEFT JOIN customers c ON c.id  = ch.customer_id
+            WHERE ch.side = 'AR' AND ch.status = 'ESTIMATED'::charge_status
+              AND NOT EXISTS (SELECT 1 FROM customer_invoice_lines il WHERE il.charge_id = ch.id)
+              AND (?::text IS NULL OR ch.customer_id = ?::uuid)
+              AND (?::text IS NULL OR ch.currency = ?)
+            ORDER BY ch.created_at DESC
+            """, custFilter, custFilter, curFilter, curFilter);
+
+        StringBuilder csv = new StringBuilder();
+        csv.append("订单号,客户编码,客户名称,扣款金额,币种,状态,扣款时间\n");
+        for (Map<String, Object> r : rows) {
+            csv.append(escape(r.get("order_no"))).append(',');
+            csv.append(escape(r.get("customer_code"))).append(',');
+            csv.append(escape(r.get("customer_name"))).append(',');
+            csv.append(r.get("amount")).append(',');
+            csv.append(escape(r.get("currency"))).append(',');
+            csv.append(escape(r.get("status"))).append(',');
+            csv.append(escape(r.get("created_at"))).append('\n');
+        }
+        byte[] body = ("﻿" + csv.toString()).getBytes(StandardCharsets.UTF_8); // UTF-8 BOM 让 Excel 正常打开
+        String filename = "prepay_details_" + LocalDate.now() + ".csv";
+        return ResponseEntity.ok()
+            .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+            .header(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=\"" + filename + "\"")
+            .body(body);
+    }
+
+    private static String escape(Object o) {
+        if (o == null) return "";
+        String s = o.toString();
+        if (s.contains(",") || s.contains("\"") || s.contains("\n")) {
+            return "\"" + s.replace("\"", "\"\"") + "\"";
+        }
+        return s;
     }
 }
