@@ -296,6 +296,9 @@ public class AccSettlementWorkbenchController {
     // ═════════════════════════════════════════════════════════════════════════
     //  付款核销 — 给供应商付款，charges SETTLED + balance_ledger PAYMENT
     // ═════════════════════════════════════════════════════════════════════════
+    /** 大额付款阈值（CNY 等值）。超过需要再次确认。 */
+    private static final BigDecimal LARGE_PAYMENT_THRESHOLD = new BigDecimal("50000");
+
     @PostMapping("/pay-supplier")
     @Transactional(rollbackFor = Exception.class)
     @SuppressWarnings("unchecked")
@@ -303,6 +306,8 @@ public class AccSettlementWorkbenchController {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
         String remark = body.get("remark") == null ? "付供应商" : body.get("remark").toString();
+        String fromAccountId = body.get("fromAccountId") == null ? null : body.get("fromAccountId").toString();
+        boolean largeConfirmed = Boolean.TRUE.equals(body.get("largeConfirmed"));
 
         // 校验：全部 AP + AUDITED + UNSETTLED
         List<Map<String, Object>> rows = jdbc.queryForList("""
@@ -321,44 +326,431 @@ public class AccSettlementWorkbenchController {
             if (!"UNSETTLED".equals(r.get("settlement_status"))) throw ApiException.badRequest("含已付 AP: " + r.get("id"));
         }
 
+        // 大额二次确认（按总金额）
+        BigDecimal total = rows.stream().map(r -> (BigDecimal) r.get("amount")).reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (total.compareTo(LARGE_PAYMENT_THRESHOLD) >= 0 && !largeConfirmed) {
+            throw ApiException.badRequest("大额付款 " + total + "，需要 largeConfirmed=true 二次确认");
+        }
+
+        // 按 currency 分组
+        Map<String, BigDecimal> byCurrency = new LinkedHashMap<>();
+        Map<String, List<String>> chargesByCurrency = new LinkedHashMap<>();
+        Map<String, String> channelByCurrency = new LinkedHashMap<>();
+        for (Map<String, Object> r : rows) {
+            String currency = (String) r.get("currency");
+            byCurrency.merge(currency, (BigDecimal) r.get("amount"), BigDecimal::add);
+            chargesByCurrency.computeIfAbsent(currency, k -> new ArrayList<>()).add((String) r.get("id"));
+            channelByCurrency.putIfAbsent(currency, r.get("channel_code") == null ? "?" : r.get("channel_code").toString());
+        }
+
         // 标 SETTLED
         jdbc.update("""
             UPDATE charges SET settlement_status='SETTLED', paid_amount=amount
              WHERE id = ANY(?::uuid[])
             """, (Object) ids.toArray(new String[0]));
 
-        // 按 currency + channel 分组，每组写一条 PAYMENT ledger（owner_type='PARTNER' 占位）
-        Map<String, BigDecimal> byCur = new LinkedHashMap<>();
-        for (Map<String, Object> r : rows) {
-            String key = r.get("currency") + "|" + (r.get("channel_code") == null ? "?" : r.get("channel_code"));
-            byCur.merge(key, (BigDecimal) r.get("amount"), BigDecimal::add);
-        }
-        for (Map.Entry<String, BigDecimal> e : byCur.entrySet()) {
-            String[] parts = e.getKey().split("\\|");
-            String currency = parts[0];
-            String channelCode = parts[1];
-            jdbc.execute("SELECT set_config('app.current_tenant_id', '" + SINGLE_TENANT + "', true)");
+        jdbc.execute("SELECT set_config('app.current_tenant_id', '" + SINGLE_TENANT + "', true)");
+
+        // 每个币种从 COMPANY 账户出钱
+        for (Map.Entry<String, BigDecimal> e : byCurrency.entrySet()) {
+            String currency = e.getKey();
+            BigDecimal amount = e.getValue();
+            String channelCode = channelByCurrency.get(currency);
+
+            // 找付款账户：调用方指定的 / 该币种 COMPANY 账户
+            String accountId;
+            if (fromAccountId != null && !fromAccountId.isBlank()) {
+                List<Map<String, Object>> accCheck = jdbc.queryForList("""
+                    SELECT id::text AS id, currency, balance FROM financial_accounts
+                     WHERE id = ?::uuid AND owner_type='COMPANY'
+                    """, fromAccountId);
+                if (accCheck.isEmpty()) throw ApiException.badRequest("付款账户不存在或不是 COMPANY 账户");
+                if (!currency.equals(accCheck.get(0).get("currency"))) {
+                    throw ApiException.badRequest("付款账户币种 " + accCheck.get(0).get("currency") + " 与应付币种 " + currency + " 不符");
+                }
+                accountId = (String) accCheck.get(0).get("id");
+            } else {
+                List<String> companyAccs = jdbc.queryForList("""
+                    SELECT id::text FROM financial_accounts
+                     WHERE owner_type='COMPANY' AND currency=? ORDER BY created_at LIMIT 1
+                    """, String.class, currency);
+                if (companyAccs.isEmpty()) {
+                    throw ApiException.badRequest("没有 " + currency + " 的 COMPANY 账户，请先建立结算账户");
+                }
+                accountId = companyAccs.get(0);
+            }
+
+            BigDecimal balBefore = jdbc.queryForObject(
+                "SELECT balance FROM financial_accounts WHERE id=?::uuid", BigDecimal.class, accountId);
+            BigDecimal balAfter = balBefore.subtract(amount);
+            jdbc.update("UPDATE financial_accounts SET balance=? WHERE id=?::uuid", balAfter, accountId);
+
+            // 写 ledger
+            String chargeIdsRef = String.join(",", chargesByCurrency.get(currency));
             jdbc.update("""
                 INSERT INTO balance_ledger (
                   account_id, owner_type, owner_id, biz_type, source_type, source_id, source_ref,
                   currency, direction, amount, balance_before, balance_after, operator, remark
                 ) VALUES (
-                  '00000000-0000-0000-0000-000000000000'::uuid,
-                  'PARTNER', NULL,
+                  ?::uuid, 'COMPANY', NULL,
                   'PAYMENT'::balance_ledger_biz_type,
                   'charges', NULL, ?,
                   ?, 'DEBIT'::balance_ledger_direction,
-                  ?, 0, ?, current_user, ?
+                  ?, ?, ?, current_user, ?
                 )
-                """, channelCode, currency, e.getValue(), e.getValue().negate(),
+                """, accountId, chargeIdsRef.length() > 200 ? channelCode : chargeIdsRef,
+                     currency, amount, balBefore, balAfter,
                      remark + " (" + channelCode + ")");
         }
 
         return Map.of(
             "paidCount", rows.size(),
-            "groupCount", byCur.size(),
-            "groups", byCur
+            "groupCount", byCurrency.size(),
+            "groups", byCurrency,
+            "totalAmount", total
         );
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  反审 AP charges
+    // ═════════════════════════════════════════════════════════════════════════
+    @PostMapping("/unaudit-cost-charges")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> unauditCostCharges(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("chargeIds");
+        if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        int n = jdbc.update("""
+            UPDATE charges SET audit_status='PENDING', audited_at=NULL
+             WHERE id = ANY(?::uuid[]) AND side='AP'
+               AND audit_status='AUDITED' AND settlement_status='UNSETTLED'
+            """, (Object) ids.toArray(new String[0]));
+        return Map.of("unauditedCount", n);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  撤销供应商付款 — 反 pay-supplier
+    // ═════════════════════════════════════════════════════════════════════════
+    @PostMapping("/unsettle-payment")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> unsettlePayment(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("chargeIds");
+        if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        String reason = body.get("reason") == null ? "撤销付款" : body.get("reason").toString();
+
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT id::text AS id, amount, currency
+              FROM charges
+             WHERE id = ANY(?::uuid[]) AND side='AP' AND settlement_status='SETTLED'
+            """, (Object) ids.toArray(new String[0]));
+        if (rows.isEmpty()) throw ApiException.badRequest("没有可撤销的已付 AP charges");
+
+        jdbc.update("""
+            UPDATE charges SET settlement_status='UNSETTLED', paid_amount=0
+             WHERE id = ANY(?::uuid[]) AND side='AP'
+            """, (Object) ids.toArray(new String[0]));
+
+        // 退回到 COMPANY 账户（反向 CREDIT）
+        jdbc.execute("SELECT set_config('app.current_tenant_id', '" + SINGLE_TENANT + "', true)");
+        Map<String, BigDecimal> byCur = new LinkedHashMap<>();
+        for (Map<String, Object> r : rows) {
+            byCur.merge((String) r.get("currency"), (BigDecimal) r.get("amount"), BigDecimal::add);
+        }
+        for (Map.Entry<String, BigDecimal> e : byCur.entrySet()) {
+            String currency = e.getKey();
+            BigDecimal amount = e.getValue();
+            List<String> accIds = jdbc.queryForList("""
+                SELECT id::text FROM financial_accounts
+                 WHERE owner_type='COMPANY' AND currency=? ORDER BY created_at LIMIT 1
+                """, String.class, currency);
+            if (accIds.isEmpty()) continue;
+            String accountId = accIds.get(0);
+            BigDecimal balBefore = jdbc.queryForObject(
+                "SELECT balance FROM financial_accounts WHERE id=?::uuid", BigDecimal.class, accountId);
+            BigDecimal balAfter = balBefore.add(amount);
+            jdbc.update("UPDATE financial_accounts SET balance=? WHERE id=?::uuid", balAfter, accountId);
+            jdbc.update("""
+                INSERT INTO balance_ledger (
+                  account_id, owner_type, owner_id, biz_type, source_type, source_id, source_ref,
+                  currency, direction, amount, balance_before, balance_after, operator, remark
+                ) VALUES (
+                  ?::uuid, 'COMPANY', NULL,
+                  'VOID'::balance_ledger_biz_type,
+                  'charges', NULL, NULL,
+                  ?, 'CREDIT'::balance_ledger_direction,
+                  ?, ?, ?, current_user, ?
+                )
+                """, accountId, currency, amount, balBefore, balAfter, "撤销付款: " + reason);
+        }
+        return Map.of("unsettledCount", rows.size(), "groups", byCur);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  AP 批量调整 / 批量作废
+    // ═════════════════════════════════════════════════════════════════════════
+    @PostMapping("/batch-void-cost")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> batchVoidCost(@RequestBody Map<String, Object> body) {
+        List<String> ids = (List<String>) body.get("chargeIds");
+        if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        int n = jdbc.update("""
+            UPDATE charges SET status='VOID'::charge_status, audit_status='PENDING'
+             WHERE id = ANY(?::uuid[]) AND side='AP' AND settlement_status='UNSETTLED'
+            """, (Object) ids.toArray(new String[0]));
+        return Map.of("voidedCount", n);
+    }
+
+    @PostMapping("/batch-adjust-cost")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> batchAdjustCost(@RequestBody Map<String, Object> body) {
+        List<Map<String, Object>> items = (List<Map<String, Object>>) body.get("items");
+        if (items == null || items.isEmpty()) throw ApiException.badRequest("items 必填 [{chargeId, amount}]");
+        int updated = 0;
+        for (Map<String, Object> item : items) {
+            String chargeId = item.get("chargeId").toString();
+            BigDecimal amount = new BigDecimal(item.get("amount").toString());
+            int n = jdbc.update("""
+                UPDATE charges SET amount=?, status='ADJUSTED'::charge_status, audit_status='PENDING'
+                 WHERE id=?::uuid AND side='AP' AND settlement_status='UNSETTLED'
+                   AND status<>'VOID'::charge_status
+                """, amount, chargeId);
+            updated += n;
+        }
+        return Map.of("adjustedCount", updated);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  公司资金账户管理 (COMPANY)
+    // ═════════════════════════════════════════════════════════════════════════
+    @GetMapping("/company-accounts")
+    public Map<String, Object> companyAccounts() {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT id::text, account_name, account_type, currency, balance, is_show, created_at
+              FROM financial_accounts
+             WHERE owner_type='COMPANY'
+             ORDER BY currency, created_at
+            """);
+        return Map.of("data", rows);
+    }
+
+    @PostMapping("/company-accounts")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> createCompanyAccount(@RequestBody Map<String, Object> body) {
+        String name = (String) body.get("accountName");
+        String currency = (String) body.get("currency");
+        String type = body.get("accountType") == null ? "CASH" : body.get("accountType").toString();
+        BigDecimal initBalance = body.get("balance") == null
+            ? BigDecimal.ZERO : new BigDecimal(body.get("balance").toString());
+        if (name == null || name.isBlank()) throw ApiException.badRequest("accountName 必填");
+        if (currency == null || currency.length() != 3) throw ApiException.badRequest("currency 必填(ISO 3 字母)");
+        jdbc.execute("SELECT set_config('app.current_tenant_id', '" + SINGLE_TENANT + "', true)");
+        String id = jdbc.queryForObject("""
+            INSERT INTO financial_accounts (tenant_id, owner_type, owner_id, account_name, account_type, currency, balance, source, is_show)
+            VALUES (current_setting('app.current_tenant_id')::uuid, 'COMPANY', NULL, ?, ?, ?, ?, 'LOCAL', true)
+            RETURNING id::text
+            """, String.class, name, type, currency, initBalance);
+        return Map.of("id", id, "accountName", name, "currency", currency, "balance", initBalance);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  供应商对账单 CSV 导出
+    // ═════════════════════════════════════════════════════════════════════════
+    @GetMapping("/export-supplier-statement")
+    public org.springframework.http.ResponseEntity<byte[]> exportSupplierStatement(
+            @RequestParam(required = false) String channelCode,
+            @RequestParam(required = false) String currency) {
+        StringBuilder sql = new StringBuilder("""
+            SELECT ct.tracking_no, c.code AS channel_code, c.name AS channel_name,
+                   ch.amount, ch.paid_amount, ch.currency,
+                   ch.status::text AS status, ch.audit_status, ch.settlement_status,
+                   ch.created_at, o.order_no
+              FROM charges ch
+              LEFT JOIN shipments s ON s.id = ch.shipment_id
+              LEFT JOIN cartons ct ON ct.shipment_id = ch.shipment_id
+              LEFT JOIN channels c ON c.id = s.channel_id
+              LEFT JOIN orders o ON o.id = ch.order_id
+             WHERE ch.side='AP' AND ch.status<>'VOID'::charge_status
+            """);
+        List<Object> params = new ArrayList<>();
+        if (channelCode != null) { sql.append(" AND c.code=?"); params.add(channelCode); }
+        if (currency != null) { sql.append(" AND ch.currency=?"); params.add(currency); }
+        sql.append(" ORDER BY ch.created_at DESC LIMIT 5000");
+        List<Map<String, Object>> rows = jdbc.queryForList(sql.toString(), params.toArray());
+        StringBuilder csv = new StringBuilder();
+        csv.append("tracking_no,channel_code,channel_name,order_no,amount,paid_amount,currency,status,audit_status,settlement_status,created_at\n");
+        for (Map<String, Object> r : rows) {
+            csv.append(r.getOrDefault("tracking_no", "")).append(",")
+               .append(r.getOrDefault("channel_code", "")).append(",")
+               .append("\"" + String.valueOf(r.getOrDefault("channel_name", "")).replace("\"","\"\"") + "\"").append(",")
+               .append(r.getOrDefault("order_no", "")).append(",")
+               .append(r.getOrDefault("amount", "")).append(",")
+               .append(r.getOrDefault("paid_amount", "")).append(",")
+               .append(r.getOrDefault("currency", "")).append(",")
+               .append(r.getOrDefault("status", "")).append(",")
+               .append(r.getOrDefault("audit_status", "")).append(",")
+               .append(r.getOrDefault("settlement_status", "")).append(",")
+               .append(r.getOrDefault("created_at", "")).append("\n");
+        }
+        byte[] body = csv.toString().getBytes(StandardCharsets.UTF_8);
+        return org.springframework.http.ResponseEntity.ok()
+            .header("Content-Type", "text/csv; charset=utf-8")
+            .header("Content-Disposition", "attachment; filename=supplier-statement-" + LocalDate.now() + ".csv")
+            .body(body);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  账龄分析 AR / AP — 30/60/90+ 分桶
+    // ═════════════════════════════════════════════════════════════════════════
+    @GetMapping("/aging")
+    public Map<String, Object> aging() {
+        // 输出形态对齐表格 {data, total}，加 side 字段区分 AR / AP
+        List<Map<String, Object>> all = jdbc.queryForList("""
+            SELECT 'AR' AS side,
+              CASE
+                WHEN (now() - issued_at) < interval '30 days' THEN '0-30'
+                WHEN (now() - issued_at) < interval '60 days' THEN '31-60'
+                WHEN (now() - issued_at) < interval '90 days' THEN '61-90'
+                ELSE '90+'
+              END AS bucket,
+              currency,
+              count(*) AS row_count,
+              coalesce(sum(total_amount - coalesce(paid_amount, 0)), 0) AS unpaid_amount
+            FROM customer_invoices
+            WHERE status IN ('SENT', 'PENDING', 'PARTIAL_PAID')
+            GROUP BY bucket, currency
+            UNION ALL
+            SELECT 'AP' AS side,
+              CASE
+                WHEN (now() - created_at) < interval '30 days' THEN '0-30'
+                WHEN (now() - created_at) < interval '60 days' THEN '31-60'
+                WHEN (now() - created_at) < interval '90 days' THEN '61-90'
+                ELSE '90+'
+              END AS bucket,
+              currency,
+              count(*) AS row_count,
+              coalesce(sum(amount), 0) AS unpaid_amount
+            FROM charges
+            WHERE side='AP' AND status<>'VOID'::charge_status AND settlement_status='UNSETTLED'
+            GROUP BY bucket, currency
+            ORDER BY side, bucket, currency
+            """);
+        return Map.of("data", all, "total", all.size());
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  月度财报 — 按月汇总 AR/AP/利润
+    // ═════════════════════════════════════════════════════════════════════════
+    @GetMapping("/monthly-report")
+    public Map<String, Object> monthlyReport(@RequestParam(required = false) Integer year) {
+        int y = year == null ? java.time.Year.now().getValue() : year;
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
+                   currency,
+                   sum(CASE WHEN side='AR' THEN amount ELSE 0 END) AS ar,
+                   sum(CASE WHEN side='AP' THEN amount ELSE 0 END) AS ap,
+                   sum(CASE WHEN side='AR' THEN amount ELSE -amount END) AS profit,
+                   count(DISTINCT shipment_id) AS shipment_count
+              FROM charges
+             WHERE status<>'VOID'::charge_status
+               AND extract(year FROM created_at) = ?
+             GROUP BY month, currency
+             ORDER BY month, currency
+            """, y);
+        return Map.of("year", y, "data", rows, "total", rows.size());
+    }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  业绩提成 — 按订单利润 × 业务员 % 生成
+    // ═════════════════════════════════════════════════════════════════════════
+    @PostMapping("/commissions/generate")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> generateCommissions(@RequestBody Map<String, Object> body) {
+        BigDecimal rate;
+        try { rate = new BigDecimal(body.getOrDefault("rate", "0.05").toString()); }
+        catch (Exception ex) { throw ApiException.badRequest("rate 必须为数字（默认 0.05 = 5%）"); }
+        String month = body.get("month") == null
+            ? java.time.YearMonth.now().toString() : body.get("month").toString();
+        // 扫描该月有 SETTLED AP 的 shipment，按业务员聚合利润
+        List<Map<String, Object>> aggregated = jdbc.queryForList("""
+            SELECT c.salesman_id::text AS employee_id, ch.currency,
+                   sum(CASE WHEN ch.side='AR' THEN ch.amount ELSE -ch.amount END) AS profit_amount,
+                   sum(CASE WHEN ch.side='AR' THEN ch.amount ELSE 0 END) AS sales_amount,
+                   count(DISTINCT ch.shipment_id) AS shipment_count
+              FROM charges ch
+              JOIN customers c ON c.id = ch.customer_id
+             WHERE ch.status<>'VOID'::charge_status
+               AND c.salesman_id IS NOT NULL
+               AND to_char(date_trunc('month', ch.created_at), 'YYYY-MM') = ?
+             GROUP BY c.salesman_id, ch.currency
+             HAVING sum(CASE WHEN ch.side='AR' THEN ch.amount ELSE -ch.amount END) > 0
+            """, month);
+        int generated = 0;
+        for (Map<String, Object> row : aggregated) {
+            // 同月同业务员同币种已有则跳过
+            Integer dup = jdbc.queryForObject("""
+                SELECT count(*) FROM acc_commissions
+                 WHERE employee_id=?::uuid AND the_month=? AND currency=?
+                """, Integer.class, row.get("employee_id"), month, row.get("currency"));
+            if (dup != null && dup > 0) continue;
+            BigDecimal profit = (BigDecimal) row.get("profit_amount");
+            BigDecimal commission = profit.multiply(rate).setScale(2, java.math.RoundingMode.HALF_UP);
+            jdbc.update("""
+                INSERT INTO acc_commissions
+                  (tenant_id, employee_id, the_month, amount, currency, sales_amount, profit_amount, status, audit_status, remark)
+                VALUES
+                  (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, ?, ?, ?, ?, 'PENDING', 'PENDING', ?)
+                """, row.get("employee_id"), month, commission, row.get("currency"),
+                     row.get("sales_amount"), profit,
+                     "自动生成: " + month + " 利润 × " + rate);
+            generated++;
+        }
+        return Map.of("month", month, "rate", rate, "generated", generated);
+    }
+
+    @GetMapping("/commissions")
+    public Map<String, Object> listCommissions(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize) {
+        int limit = AccPaging.pageSize(pageSize);
+        int offset = AccPaging.offset(page, pageSize);
+        Long total = jdbc.queryForObject("SELECT count(*) FROM acc_commissions", Long.class);
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT co.id::text AS id, co.employee_id::text AS employee_id,
+                   e.name AS employee_name, e.code AS employee_code,
+                   co.the_month, co.amount, co.currency, co.sales_amount, co.profit_amount,
+                   co.status, co.audit_status, co.audited_at, co.audit_name, co.remark, co.created_at
+              FROM acc_commissions co
+              LEFT JOIN acc_employees e ON e.id = co.employee_id
+             ORDER BY co.created_at DESC LIMIT ? OFFSET ?
+            """, limit, offset);
+        return AccPaging.result(rows, total == null ? 0 : total);
+    }
+
+    @PostMapping("/commissions/{id}/approve")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> approveCommission(@PathVariable String id) {
+        int n = jdbc.update("""
+            UPDATE acc_commissions SET audit_status='AUDITED', audited_at=now(),
+                   audit_name=current_user
+             WHERE id=?::uuid AND audit_status='PENDING'
+            """, id);
+        return Map.of("approved", n);
+    }
+
+    @PostMapping("/commissions/{id}/pay")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> payCommission(@PathVariable String id) {
+        Map<String, Object> com = jdbc.queryForMap("""
+            SELECT employee_id::text AS employee_id, amount, currency, audit_status, status
+              FROM acc_commissions WHERE id=?::uuid
+            """, id);
+        if (!"AUDITED".equals(com.get("audit_status"))) throw ApiException.badRequest("未审核不能付");
+        if ("PAID".equals(com.get("status"))) throw ApiException.badRequest("已付，请勿重复");
+        jdbc.update("UPDATE acc_commissions SET status='PAID' WHERE id=?::uuid", id);
+        return Map.of("paid", true, "amount", com.get("amount"), "currency", com.get("currency"));
     }
 
     // ═════════════════════════════════════════════════════════════════════════

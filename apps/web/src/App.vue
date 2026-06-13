@@ -216,6 +216,16 @@ async function fetchFwbDashboard() {
   } catch {}
 }
 
+const swbDashboard = ref<any>(null);
+async function fetchSwbDashboard() {
+  swbDashboard.value = null;
+  if (!accTab.value.startsWith('swb-')) return;
+  try {
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/profit-summary`);
+    if (res.ok) swbDashboard.value = await res.json();
+  } catch {}
+}
+
 async function fetchFwbBalance() {
   fwbBalance.value = null;
   if (accTab.value !== 'fwb-prepay' || !fwbSelectedCustomer.value) return;
@@ -527,6 +537,9 @@ const accTabs = [
   { key: "swb-pending-pay",  label: "待付供应商",         icon: CreditCard,  api: "settlement-workbench/pending-pay" },
   { key: "swb-paid",         label: "已付成本",           icon: ReceiptText, api: "settlement-workbench/paid" },
   { key: "swb-profit",       label: "利润分析",           icon: BarChart3,   api: "settlement-workbench/profit-list" },
+  { key: "swb-aging",        label: "账龄分析",           icon: Clock,       api: "settlement-workbench/aging" },
+  { key: "swb-monthly",      label: "月度财报",           icon: BarChart3,   api: "settlement-workbench/monthly-report" },
+  { key: "swb-commissions",  label: "业绩提成",           icon: Gift,        api: "settlement-workbench/commissions" },
   // alair: 应收款项目（A1 财务任务）
   { key: "customer-receivables", label: "应收款项目", icon: TrendingUp, api: "customer-receivables" },
   // 财务工作台 — 一票货的 3 阶段视图
@@ -770,6 +783,9 @@ const accGroupAccounting = [
   T("swb-pending-pay"),
   T("swb-paid"),
   T("swb-profit"),
+  T("swb-aging"),
+  T("swb-monthly"),
+  T("swb-commissions"),
   // 其余核算项
   T("bills"),
   T("profits"),
@@ -1122,6 +1138,33 @@ Object.assign(accColumns, {
     { key: "ap_total",      label: "应付 AP", fmt: "money" },
     { key: "profit",        label: "利润",    fmt: "money" },
     { key: "currency",      label: "币种" },
+  ],
+  "swb-aging": [
+    { key: "side",   label: "侧" },
+    { key: "bucket", label: "账龄分桶" },
+    { key: "currency", label: "币种" },
+    { key: "row_count", label: "条数" },
+    { key: "unpaid_amount", label: "未付金额", fmt: "money" },
+  ],
+  "swb-monthly": [
+    { key: "month", label: "月份" },
+    { key: "currency", label: "币种" },
+    { key: "ar", label: "AR", fmt: "money" },
+    { key: "ap", label: "AP", fmt: "money" },
+    { key: "profit", label: "利润", fmt: "money" },
+    { key: "shipment_count", label: "运单数" },
+  ],
+  "swb-commissions": [
+    { key: "employee_code", label: "员工编码" },
+    { key: "employee_name", label: "员工" },
+    { key: "the_month", label: "月份" },
+    { key: "sales_amount", label: "销售额", fmt: "money" },
+    { key: "profit_amount", label: "利润", fmt: "money" },
+    { key: "amount", label: "提成", fmt: "money" },
+    { key: "currency", label: "币种" },
+    { key: "audit_status", label: "审核" },
+    { key: "status", label: "付款" },
+    { key: "created_at", label: "生成时间", fmt: "datetime" },
   ],
   bills: [
     { key: "no", label: "账单号" },
@@ -1958,6 +2001,7 @@ const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'custome
   'costs-transit', 'costs-zhonggang', 'costs-air',
   // 核算工作台 view tab 只读
   'swb-cost-pending', 'swb-pending-pay', 'swb-paid', 'swb-profit',
+  'swb-aging', 'swb-monthly', 'swb-commissions',
   // 问题件/赔偿子页只读
   'asks-customer', 'asks-supplier', 'asks-processing', 'asks-pending', 'asks-history',
   'reparations-pending', 'reparations-history',
@@ -3140,6 +3184,11 @@ watch(accTab, () => {
   if (accTab.value.startsWith('fwb-')) {
     fetchFwbDashboard();
   }
+  // 核算工作台 — 所有 swb tab 都加载利润 dashboard + 付款账户
+  if (accTab.value.startsWith('swb-')) {
+    fetchSwbDashboard();
+    fetchSwbCompanyAccounts();
+  }
   // 批量页面 / 批量打印页不需要拉列表数据
   if (!batchPageSet.has(accTab.value) && accTab.value !== 'orders-batch-print') {
     fetchAccData();
@@ -4197,7 +4246,17 @@ async function doAuditCostCharges() {
 }
 
 // 核算工作台 — 付供应商
-async function doPaySupplier() {
+// 核算工作台 — 付款账户下拉数据
+const swbFromAccountId = ref<string>('');
+const swbCompanyAccounts = ref<any[]>([]);
+async function fetchSwbCompanyAccounts() {
+  try {
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/company-accounts`);
+    if (res.ok) { const j = await res.json(); swbCompanyAccounts.value = j.data || []; }
+  } catch {}
+}
+
+async function doPaySupplier(largeConfirmed = false) {
   if (selectedIds.value.size === 0) return;
   const remark = prompt('付款备注（如：UPS 2026-06 月结）', 'UPS 月结');
   if (remark === null) return;
@@ -4207,18 +4266,120 @@ async function doPaySupplier() {
     const res = await apiFetch(`${API}/api/acc/settlement-workbench/pay-supplier`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value), remark }),
+      body: JSON.stringify({
+        chargeIds: Array.from(selectedIds.value),
+        remark,
+        fromAccountId: swbFromAccountId.value || null,
+        largeConfirmed,
+      }),
     });
     const j = await res.json();
-    if (!res.ok) { bizMessage.value = '付款失败: ' + (j.error || res.status); return; }
-    bizMessage.value = `已付 ${j.paidCount} 条 AP，写 ${j.groupCount} 条 ledger`;
+    if (!res.ok) {
+      // 大额付款触发二次确认
+      if (j.error && j.error.includes('largeConfirmed=true') && !largeConfirmed) {
+        bizLoading.value = false;
+        if (confirm(`${j.error}\n再次确认付款吗？`)) {
+          return doPaySupplier(true);
+        }
+        return;
+      }
+      bizMessage.value = '付款失败: ' + (j.error || res.status); return;
+    }
+    bizMessage.value = `已付 ${j.paidCount} 条 AP，总额 ${j.totalAmount}，写 ${j.groupCount} 条 ledger`;
     selectedIds.value.clear();
     fetchAccData();
+    fetchSwbCompanyAccounts();
   } catch (e: any) { bizMessage.value = '付款失败: ' + e.message; }
   finally {
     bizLoading.value = false;
     setTimeout(()=>bizMessage.value='', 6000);
   }
+}
+
+async function doUnauditCostCharges() {
+  if (selectedIds.value.size === 0) return;
+  if (!confirm(`反审 ${selectedIds.value.size} 条 AP 成本（AUDITED → PENDING），确定？`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/unaudit-cost-charges`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value) }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '反审失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `已反审 ${j.unauditedCount} 条 AP`;
+    selectedIds.value.clear(); fetchAccData();
+  } catch (e: any) { bizMessage.value = '反审失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
+}
+
+async function doUnsettlePayment() {
+  if (selectedIds.value.size === 0) return;
+  const reason = prompt('撤销付款原因', '错付');
+  if (reason === null) return;
+  if (!confirm(`撤销 ${selectedIds.value.size} 条 AP 付款（资金会退回 COMPANY 账户），确定？`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/unsettle-payment`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value), reason }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '撤销失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `已撤销 ${j.unsettledCount} 条付款，资金已退回`;
+    selectedIds.value.clear(); fetchAccData(); fetchSwbCompanyAccounts();
+  } catch (e: any) { bizMessage.value = '撤销失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
+}
+
+async function doBatchVoidCost() {
+  if (selectedIds.value.size === 0) return;
+  if (!confirm(`将 ${selectedIds.value.size} 条 AP 成本作废（UNSETTLED 才能作废），确定？`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/batch-void-cost`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chargeIds: Array.from(selectedIds.value) }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '作废失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `已作废 ${j.voidedCount} 条 AP`;
+    selectedIds.value.clear(); fetchAccData();
+  } catch (e: any) { bizMessage.value = '作废失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
+}
+
+async function doGenerateCommissions() {
+  const rate = prompt('提成比例（默认 5%）', '0.05');
+  if (rate === null) return;
+  const month = prompt('月份 YYYY-MM（默认当月）', new Date().toISOString().slice(0,7));
+  if (month === null) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/settlement-workbench/commissions/generate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rate, month }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '生成失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `已生成 ${j.generated} 条提成（${j.month} × ${j.rate}）`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '生成失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
+}
+
+function doExportSupplierStatement() {
+  const url = `${API}/api/acc/settlement-workbench/export-supplier-statement`;
+  // 用 fetch 拿 blob 触发下载（保留 auth header）
+  apiFetch(url).then(async (res) => {
+    if (!res.ok) { bizMessage.value = '导出失败: ' + res.status; return; }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `supplier-statement-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click(); URL.revokeObjectURL(a.href);
+    bizMessage.value = '已导出';
+  });
 }
 
 // 财务工作台 — charge 审计时间线弹窗
@@ -5382,13 +5543,38 @@ async function doReloadBill(id: number) {
               <input type="file" accept=".csv" @change="doImportActualCost" style="display:none" :disabled="bizLoading" />
             </label>
           </template>
-          <!-- 核算工作台 - 待付成本 工具栏（审核 + 付供应商）-->
+          <!-- 核算工作台 - 待付成本 工具栏（审核 + 付供应商 + 反审 + 批量作废）-->
           <template v-if="accTab === 'swb-pending-pay'">
+            <select v-model="swbFromAccountId" style="padding:4px 8px; border:1px solid #cbd5e1; border-radius:4px; font-size:12px;">
+              <option value="">— 默认付款账户 —</option>
+              <option v-for="a in swbCompanyAccounts" :key="a.id" :value="a.id">{{ a.account_name }} ({{ a.currency }} 余额 {{ a.balance }})</option>
+            </select>
             <button class="secondary sm" @click="doAuditCostCharges" :disabled="bizLoading || selectedIds.size === 0">
               <CheckCircle :size="13" /> 审核成本({{ selectedIds.size }})
             </button>
-            <button class="primary sm" @click="doPaySupplier" :disabled="bizLoading || selectedIds.size === 0">
+            <button class="secondary sm" @click="doUnauditCostCharges" :disabled="bizLoading || selectedIds.size === 0">
+              <RefreshCw :size="13" /> 反审({{ selectedIds.size }})
+            </button>
+            <button class="primary sm" @click="doPaySupplier()" :disabled="bizLoading || selectedIds.size === 0">
               <Landmark :size="13" /> 付供应商({{ selectedIds.size }})
+            </button>
+            <button class="secondary sm" @click="doBatchVoidCost" :disabled="bizLoading || selectedIds.size === 0" style="color:#dc2626">
+              <XCircle :size="13" /> 批量作废({{ selectedIds.size }})
+            </button>
+          </template>
+          <!-- 核算工作台 - 业绩提成（生成 + 审批 + 付款）-->
+          <template v-if="accTab === 'swb-commissions'">
+            <button class="primary sm" @click="doGenerateCommissions" :disabled="bizLoading">
+              <Plus :size="13" /> 自动生成本月提成
+            </button>
+          </template>
+          <!-- 核算工作台 - 已付成本（撤销付款）-->
+          <template v-if="accTab === 'swb-paid'">
+            <button class="secondary sm" @click="doUnsettlePayment" :disabled="bizLoading || selectedIds.size === 0" style="color:#dc2626">
+              <RefreshCw :size="13" /> 撤销付款({{ selectedIds.size }})
+            </button>
+            <button class="secondary sm" @click="doExportSupplierStatement" :disabled="bizLoading">
+              <FileText :size="13" /> 导出供应商对账 CSV
             </button>
           </template>
           <!-- 财务工作台 - 待审核 tab 工具栏（一审 / 出账 / 合并 三选一）-->
@@ -5747,6 +5933,35 @@ async function doReloadBill(id: number) {
           <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #0ea5e9; min-width:140px;">
             <div style="font-size:11px; color:#64748b;">活跃客户</div>
             <div style="font-size:16px; font-weight:600; color:#0ea5e9;">{{ fwbDashboard.activeCustomers }}</div>
+          </div>
+        </div>
+
+        <!-- 核算工作台 - 利润 dashboard (所有 swb tab 都展示) -->
+        <div v-if="accTab.startsWith('swb-') && swbDashboard"
+             style="margin: 12px 0; display:flex; gap:10px; flex-wrap:wrap;">
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #10b981; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">总应收 AR</div>
+            <div style="font-size:16px; font-weight:600; color:#10b981;">{{ swbDashboard.totalAr }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #ef4444; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">总应付 AP</div>
+            <div style="font-size:16px; font-weight:600; color:#ef4444;">{{ swbDashboard.totalAp }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #6366f1; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">总利润</div>
+            <div style="font-size:16px; font-weight:600; color:#6366f1;">{{ swbDashboard.totalProfit }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #f59e0b; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">利润率</div>
+            <div style="font-size:16px; font-weight:600; color:#f59e0b;">{{ swbDashboard.profitRate }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #10b981; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">本月 AR</div>
+            <div style="font-size:16px; font-weight:600; color:#10b981;">{{ swbDashboard.monthAr }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #6366f1; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">本月利润</div>
+            <div style="font-size:16px; font-weight:600; color:#6366f1;">{{ swbDashboard.monthProfit }}</div>
           </div>
         </div>
 
