@@ -2023,12 +2023,41 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'Product', label: '销售产品', type: 'select', ref: 'products' },
     { col: 'Channel', label: '渠道', type: 'select', ref: 'channels' },
     { col: 'Country', label: '目的地', type: 'select', ref: 'countries' },
+    { col: 'Postcode', label: '收件人邮编', type: 'text' },
     { col: 'Branch', label: '分公司', type: 'select', ref: 'branches' },
+    { col: 'ItemType', label: '物品类型', type: 'select', opts: [
+      { v: 'DOCUMENT', l: '文件' }, { v: 'GENERAL', l: '普货' },
+      { v: 'SENSITIVE', l: '敏感货' }, { v: 'LIQUID', l: '液体' }, { v: 'POWDER', l: '粉末' }
+    ] },
+    { col: 'BatteryType', label: '电池类型', type: 'select', opts: [
+      { v: 'NONE', l: '无电池' }, { v: 'PURE', l: '纯电池' },
+      { v: 'BUILT_IN', l: '内置电池' }, { v: 'MATCH', l: '配套电池' }
+    ] },
+    { col: 'SpecialType', label: '特殊类型', type: 'select', opts: [
+      { v: 'STANDARD', l: '标准' }, { v: 'CHEMICAL', l: '化工品' },
+      { v: 'LIQUID', l: '液体' }, { v: 'MAGNETIC', l: '磁性物品' }
+    ] },
+    { col: 'MaterialsEn', label: '英文品名', type: 'text' },
     { col: 'Piece', label: '件数', type: 'number' },
     { col: 'Weight', label: '实重(kg)', type: 'number' },
     { col: 'ChargeWeight', label: '计费重(kg)', type: 'number' },
     { col: 'Volume', label: '体积(m³)', type: 'number' },
     { col: 'DeclaredValue', label: '申报价值', type: 'number' },
+    { col: 'IsInsurance', label: '是否参保', type: 'boolean' },
+    { col: 'IsRemote', label: '远程地区', type: 'boolean' },
+    { col: 'SurchargeIds', label: '附加费 (逗号分隔 ID)', type: 'text' },
+    { col: 'CartonsRows', label: '货箱明细 (每行: 件,重kg,长cm,宽cm,高cm,追踪号)', type: 'textarea' },
+    { col: 'RecipientConsignee', label: '收件人姓名', type: 'text' },
+    { col: 'RecipientCompany',   label: '收件人公司', type: 'text' },
+    { col: 'RecipientPhone',     label: '收件人电话', type: 'text' },
+    { col: 'RecipientEmail',     label: '收件人邮箱', type: 'text' },
+    { col: 'RecipientAddress',   label: '收件人地址', type: 'text' },
+    { col: 'RecipientCity',      label: '收件人城市', type: 'text' },
+    { col: 'RecipientProvince',  label: '收件人州/省', type: 'text' },
+    { col: 'RecipientHouseNo',   label: '门牌号', type: 'text' },
+    { col: 'AmazonRef',          label: '亚马逊参考号', type: 'text' },
+    { col: 'TaxNo',              label: '收件人税号', type: 'text' },
+    { col: 'IsCustoms',          label: '清关货物', type: 'boolean' },
     { col: 'Remark', label: '备注', type: 'textarea' },
   ],
   collects: [
@@ -3401,14 +3430,73 @@ async function saveForm() {
   const tab = accTabs.find(t => t.key === accTab.value);
   if (!tab) return;
   try {
-    const url = formMode.value === 'add'
-      ? `${API}/api/acc/${tab.api}`
-      : `${API}/api/acc/${tab.api}/${editId.value}`;
-    const method = formMode.value === 'add' ? 'POST' : 'PUT';
+    let url: string;
+    let method: string;
+    let body: any = formData;
+    if (formMode.value === 'add' && tab.key === 'orders') {
+      // ACC Express 对齐：制单走 /full 端点，前端 PascalCase formData 翻译为 camelCase
+      url = `${API}/api/acc/orders/full`;
+      method = 'POST';
+      body = {
+        orderNo:       (formData as any).No,
+        customerId:    (formData as any).Customer,
+        customerRef:   (formData as any).TrackNo,
+        product:       (formData as any).Product,
+        channelAccount:(formData as any).Channel,
+        country:       (formData as any).Country,
+        postcode:      (formData as any).Postcode,
+        itemType:      (formData as any).ItemType,
+        batteryType:   (formData as any).BatteryType,
+        specialType:   (formData as any).SpecialType,
+        materialsEn:   (formData as any).MaterialsEn,
+        piece:         (formData as any).Piece,
+        weight:        (formData as any).Weight,
+        volume:        (formData as any).Volume,
+        declaredValue: (formData as any).DeclaredValue,
+        isInsurance:   !!(formData as any).IsInsurance,
+        isRemote:      !!(formData as any).IsRemote,
+        surchargeIds:  ((formData as any).SurchargeIds || '').split(',').map((s:string)=>s.trim()).filter(Boolean),
+        remark:        (formData as any).Remark,
+        receiver: {
+          consignee: (formData as any).RecipientConsignee || '',
+          company:   (formData as any).RecipientCompany   || '',
+          phone:     (formData as any).RecipientPhone     || '',
+          email:     (formData as any).RecipientEmail     || '',
+          address:   (formData as any).RecipientAddress   || '',
+          city:      (formData as any).RecipientCity      || '',
+          province:  (formData as any).RecipientProvince  || '',
+          houseNo:   (formData as any).RecipientHouseNo   || '',
+          amazonRef: (formData as any).AmazonRef          || '',
+          taxNo:     (formData as any).TaxNo              || '',
+          isCustoms: !!(formData as any).IsCustoms,
+        },
+        // 货箱明细：每行 "qty,weight,length,width,height,tracking_no" → packageList[]
+        packageList: ((formData as any).CartonsRows || '').split(/\r?\n/)
+          .map((line: string) => line.trim())
+          .filter((line: string) => line.length > 0)
+          .map((line: string, idx: number) => {
+            const cols = line.split(',').map(s => s.trim());
+            return {
+              no:       String(idx + 1),
+              piece:    Number(cols[0]) || 1,
+              weight:   Number(cols[1]) || 0,
+              length:   Number(cols[2]) || 0,
+              width:    Number(cols[3]) || 0,
+              height:   Number(cols[4]) || 0,
+              trackingNo: cols[5] || '',
+            };
+          }),
+      };
+    } else {
+      url = formMode.value === 'add'
+        ? `${API}/api/acc/${tab.api}`
+        : `${API}/api/acc/${tab.api}/${editId.value}`;
+      method = formMode.value === 'add' ? 'POST' : 'PUT';
+    }
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData),
+      body: JSON.stringify(body),
     });
     const json = await res.json();
     if (json.error) {

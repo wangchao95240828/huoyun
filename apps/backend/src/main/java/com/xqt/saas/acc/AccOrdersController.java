@@ -423,16 +423,34 @@ public class AccOrdersController {
         metadata.put("acc_compat", accCompat);
         String metaJson = json.toJson(metadata);
 
-        // 1) INSERT orders
+        // 1) INSERT orders — 同时落 ACC Express 表单的 8 个 header 字段为一等列
+        String surchargeIdsJson;
+        Object surchargesRaw = body.get("surchargeIds");
+        if (surchargesRaw instanceof List<?>) {
+            surchargeIdsJson = json.toJson(surchargesRaw);
+        } else {
+            surchargeIdsJson = "[]";
+        }
         String orderId = jdbc.queryForObject("""
             INSERT INTO orders (
-              tenant_id, order_no, customer_id, status, source, customer_ref, metadata
+              tenant_id, order_no, customer_id, status, source, customer_ref, metadata,
+              postcode, item_type, battery_type, special_type, materials_en,
+              is_insurance, is_remote, surcharge_ids
             ) VALUES (
               current_setting('app.current_tenant_id')::uuid,
-              ?, ?::uuid, 'DRAFT', 'LOCAL', ?, ?::jsonb
+              ?, ?::uuid, 'DRAFT', 'LOCAL', ?, ?::jsonb,
+              ?, ?, ?, ?, ?, ?, ?, ?::jsonb
             )
             RETURNING id::text
-            """, String.class, orderNo, customerId, customerRef, metaJson);
+            """, String.class, orderNo, customerId, customerRef, metaJson,
+                 strOrNull(body.get("postcode")),
+                 strOrNull(body.get("itemType")),
+                 strOrNull(body.get("batteryType")),
+                 strOrNull(body.get("specialType")),
+                 strOrNull(body.get("materialsEn")),
+                 Boolean.TRUE.equals(body.get("isInsurance")),
+                 Boolean.TRUE.equals(body.get("isRemote")),
+                 surchargeIdsJson);
 
         // 申报明细 + 装箱单明细 持久化到 orders.metadata.acc_compat（与 customer-api 同结构）。
         // Submit 阶段再 INSERT 到 declarations / cartons 表（需要 shipment_id 关联）。
