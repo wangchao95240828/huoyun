@@ -75,6 +75,8 @@ import {
   Webhook,
   Send,
   TrendingUp,
+  Wallet,
+  AlertCircle,
 } from "lucide-vue-next";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -497,6 +499,10 @@ const accTabs = [
   { key: "costs-air", label: "航空成本", icon: Plane, api: "costs", statusFilter: "AIR" },
   // alair: 应收款项目（A1 财务任务）
   { key: "customer-receivables", label: "应收款项目", icon: TrendingUp, api: "customer-receivables" },
+  // 财务工作台 — 一票货的 3 阶段视图
+  { key: "fwb-prepay",   label: "预扣明细", icon: Wallet, api: "finance-workbench/prepay-details" },
+  { key: "fwb-pending",  label: "待财务审核", icon: AlertCircle, api: "finance-workbench/pending-audit" },
+  { key: "fwb-invoiced", label: "已出账", icon: ReceiptText, api: "finance-workbench/invoiced" },
   { key: "bills", label: "客户账单", icon: ReceiptText, api: "bills" },
   { key: "payments", label: "供应商付款", icon: Landmark, api: "payments" },
   { key: "receiveds", label: "客户收款", icon: Coins, api: "receiveds" },
@@ -995,6 +1001,37 @@ Object.assign(accColumns, {
     { key: "settlement_method", label: "结算方式" },
     { key: "credit_amount",     label: "授信额度", fmt: "money" },
     { key: "last_payment_at",   label: "最后付款", fmt: "datetime" },
+  ],
+  // 财务工作台 — 三 bucket 共用列定义
+  "fwb-prepay": [
+    { key: "order_no",      label: "订单号" },
+    { key: "customer_code", label: "客户编码" },
+    { key: "customer_name", label: "客户" },
+    { key: "amount",        label: "扣款金额", fmt: "money" },
+    { key: "currency",      label: "币种" },
+    { key: "status",        label: "状态" },
+    { key: "created_at",    label: "扣款时间", fmt: "datetime" },
+  ],
+  "fwb-pending": [
+    { key: "order_no",      label: "订单号" },
+    { key: "customer_code", label: "客户编码" },
+    { key: "customer_name", label: "客户" },
+    { key: "amount",        label: "调整后金额", fmt: "money" },
+    { key: "currency",      label: "币种" },
+    { key: "status",        label: "状态" },
+    { key: "audit_status",  label: "审核状态" },
+    { key: "created_at",    label: "更新时间", fmt: "datetime" },
+  ],
+  "fwb-invoiced": [
+    { key: "invoice_no",    label: "账单号" },
+    { key: "order_no",      label: "订单号" },
+    { key: "customer_code", label: "客户编码" },
+    { key: "customer_name", label: "客户" },
+    { key: "amount",        label: "出账金额", fmt: "money" },
+    { key: "paid_amount",   label: "已付", fmt: "money" },
+    { key: "currency",      label: "币种" },
+    { key: "settlement_status", label: "结算" },
+    { key: "created_at",    label: "时间", fmt: "datetime" },
   ],
   bills: [
     { key: "no", label: "账单号" },
@@ -1835,7 +1872,9 @@ const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'custome
   // API 调用日志 + webhook 事件只读
   'api-call-logs', 'webhook-events',
   // alair: 应收款项目（只读视图）
-  'customer-receivables']);
+  'customer-receivables',
+  // 财务工作台 3 视图都只读
+  'fwb-prepay', 'fwb-pending', 'fwb-invoiced']);
 
 const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v: 2, l: '日结' }, { v: 3, l: '周结' }, { v: 4, l: '半月结' }, { v: 5, l: '月结' }, { v: 6, l: '自定义' }];
 
