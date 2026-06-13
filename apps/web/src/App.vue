@@ -4070,6 +4070,15 @@ async function doImportActualBill(ev: Event) {
 }
 
 // 财务工作台 — charge 审计时间线弹窗
+// 后端 audit_events.before_state/after_state 是 PG jsonb，Spring 序列化时会包成
+// {type:"jsonb", value:"...", null:false}。这里 unwrap 出真正的 JSON。
+function unwrapJsonb(v: any): any {
+  if (v == null) return null;
+  if (typeof v === 'object' && v.type === 'jsonb' && typeof v.value === 'string') {
+    try { return JSON.parse(v.value); } catch { return v.value; }
+  }
+  return v;
+}
 async function doViewChargeHistory(row: any) {
   bizLoading.value = true;
   try {
@@ -4080,10 +4089,18 @@ async function doViewChargeHistory(row: any) {
     if (events.length === 0) { bizMessage.value = '该 charge 还没有审计记录'; return; }
     const lines = events.map((e: any) => {
       const t = (e.occurred_at || '').slice(0, 19).replace('T', ' ');
-      const before = JSON.stringify(e.before_state || {});
-      const after = JSON.stringify(e.after_state || {});
+      const before = unwrapJsonb(e.before_state);
+      const after = unwrapJsonb(e.after_state);
+      // 只挑常见关键字段显示，避免显示 AUDIT 全 charge 那种 30+ 字段巨大文本
+      const keys = ['amount', 'status', 'audit_status', 'settlement_status', 'paid_amount'];
+      const fmt = (obj: any) => {
+        if (!obj || typeof obj !== 'object') return String(obj);
+        const filtered: Record<string, any> = {};
+        keys.forEach(k => { if (k in obj) filtered[k] = obj[k]; });
+        return Object.keys(filtered).length ? JSON.stringify(filtered) : '(...)';
+      };
       const remark = e.remark ? ` [${e.remark}]` : '';
-      return `${t}  ${e.action}  by ${e.actor_name || '-'}\n  before: ${before}\n  after:  ${after}${remark}`;
+      return `${t}  ${e.action}  by ${e.actor_name || '-'}\n  before: ${fmt(before)}\n  after:  ${fmt(after)}${remark}`;
     });
     alert(`审计时间线 (${events.length} 条)\n订单: ${row.order_no || row.id}\n\n` + lines.join('\n\n'));
   } catch (e: any) { bizMessage.value = '取历史失败: ' + e.message; }
@@ -4103,6 +4120,27 @@ async function doUnadjustCharge(row: any) {
     bizMessage.value = `撤销成功：${j.previousAmount} → ${j.newAmount}（回到 ESTIMATED）`;
     fetchAccData();
   } catch (e: any) { bizMessage.value = '撤销失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
+// 财务工作台 — 反核销 (PAID/PARTIAL → PENDING，charges 回 UNSETTLED，ledger 反扣)
+async function doUnsettleInvoice(row: any) {
+  const invoiceId = row.invoice_id;
+  if (!invoiceId) { bizMessage.value = '该行没有 invoice_id'; return; }
+  const reason = prompt(`反核销账单 ${row.invoice_no}\n已付金额会从客户余额扣回，charges 会回到 UNSETTLED。\n输入反核销原因：`);
+  if (reason === null) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/invoices/${invoiceId}/unsettle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    const j = await res.json();
+    if (!res.ok) { bizMessage.value = '反核销失败: ' + (j.error || res.status); return; }
+    bizMessage.value = `账单回退 PENDING，反扣 ${j.reversedAmount}，${j.unsettledCharges} 条 charge 回 UNSETTLED`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '反核销失败: ' + e.message; }
   finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
 }
 
@@ -5391,6 +5429,13 @@ async function doReloadBill(id: number) {
                           @click="doMarkInvoicePaid(row)" title="标记已付 / 执行扣减确认" :disabled="bizLoading"
                           style="color:#10b981">
                     <CheckCircle :size="12" />
+                  </button>
+                  <!-- 财务工作台 已出账：反核销（PAID/PARTIAL → PENDING） -->
+                  <button class="action-btn"
+                          v-if="accTab === 'fwb-invoiced' && row.settlement_status === 'SETTLED'"
+                          @click="doUnsettleInvoice(row)" title="反核销（撤销已付）" :disabled="bizLoading"
+                          style="color:#f59e0b">
+                    <Undo2 :size="12" />
                   </button>
                   <!-- 财务工作台 已出账：作废账单 -->
                   <button class="action-btn"

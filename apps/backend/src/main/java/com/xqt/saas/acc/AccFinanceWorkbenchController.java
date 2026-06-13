@@ -226,8 +226,11 @@ public class AccFinanceWorkbenchController {
 
         Map<String, Object> ch;
         try {
-            ch = jdbc.queryForMap(
-                "SELECT amount, status::text AS status FROM charges WHERE id = ?::uuid", id);
+            ch = jdbc.queryForMap("""
+                SELECT amount, status::text AS status, currency,
+                       customer_id::text AS customer_id, order_id::text AS order_id
+                  FROM charges WHERE id = ?::uuid
+                """, id);
         } catch (DataAccessException ex) {
             throw ApiException.notFound("charge 不存在: " + id);
         }
@@ -239,6 +242,7 @@ public class AccFinanceWorkbenchController {
         }
 
         BigDecimal oldAmount = (BigDecimal) ch.get("amount");
+        BigDecimal diff = newAmount.subtract(oldAmount);
         jdbc.update("""
             UPDATE charges SET amount = ?, status = 'ADJUSTED'::charge_status, audit_status = 'PENDING'
              WHERE id = ?::uuid
@@ -253,11 +257,25 @@ public class AccFinanceWorkbenchController {
                     ?)
             """, id, oldAmount, ch.get("status"), newAmount, reason);
 
+        // balance_ledger ADJUST 差额冲账：参考 ACC CAdjust 审核入账
+        // diff > 0 → 客户欠更多（DEBIT 余额减）；diff < 0 → 客户欠更少（CREDIT 加回）
+        if (diff.signum() != 0) {
+            writeLedger(
+                (String) ch.get("customer_id"), (String) ch.get("currency"),
+                diff.abs(),
+                diff.signum() > 0 ? "DEBIT" : "CREDIT",
+                "ADJUST",
+                "charges", id, (String) ch.get("order_id"),
+                "system",
+                "调整 " + oldAmount + " → " + newAmount + (reason == null ? "" : " (" + reason + ")")
+            );
+        }
+
         return Map.of(
             "id", id,
             "oldAmount", oldAmount,
             "newAmount", newAmount,
-            "diff", newAmount.subtract(oldAmount),
+            "diff", diff,
             "status", "ADJUSTED"
         );
     }
@@ -266,6 +284,54 @@ public class AccFinanceWorkbenchController {
         Long n = jdbc.queryForObject(
             "SELECT count(*) FROM customer_invoice_lines WHERE charge_id = ?::uuid", Long.class, chargeId);
         return n != null && n > 0;
+    }
+
+    /**
+     * 通用 helper：给客户找/建影子账户，写一笔 balance_ledger 流水并更新余额。
+     * 参考 ACC CAdjust.php / Pay.php：每次 charge / invoice 状态变都要有对账流水。
+     *
+     * @param direction "DEBIT" (扣余额) / "CREDIT" (加余额)
+     * @param bizType   PREPAY / ADJUST / RECEIPT / VOID (balance_ledger_biz_type enum)
+     */
+    @SuppressWarnings("UnusedReturnValue")
+    private boolean writeLedger(String customerId, String currency,
+                                 BigDecimal amount, String direction, String bizType,
+                                 String sourceType, String sourceId, String sourceRef,
+                                 String operator, String remark) {
+        if (amount == null || amount.signum() == 0) return false;
+        try {
+            String accountId = jdbc.queryForObject("""
+                SELECT id::text FROM financial_accounts
+                 WHERE owner_type='CUSTOMER' AND owner_id=?::uuid AND currency=? LIMIT 1
+                """, String.class, customerId, currency);
+            if (accountId == null) {
+                accountId = jdbc.queryForObject("""
+                    INSERT INTO financial_accounts (tenant_id, owner_type, owner_id, account_name,
+                                                    account_type, currency, balance, source, is_show)
+                    VALUES (current_setting('app.current_tenant_id')::uuid, 'CUSTOMER', ?::uuid, ?, 'CASH', ?, 0, 'AUTO', true)
+                    RETURNING id::text
+                    """, String.class, customerId, "客户预扣账户", currency);
+            }
+            BigDecimal balBefore = jdbc.queryForObject(
+                "SELECT balance FROM financial_accounts WHERE id=?::uuid", BigDecimal.class, accountId);
+            BigDecimal signed = "DEBIT".equals(direction) ? amount.negate() : amount;
+            BigDecimal balAfter = balBefore.add(signed);
+
+            jdbc.update("UPDATE financial_accounts SET balance = ? WHERE id = ?::uuid", balAfter, accountId);
+            jdbc.update("""
+                INSERT INTO balance_ledger (
+                  account_id, owner_type, owner_id, biz_type, source_type, source_id, source_ref,
+                  currency, direction, amount, balance_before, balance_after, operator, remark
+                ) VALUES (
+                  ?::uuid, 'CUSTOMER', ?::uuid, ?::balance_ledger_biz_type, ?, ?::uuid, ?,
+                  ?, ?::balance_ledger_direction, ?, ?, ?, ?, ?
+                )
+                """, accountId, customerId, bizType, sourceType, sourceId, sourceRef,
+                     currency, direction, amount, balBefore, balAfter, operator, remark);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -568,8 +634,11 @@ public class AccFinanceWorkbenchController {
     public Map<String, Object> unadjust(@PathVariable String id) {
         Map<String, Object> ch;
         try {
-            ch = jdbc.queryForMap(
-                "SELECT amount, status::text AS status FROM charges WHERE id = ?::uuid", id);
+            ch = jdbc.queryForMap("""
+                SELECT amount, status::text AS status, currency,
+                       customer_id::text AS customer_id, order_id::text AS order_id
+                  FROM charges WHERE id = ?::uuid
+                """, id);
         } catch (DataAccessException ex) {
             throw ApiException.notFound("charge 不存在");
         }
@@ -607,6 +676,20 @@ public class AccFinanceWorkbenchController {
                     jsonb_build_object('amount', ?, 'status', 'ESTIMATED'),
                     '撤销调整')
             """, id, currentAmount, originalAmount);
+
+        // balance_ledger 反向冲账：撤销之前的 ADJUST diff
+        BigDecimal reverseDiff = currentAmount.subtract(originalAmount);
+        if (reverseDiff.signum() != 0) {
+            writeLedger(
+                (String) ch.get("customer_id"), (String) ch.get("currency"),
+                reverseDiff.abs(),
+                reverseDiff.signum() > 0 ? "CREDIT" : "DEBIT",
+                "ADJUST",
+                "charges", id, (String) ch.get("order_id"),
+                "system",
+                "撤销调整 " + currentAmount + " → " + originalAmount
+            );
+        }
 
         return Map.of(
             "id", id,
@@ -663,6 +746,72 @@ public class AccFinanceWorkbenchController {
             "invoiceNo", inv.get("invoice_no"),
             "unlinkedCharges", unlinked,
             "status", "VOID"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  反核销 — 把 PAID 账单退回 PENDING（财务标错的撤销入口）
+    //  - customer_invoices PAID → PENDING, paid_amount=0, unpaid_amount=total
+    //  - charges SETTLED → UNSETTLED
+    //  - balance_ledger 反向 RECEIPT（DEBIT 把客户余额扣回去）
+    // ════════════════════════════════════════════════════════════════════════
+    @PostMapping("/invoices/{id}/unsettle")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> unsettleInvoice(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> inv;
+        try {
+            inv = jdbc.queryForMap("""
+                SELECT id::text AS id, customer_id::text AS customer_id, currency,
+                       total_amount, paid_amount, status
+                  FROM customer_invoices WHERE id = ?::uuid
+                """, id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("账单不存在");
+        }
+        if (!"PAID".equals(inv.get("status")) && !"PARTIAL_PAID".equals(inv.get("status"))) {
+            throw ApiException.badRequest("仅 PAID/PARTIAL_PAID 状态可反核销，当前 " + inv.get("status"));
+        }
+        BigDecimal totalAmount = (BigDecimal) inv.get("total_amount");
+        BigDecimal alreadyPaid = (BigDecimal) inv.get("paid_amount");
+
+        // 1) 账单回退到 PENDING
+        jdbc.update("""
+            UPDATE customer_invoices
+               SET paid_amount = 0, unpaid_amount = total_amount, status = 'PENDING',
+                   confirmed_at = NULL, last_payment_at = NULL
+             WHERE id = ?::uuid
+            """, id);
+
+        // 2) charges 回退到 UNSETTLED
+        int unsettled = jdbc.update("""
+            UPDATE charges SET settlement_status = 'UNSETTLED', paid_amount = 0
+             WHERE id IN (SELECT charge_id FROM customer_invoice_lines WHERE invoice_id = ?::uuid)
+            """, id);
+
+        // 3) balance_ledger 反向 RECEIPT：之前 CREDIT 加回的余额，现在 DEBIT 扣回去
+        writeLedger(
+            (String) inv.get("customer_id"), (String) inv.get("currency"),
+            alreadyPaid, "DEBIT", "VOID",
+            "customer_invoices", id, (String) inv.get("id"),
+            "system",
+            "反核销账单 " + inv.get("id") + (body != null && body.get("reason") != null ? "（" + body.get("reason") + "）" : "")
+        );
+
+        // 4) audit_events 留痕
+        jdbc.update("""
+            INSERT INTO audit_events (tenant_id, entity_type, entity_id, action, actor_name, before_state, after_state, remark)
+            VALUES (current_setting('app.current_tenant_id')::uuid, 'customer_invoices', ?, 'UPDATE', current_user,
+                    jsonb_build_object('status', ?, 'paid_amount', ?),
+                    jsonb_build_object('status', 'PENDING', 'paid_amount', 0),
+                    ?)
+            """, id, inv.get("status"), alreadyPaid,
+                 "反核销" + (body != null && body.get("reason") != null ? ": " + body.get("reason") : ""));
+
+        return Map.of(
+            "id", id,
+            "status", "PENDING",
+            "reversedAmount", alreadyPaid,
+            "unsettledCharges", unsettled
         );
     }
 
@@ -725,34 +874,14 @@ public class AccFinanceWorkbenchController {
                 """, id);
         }
 
-        // 3) balance_ledger RECEIPT 留痕（best-effort）
-        try {
-            String customerId = (String) inv.get("customer_id");
-            String currency = (String) inv.get("currency");
-            String accountId = jdbc.queryForObject("""
-                SELECT id::text FROM financial_accounts
-                 WHERE owner_type='CUSTOMER' AND owner_id=?::uuid AND currency=? LIMIT 1
-                """, String.class, customerId, currency);
-            if (accountId != null) {
-                BigDecimal balBefore = jdbc.queryForObject(
-                    "SELECT balance FROM financial_accounts WHERE id=?::uuid", BigDecimal.class, accountId);
-                BigDecimal balAfter = balBefore.add(payNow);
-                jdbc.update("UPDATE financial_accounts SET balance = ? WHERE id = ?::uuid", balAfter, accountId);
-                jdbc.update("""
-                    INSERT INTO balance_ledger (
-                      account_id, owner_type, owner_id, biz_type, source_type, source_id, source_ref,
-                      currency, direction, amount, balance_before, balance_after, operator, remark
-                    ) VALUES (
-                      ?::uuid, 'CUSTOMER', ?::uuid, 'RECEIPT'::balance_ledger_biz_type,
-                      'customer_invoices', ?::uuid, ?,
-                      ?, 'CREDIT'::balance_ledger_direction, ?, ?, ?, current_user, ?
-                    )
-                    """, accountId, customerId, id, (String) inv.get("id"),
-                         currency, payNow, balBefore, balAfter, remark);
-            }
-        } catch (Exception ignored) {
-            // 客户无 prepay 账户 → 不阻断业务（只记 invoice）
-        }
+        // 3) balance_ledger RECEIPT — 用 helper 自动建影子账户 + 写流水
+        writeLedger(
+            (String) inv.get("customer_id"), (String) inv.get("currency"),
+            payNow, "CREDIT", "RECEIPT",
+            "customer_invoices", id, (String) inv.get("id"),
+            "system",
+            remark == null ? "核销收款" : remark
+        );
 
         return Map.of(
             "id", id,
