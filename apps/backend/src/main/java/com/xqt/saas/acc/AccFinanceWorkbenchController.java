@@ -41,12 +41,16 @@ import org.springframework.web.multipart.MultipartFile;
 @RestController
 @RequestMapping("/api/acc/finance-workbench")
 public class AccFinanceWorkbenchController {
+    private static final String SINGLE_TENANT = "2bda8c16-7b19-4ce6-ab71-9584f5a140ed";
     private final JdbcTemplate jdbc;
     private final JsonSupport json;
+    private final com.xqt.saas.finance.FxSnapshotCapture fxCapture;
 
-    public AccFinanceWorkbenchController(JdbcTemplate jdbc, JsonSupport json) {
+    public AccFinanceWorkbenchController(JdbcTemplate jdbc, JsonSupport json,
+                                         com.xqt.saas.finance.FxSnapshotCapture fxCapture) {
         this.jdbc = jdbc;
         this.json = json;
+        this.fxCapture = fxCapture;
     }
 
     /** 三个 bucket 的汇总条数 + 金额（仪表板顶部 stat card 用）。 */
@@ -339,6 +343,10 @@ public class AccFinanceWorkbenchController {
                 )
                 """, accountId, customerId, bizType, sourceType, sourceId, sourceRef,
                      currency, direction, amount, balBefore, balAfter, operator, remark);
+            // FX 快照：ledger.currency != tenant.base_currency 时自动写一条
+            try {
+                fxCapture.captureForLedger(SINGLE_TENANT, currency, bizType, sourceType, sourceRef);
+            } catch (Exception ignored) {}
             return true;
         } catch (Exception ignored) {
             return false;
@@ -1295,6 +1303,174 @@ public class AccFinanceWorkbenchController {
             """, customerId, currency, limit);
 
         return Map.of("data", ledger);
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  财务 dashboard 汇总 — 总应收 / 本月已收 / 逾期 / 客户数 / 待二审
+    // ════════════════════════════════════════════════════════════════════════
+    @GetMapping("/dashboard")
+    public Map<String, Object> dashboard() {
+        Map<String, Object> stats = new LinkedHashMap<>();
+
+        // 总应收（未付）— 所有 invoices.unpaid_amount 合计
+        BigDecimal totalReceivable = jdbc.queryForObject("""
+            SELECT coalesce(sum(unpaid_amount), 0) FROM customer_invoices
+             WHERE status NOT IN ('VOID') AND unpaid_amount > 0
+            """, BigDecimal.class);
+        stats.put("totalReceivable", totalReceivable);
+
+        // 本月已收 — balance_ledger RECEIPT CREDIT 本月合计
+        BigDecimal paidThisMonth = jdbc.queryForObject("""
+            SELECT coalesce(sum(amount), 0) FROM balance_ledger
+             WHERE biz_type='RECEIPT' AND direction='CREDIT'
+               AND created_at >= date_trunc('month', now())
+            """, BigDecimal.class);
+        stats.put("paidThisMonth", paidThisMonth);
+
+        // 预扣未对账 — charges ESTIMATED 合计
+        BigDecimal prepayPending = jdbc.queryForObject("""
+            SELECT coalesce(sum(amount), 0) FROM charges
+             WHERE side='AR' AND status='ESTIMATED'::charge_status
+               AND NOT EXISTS (SELECT 1 FROM customer_invoice_lines il WHERE il.charge_id = charges.id)
+            """, BigDecimal.class);
+        stats.put("prepayPending", prepayPending);
+
+        // 逾期 — 出账 >30 天未付
+        BigDecimal overdue = jdbc.queryForObject("""
+            SELECT coalesce(sum(unpaid_amount), 0) FROM customer_invoices
+             WHERE status NOT IN ('VOID','PAID')
+               AND unpaid_amount > 0
+               AND issued_at < now() - interval '30 days'
+            """, BigDecimal.class);
+        stats.put("overdueAmount", overdue);
+
+        // 待二审账单数（> 5w 且 verify_status='PENDING'）
+        Long pendingVerify = jdbc.queryForObject("""
+            SELECT count(*) FROM customer_invoices
+             WHERE total_amount > 50000 AND coalesce(verify_status,'PENDING')='PENDING'
+               AND status NOT IN ('VOID')
+            """, Long.class);
+        stats.put("pendingVerifyCount", pendingVerify == null ? 0 : pendingVerify);
+
+        // 活跃客户数（有未对账 charges 或未付账单）
+        Long activeCustomers = jdbc.queryForObject("""
+            SELECT count(DISTINCT customer_id) FROM (
+              SELECT customer_id FROM charges WHERE side='AR' AND customer_id IS NOT NULL
+                AND status='ESTIMATED'::charge_status
+              UNION
+              SELECT customer_id FROM customer_invoices WHERE unpaid_amount > 0
+                AND status NOT IN ('VOID')
+            ) t
+            """, Long.class);
+        stats.put("activeCustomers", activeCustomers == null ? 0 : activeCustomers);
+
+        return stats;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  Invoice 可打印 HTML（浏览器 Ctrl+P 另存 PDF）
+    // ════════════════════════════════════════════════════════════════════════
+    @GetMapping(value = "/invoices/{id}/print", produces = "text/html;charset=UTF-8")
+    public ResponseEntity<String> printInvoice(@PathVariable String id) {
+        Map<String, Object> inv;
+        try {
+            inv = jdbc.queryForMap("""
+                SELECT ci.invoice_no, ci.invoice_date, ci.currency, ci.total_amount,
+                       ci.paid_amount, ci.unpaid_amount, ci.previous_balance,
+                       ci.line_count, ci.status, ci.confirmed_at,
+                       c.code AS customer_code, c.name AS customer_name, c.contacts, c.phone
+                  FROM customer_invoices ci
+                  LEFT JOIN customers c ON c.id = ci.customer_id
+                 WHERE ci.id = ?::uuid
+                """, id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("账单不存在");
+        }
+        List<Map<String, Object>> lines = jdbc.queryForList("""
+            SELECT il.amount, o.order_no, ct.tracking_no, ch.created_at
+              FROM customer_invoice_lines il
+              JOIN charges ch ON ch.id = il.charge_id
+              LEFT JOIN orders o ON o.id = ch.order_id
+              LEFT JOIN cartons ct ON ct.shipment_id = ch.shipment_id
+             WHERE il.invoice_id = ?::uuid
+             ORDER BY ch.created_at
+            """, id);
+
+        StringBuilder html = new StringBuilder();
+        html.append("<!DOCTYPE html><html><head><meta charset=\"UTF-8\">");
+        html.append("<title>账单 ").append(inv.get("invoice_no")).append("</title>");
+        html.append("<style>");
+        html.append("body{font-family:'Helvetica Neue',Arial,'PingFang SC','Microsoft YaHei',sans-serif;max-width:800px;margin:30px auto;padding:20px;color:#1e293b;}");
+        html.append("h1{font-size:24px;margin:0 0 4px;color:#0f172a;}.muted{color:#64748b;font-size:13px;}");
+        html.append(".grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0;}");
+        html.append(".card{background:#f8fafc;border-left:3px solid #6366f1;padding:8px 12px;border-radius:4px;}");
+        html.append(".card .lbl{font-size:11px;color:#64748b;}.card .val{font-size:16px;font-weight:600;}");
+        html.append("table{width:100%;border-collapse:collapse;margin-top:18px;}");
+        html.append("th,td{border-bottom:1px solid #e2e8f0;padding:8px 6px;text-align:left;font-size:13px;}");
+        html.append("th{background:#f1f5f9;font-weight:600;}");
+        html.append(".total-row{font-weight:600;background:#fef3c7;}");
+        html.append(".no-print{margin:20px 0;}@media print{.no-print{display:none;}body{margin:0;}}");
+        html.append("</style></head><body>");
+        html.append("<button class=\"no-print\" onclick=\"window.print()\" ")
+            .append("style=\"padding:8px 16px;background:#6366f1;color:white;border:none;border-radius:4px;cursor:pointer;\">")
+            .append("打印 / 另存 PDF</button>");
+        html.append("<h1>对账单 / Invoice</h1>");
+        html.append("<div class=\"muted\">单号：").append(inv.get("invoice_no"))
+            .append("　·　出账日期：").append(inv.get("invoice_date"))
+            .append("　·　状态：").append(inv.get("status")).append("</div>");
+        html.append("<div class=\"grid\">");
+        html.append("<div class=\"card\"><div class=\"lbl\">客户</div><div class=\"val\">")
+            .append(inv.get("customer_name") == null ? "-" : inv.get("customer_name"))
+            .append("</div><div class=\"muted\">").append(inv.get("customer_code") == null ? "" : inv.get("customer_code"))
+            .append(" / 联系人：").append(inv.get("contacts") == null ? "-" : inv.get("contacts")).append("</div></div>");
+        html.append("<div class=\"card\" style=\"border-left-color:#10b981;\"><div class=\"lbl\">本期金额</div><div class=\"val\">")
+            .append(inv.get("total_amount")).append(" ").append(inv.get("currency")).append("</div>");
+        html.append("<div class=\"muted\">明细 ").append(inv.get("line_count")).append(" 条　上期余额 ")
+            .append(inv.get("previous_balance")).append("</div></div>");
+        html.append("<div class=\"card\" style=\"border-left-color:#f59e0b;\"><div class=\"lbl\">已付</div><div class=\"val\">")
+            .append(inv.get("paid_amount")).append(" ").append(inv.get("currency")).append("</div></div>");
+        html.append("<div class=\"card\" style=\"border-left-color:#ef4444;\"><div class=\"lbl\">未付</div><div class=\"val\">")
+            .append(inv.get("unpaid_amount")).append(" ").append(inv.get("currency")).append("</div></div>");
+        html.append("</div>");
+        html.append("<table><thead><tr><th>序号</th><th>订单号</th><th>运单号</th><th>记录时间</th><th style=\"text-align:right\">金额</th></tr></thead><tbody>");
+        int i = 1;
+        for (Map<String, Object> ln : lines) {
+            html.append("<tr><td>").append(i++).append("</td>");
+            html.append("<td>").append(ln.get("order_no") == null ? "-" : ln.get("order_no")).append("</td>");
+            html.append("<td>").append(ln.get("tracking_no") == null ? "-" : ln.get("tracking_no")).append("</td>");
+            html.append("<td>").append(ln.get("created_at") == null ? "" : ln.get("created_at").toString().substring(0, 19).replace('T',' ')).append("</td>");
+            html.append("<td style=\"text-align:right\">").append(ln.get("amount")).append("</td></tr>");
+        }
+        html.append("<tr class=\"total-row\"><td colspan=\"4\" style=\"text-align:right\">合计</td>")
+            .append("<td style=\"text-align:right\">").append(inv.get("total_amount")).append(" ")
+            .append(inv.get("currency")).append("</td></tr>");
+        html.append("</tbody></table>");
+        if (inv.get("confirmed_at") != null) {
+            html.append("<p class=\"muted\" style=\"margin-top:30px\">收款确认时间：")
+                .append(inv.get("confirmed_at")).append("</p>");
+        }
+        html.append("</body></html>");
+        return ResponseEntity.ok()
+            .contentType(MediaType.parseMediaType("text/html;charset=UTF-8"))
+            .body(html.toString());
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    //  客户端账单列表（HMAC 用，调用方传 customerId 限自己）
+    // ════════════════════════════════════════════════════════════════════════
+    public Map<String, Object> customerInvoiceList(String customerId, String currency) {
+        String curFilter = currency == null || currency.isBlank() ? null : currency;
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT id::text AS id, invoice_no, invoice_date, currency,
+                   total_amount, paid_amount, unpaid_amount, status, issued_at, last_payment_at
+              FROM customer_invoices
+             WHERE customer_id = ?::uuid
+               AND status NOT IN ('VOID')
+               AND (?::text IS NULL OR currency = ?)
+             ORDER BY issued_at DESC
+             LIMIT 200
+            """, customerId, curFilter, curFilter);
+        return Map.of("data", rows, "total", rows.size());
     }
 
     private static String escape(Object o) {

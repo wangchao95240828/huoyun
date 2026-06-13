@@ -152,6 +152,14 @@ public class CustomerApiController {
         return financeView.exportPrepayDetails(principal().customerId(), currency);
     }
 
+    /** 客户端拉自己的账单列表（HMAC 鉴权）。 */
+    @GetMapping("/finance/invoices")
+    public ApiResponse<java.util.Map<String, Object>> myInvoices(
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String currency
+    ) {
+        return ApiResponse.ok(financeView.customerInvoiceList(principal().customerId(), currency));
+    }
+
     private CustomerApiPrincipal principal() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !(authentication.getPrincipal() instanceof CustomerApiPrincipal customer)) {

@@ -203,8 +203,18 @@ const openedTabs = ref<string[]>(["dashboard"]);
 const accTab = ref("orders");
 const accData = ref<any[]>([]);
 const fwbBalance = ref<any>(null);
+const fwbDashboard = ref<any>(null);
 const fwbSelectedCustomer = ref<string>('');
 const fwbSelectedCurrency = ref<string>('USD');
+
+async function fetchFwbDashboard() {
+  fwbDashboard.value = null;
+  if (!accTab.value.startsWith('fwb-')) return;
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/dashboard`);
+    if (res.ok) fwbDashboard.value = await res.json();
+  } catch {}
+}
 
 async function fetchFwbBalance() {
   fwbBalance.value = null;
@@ -3073,6 +3083,10 @@ watch(accTab, () => {
     loadSelectOptions([{ type: 'select', ref: 'customers' } as any]);
     fwbBalance.value = null;
   }
+  // 财务工作台 — 所有 fwb tab 都加载 dashboard 汇总
+  if (accTab.value.startsWith('fwb-')) {
+    fetchFwbDashboard();
+  }
   // 批量页面 / 批量打印页不需要拉列表数据
   if (!batchPageSet.has(accTab.value) && accTab.value !== 'orders-batch-print') {
     fetchAccData();
@@ -4135,6 +4149,24 @@ async function doUnadjustCharge(row: any) {
     fetchAccData();
   } catch (e: any) { bizMessage.value = '撤销失败: ' + e.message; }
   finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 5000); }
+}
+
+// 财务工作台 — 打印账单（弹新窗口浏览器 Ctrl+P 另存 PDF）
+function doPrintInvoice(row: any) {
+  const invoiceId = row.invoice_id;
+  if (!invoiceId) { bizMessage.value = '该行没有 invoice_id'; return; }
+  // 用 Bearer token 拼 URL 不安全，改用同源 fetch 拿到 HTML 再 document.write
+  const token = localStorage.getItem('token') || '';
+  fetch(`${API}/api/acc/finance-workbench/invoices/${invoiceId}/print`, {
+    headers: { 'Authorization': `Bearer ${token}` },
+  }).then(r => r.text()).then(html => {
+    const w = window.open('', '_blank');
+    if (w) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    }
+  }).catch(e => { bizMessage.value = '打开打印页失败: ' + e.message; });
 }
 
 // 财务工作台 — 退款（PAID/PARTIAL → 减 paid_amount + ledger REFUND）
@@ -5517,6 +5549,35 @@ async function doReloadBill(id: number) {
           <iframe :src="apiDocsUrl" style="width:100%;height:100%;border:0" title="API Documentation"></iframe>
         </div>
 
+        <!-- 财务工作台 - 总览 dashboard (所有 fwb tab 都展示) -->
+        <div v-if="accTab.startsWith('fwb-') && fwbDashboard"
+             style="margin: 12px 0; display:flex; gap:10px; flex-wrap:wrap;">
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #ef4444; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">总应收(未付)</div>
+            <div style="font-size:16px; font-weight:600; color:#ef4444;">{{ fwbDashboard.totalReceivable }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #10b981; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">本月已收</div>
+            <div style="font-size:16px; font-weight:600; color:#10b981;">{{ fwbDashboard.paidThisMonth }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #f59e0b; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">预扣未对账</div>
+            <div style="font-size:16px; font-weight:600; color:#f59e0b;">{{ fwbDashboard.prepayPending }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #dc2626; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">逾期 30 天+</div>
+            <div style="font-size:16px; font-weight:600; color:#dc2626;">{{ fwbDashboard.overdueAmount }}</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #6366f1; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">待二审账单</div>
+            <div style="font-size:16px; font-weight:600; color:#6366f1;">{{ fwbDashboard.pendingVerifyCount }} 张</div>
+          </div>
+          <div style="background:#f1f5f9; padding:8px 12px; border-radius:6px; border-left:3px solid #0ea5e9; min-width:140px;">
+            <div style="font-size:11px; color:#64748b;">活跃客户</div>
+            <div style="font-size:16px; font-weight:600; color:#0ea5e9;">{{ fwbDashboard.activeCustomers }}</div>
+          </div>
+        </div>
+
         <!-- 财务工作台 - 客户余额三段卡 (只在 fwb-prepay tab 选了客户时显示) -->
         <div v-if="accTab === 'fwb-prepay' && fwbBalance"
              style="margin: 12px 0; display:flex; gap:12px; flex-wrap:wrap;">
@@ -5656,6 +5717,13 @@ async function doReloadBill(id: number) {
                           @click="doVoidInvoice(row)" title="作废账单" :disabled="bizLoading"
                           style="color:#dc2626">
                     <XCircle :size="12" />
+                  </button>
+                  <!-- 财务工作台 已出账：打印/PDF -->
+                  <button class="action-btn"
+                          v-if="accTab === 'fwb-invoiced' && row.invoice_id"
+                          @click="doPrintInvoice(row)" title="打印 / 另存 PDF" :disabled="bizLoading"
+                          style="color:#0ea5e9">
+                    <FileText :size="12" />
                   </button>
                   <!-- 财务工作台 待审核：撤销调整 -->
                   <button class="action-btn"
