@@ -124,6 +124,21 @@ public class CustomerApiRepository {
             """, orderId);
     }
 
+    /**
+     * ACC Express.php L1246/L1252：子单号 (tracking_no) 跨快件冲突检测。
+     * 排除当前 orderId（编辑场景），统计该 tracking_no 是否被其它快件占用。
+     * 复合查询：cartons.tracking_no + cartons.carrier_master_tracking_no。
+     */
+    public Integer countTrackingNoConflict(String tenantId, String trackingNo, String excludeOrderId) {
+        return jdbc.queryForObject("""
+            SELECT count(*) FROM cartons ct
+              JOIN shipment_order_links sol ON sol.shipment_id = ct.shipment_id
+             WHERE ct.tenant_id = ?::uuid
+               AND (ct.tracking_no = ? OR ct.carrier_master_tracking_no = ?)
+               AND sol.order_id <> ?::uuid
+            """, Integer.class, tenantId, trackingNo, trackingNo, excludeOrderId);
+    }
+
     public String findChannelIdByCode(String tenantId, String code) {
         List<String> rows = jdbc.queryForList("""
             SELECT id::text FROM channels

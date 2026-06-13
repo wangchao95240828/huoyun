@@ -140,10 +140,18 @@ public class CustomerApiService {
 
         Map<String, Object> order = repository.findOrderForCustomerApi(
             principal.tenantId(), principal.customerId(), no);
-        if (order == null) throw ApiException.notFound("order not found: " + no);
+        if (order == null) throw ApiException.notFound("找不到订单: " + no);
         String status = (String) order.get("status");
+        // ACC Express.php L1976: 快件已签收，无法再次操作
+        if ("COMPLETED".equals(status)) {
+            throw ApiException.badRequest("快件已签收，无法再次操作");
+        }
+        // ACC Express.php L2243: 货物状态为【X】无法取消（取消由 cancel 端点处理，提交侧拦异常状态）
+        if ("CANCELLED".equals(status) || "EXCEPTION".equals(status)) {
+            throw ApiException.badRequest("订单状态为 " + status + "，无法提交");
+        }
         if (!"DRAFT".equals(status)) {
-            throw ApiException.badRequest("only DRAFT can be submitted, current=" + status);
+            throw ApiException.badRequest("仅 DRAFT 状态可提交，当前状态: " + status);
         }
         // ACC Submit.php L111-117：JoinID > 0（已合并）拒绝 Submit
         String mergedTo = (String) order.get("merged_to_order_id");
@@ -159,19 +167,92 @@ public class CustomerApiService {
             ? (Map<String, Object>) m
             : Map.of();
 
+        // ═══ ACC Express.php L670: 至少录入一票快件 ═══
+        Object packageListRaw = accCompat.get("packageList");
+        List<?> packageList = packageListRaw instanceof List<?> pl ? pl : List.of();
+        if (packageList.isEmpty()) {
+            // 兜底：weight + piece 都没有也算 0 票货
+            BigDecimal w = asBigDecimal(accCompat.get("weight"));
+            Integer p = asInteger(accCompat.get("piece"));
+            if ((w == null || w.signum() <= 0) && (p == null || p <= 0)) {
+                throw ApiException.badRequest("请至少录入一票快件");
+            }
+        }
+
+        // ═══ ACC Express.php L660 + L673 + L662：子单号 vs 件数一致性 + 单内重复 ═══
+        if (!packageList.isEmpty()) {
+            int withTracking = 0;
+            int withoutTracking = 0;
+            java.util.Set<String> seenTracking = new java.util.HashSet<>();
+            int rowIdx = 0;
+            for (Object item : packageList) {
+                rowIdx++;
+                if (!(item instanceof Map<?, ?> rowMap)) continue;
+                Map<String, Object> row = (Map<String, Object>) rowMap;
+                Object trackingNo = row.get("trackingNo");
+                Object pieceRaw = row.get("piece");
+                int rowPiece = pieceRaw instanceof Number n ? n.intValue() :
+                    (pieceRaw == null ? 0 : Integer.parseInt(pieceRaw.toString()));
+                String tn = trackingNo == null ? "" : trackingNo.toString().trim();
+                if (!tn.isEmpty()) {
+                    withTracking++;
+                    // ACC L660: 有追踪号则件数必须为 1
+                    if (rowPiece != 1) {
+                        throw ApiException.badRequest("第 " + rowIdx + " 行有追踪号 [" + tn + "]，件数必须为 1");
+                    }
+                    String key = tn.toLowerCase();
+                    // ACC L662: 子单号本单内重复
+                    if (!seenTracking.add(key)) {
+                        throw ApiException.badRequest("子单号 [" + tn + "] 在本单内重复");
+                    }
+                    // ACC L1246 L1252: 子单号已被其它快件作为转单号 / 子单号
+                    Integer dupOther = repository.countTrackingNoConflict(
+                        principal.tenantId(), tn, orderId);
+                    if (dupOther != null && dupOther > 0) {
+                        throw ApiException.badRequest("子单号 [" + tn + "] 已被其它快件占用");
+                    }
+                } else {
+                    withoutTracking++;
+                }
+                // ACC L807 / L1854: 第 X 行计费重为零
+                Object weightRaw = row.get("weight");
+                BigDecimal rowWeight = weightRaw == null ? BigDecimal.ZERO
+                    : new BigDecimal(weightRaw.toString());
+                if (rowWeight.signum() <= 0) {
+                    throw ApiException.badRequest("第 " + rowIdx + " 行的重量为零，请检查");
+                }
+            }
+            // ACC L673: 如果有追踪号，则所有货物都需要追踪号
+            if (withTracking > 0 && withoutTracking > 0) {
+                throw ApiException.badRequest("如果有追踪号，则所有货物都需要追踪号");
+            }
+        }
+
+        // ═══ ACC Express.php L706: 找不到该配送地区 ═══
+        String country = stringOrNull(accCompat.get("country"));
+        if (country == null || country.isBlank()) {
+            throw ApiException.badRequest("找不到该配送地区，请选择目的地");
+        }
+
+        // ═══ ACC Express.php L1445: 无法找到快件绑定的币种 ═══
+        String currency = stringOrNull(accCompat.get("currency"));
+        if (currency == null || currency.length() != 3) {
+            throw ApiException.badRequest("无法找到快件绑定的币种，请检查");
+        }
+
         String channelCode = stringOrNull(accCompat.get("product"));
         if (channelCode == null) {
-            throw ApiException.badRequest("Product (channel code) missing on order");
+            // ACC L717: 找不到该销售产品
+            throw ApiException.badRequest("找不到该销售产品，请选择");
         }
         String channelId = repository.findChannelIdByCode(principal.tenantId(), channelCode);
         if (channelId == null) {
-            throw ApiException.badRequest("channel not active: " + channelCode);
+            // ACC L720: 该销售产品已停用
+            throw ApiException.badRequest("该销售产品已停用或不存在: " + channelCode);
         }
 
         BigDecimal weight = asBigDecimal(accCompat.get("weight"));
         Integer piece = asInteger(accCompat.get("piece"));
-        String country = stringOrNull(accCompat.get("country"));
-        String currency = stringOrNull(accCompat.get("currency"));
         BigDecimal declaredValue = totalDeclaredValue(accCompat.get("declare"));
 
         String shipmentNo = "SHP-" + orderNo;
