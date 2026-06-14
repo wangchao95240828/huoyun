@@ -366,6 +366,7 @@ public class AccFinanceWorkbenchController {
     public Map<String, Object> auditCharges(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        if (ids.size() > 500) throw ApiException.badRequest("单次批量审核的数量不要超过 500 票");
         int n = jdbc.update("""
             UPDATE charges SET audit_status = 'AUDITED', audited_at = now()
              WHERE id = ANY(?::uuid[])
@@ -382,6 +383,7 @@ public class AccFinanceWorkbenchController {
     public Map<String, Object> unauditCharges(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        if (ids.size() > 500) throw ApiException.badRequest("单次批量审核的数量不要超过 500 票");
         // 出账过的不允许反一审
         Long invoiced = jdbc.queryForObject("""
             SELECT count(*) FROM customer_invoice_lines WHERE charge_id = ANY(?::uuid[])
@@ -404,6 +406,7 @@ public class AccFinanceWorkbenchController {
     public Map<String, Object> createInvoice(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        if (ids.size() > 500) throw ApiException.badRequest("单次批量审核的数量不要超过 500 票");
         // 校验：全部 AUDITED，未出账，非 VOID
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT id::text AS id, customer_id::text AS customer_id, currency, amount,

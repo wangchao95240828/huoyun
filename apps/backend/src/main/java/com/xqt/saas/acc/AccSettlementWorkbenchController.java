@@ -306,6 +306,7 @@ public class AccSettlementWorkbenchController {
     public Map<String, Object> auditCostCharges(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        if (ids.size() > 500) throw ApiException.badRequest("单次批量审核的数量不要超过 500 票");
         int n = jdbc.update("""
             UPDATE charges SET audit_status='AUDITED', audited_at=now()
              WHERE id = ANY(?::uuid[]) AND side='AP'
@@ -326,6 +327,7 @@ public class AccSettlementWorkbenchController {
     public Map<String, Object> paySupplier(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        if (ids.size() > 500) throw ApiException.badRequest("单次批量审核的数量不要超过 500 票");
         String remark = body.get("remark") == null ? "付供应商" : body.get("remark").toString();
         String fromAccountId = body.get("fromAccountId") == null ? null : body.get("fromAccountId").toString();
         boolean largeConfirmed = Boolean.TRUE.equals(body.get("largeConfirmed"));
@@ -441,6 +443,7 @@ public class AccSettlementWorkbenchController {
     public Map<String, Object> unauditCostCharges(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        if (ids.size() > 500) throw ApiException.badRequest("单次批量审核的数量不要超过 500 票");
         int n = jdbc.update("""
             UPDATE charges SET audit_status='PENDING', audited_at=NULL
              WHERE id = ANY(?::uuid[]) AND side='AP'
@@ -458,6 +461,7 @@ public class AccSettlementWorkbenchController {
     public Map<String, Object> unsettlePayment(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        if (ids.size() > 500) throw ApiException.badRequest("单次批量审核的数量不要超过 500 票");
         String reason = body.get("reason") == null ? "撤销付款" : body.get("reason").toString();
 
         List<Map<String, Object>> rows = jdbc.queryForList("""
@@ -516,6 +520,7 @@ public class AccSettlementWorkbenchController {
     public Map<String, Object> batchVoidCost(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.get("chargeIds");
         if (ids == null || ids.isEmpty()) throw ApiException.badRequest("chargeIds 必填");
+        if (ids.size() > 500) throw ApiException.badRequest("单次批量审核的数量不要超过 500 票");
         int n = jdbc.update("""
             UPDATE charges SET status='VOID'::charge_status, audit_status='PENDING'
              WHERE id = ANY(?::uuid[]) AND side='AP' AND settlement_status='UNSETTLED'
