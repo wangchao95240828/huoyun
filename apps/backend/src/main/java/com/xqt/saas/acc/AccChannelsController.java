@@ -88,6 +88,22 @@ public class AccChannelsController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        // ACC Product.php L585: 渠道编号不能包含中文（ASCII only）
+        if (code == null || code.isBlank()) {
+            throw ApiException.badRequest("渠道编号必填");
+        }
+        if (!code.matches("[\\x00-\\x7F]+")) {
+            throw ApiException.badRequest("渠道编号不能包含中文");
+        }
+        if (name == null || name.isBlank()) {
+            throw ApiException.badRequest("渠道名称必填");
+        }
+        // 编号唯一
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM channels WHERE code = ?", Integer.class, code);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("相同编号的渠道已存在: " + code);
+        }
         String lane = body.get("remark") != null ? (String) body.get("remark") : "GENERIC";
         String lastMile = body.get("last_mile_method") != null
             ? (String) body.get("last_mile_method") : "CARRIER";
