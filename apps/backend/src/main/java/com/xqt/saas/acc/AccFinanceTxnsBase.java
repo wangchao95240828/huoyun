@@ -244,6 +244,13 @@ abstract class AccFinanceTxnsBase {
                 + String.join(",", gate.rejected()) + "；请先反审");
         }
         Map<String, Object> allowed = gate.allowed();
+        // ACC Received.php L377 / CRefund.php L436 派生: 金额若改也必须 > 0
+        if (allowed.get("amount") instanceof Number n) {
+            BigDecimal newAmount = new BigDecimal(n.toString());
+            if (newAmount.signum() <= 0) {
+                throw ApiException.badRequest("金额必须大于零");
+            }
+        }
         jdbc.update("""
             UPDATE acc_finance_txns SET
               amount = coalesce(?, amount),

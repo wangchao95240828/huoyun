@@ -141,6 +141,13 @@ abstract class AccFinesBase {
                 + String.join(",", gate.rejected()) + "；请先反审");
         }
         Map<String, Object> allowed = gate.allowed();
+        // 与 create 同等校验：若 update 提供了 amount，必须 > 0
+        if (allowed.get("amount") instanceof Number n) {
+            BigDecimal newAmount = new BigDecimal(n.toString());
+            if (newAmount.signum() <= 0) {
+                throw ApiException.badRequest("罚款金额必须大于零");
+            }
+        }
         jdbc.update("""
             UPDATE acc_fines SET
               amount = coalesce(?, amount),

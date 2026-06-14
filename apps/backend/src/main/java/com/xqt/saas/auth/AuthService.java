@@ -50,7 +50,7 @@ public class AuthService {
         this.tokenService = tokenService;
     }
 
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = com.xqt.saas.common.ApiException.class)
     public LoginResponse login(LoginRequest request, String ip, String userAgent) {
         setServiceRole();
 
@@ -203,6 +203,60 @@ public class AuthService {
             userAgent,
             issued.payload().exp()
         );
+    }
+
+    /**
+     * ACC User.php 邮箱重置：生成 token 存 metadata，1 小时过期。
+     * 实际生产应发邮件；此处把 token 写入 users.metadata.reset_token + 日志。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public void requestPasswordReset(String tenantCode, String email) {
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT u.id::text AS user_id FROM users u
+                  JOIN tenants t ON t.id = u.tenant_id
+                 WHERE t.code = ? AND u.email = ? AND u.deleted_at IS NULL
+                """, tenantCode, email);
+            if (rows.isEmpty()) return; // 不泄露邮箱存在与否
+            String userId = (String) rows.get(0).get("user_id");
+            String token = java.util.UUID.randomUUID().toString().replace("-", "");
+            jdbc.update("""
+                UPDATE users
+                   SET metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+                       'reset_token', ?::text,
+                       'reset_expires_at', (now() + interval '1 hour')::text)
+                 WHERE id = ?::uuid
+                """, token, userId);
+            // 在生产环境改为邮件发送；这里日志输出供调试
+            org.slf4j.LoggerFactory.getLogger(AuthService.class)
+                .info("PASSWORD_RESET token for email={} userId={}: {}", email, userId, token);
+        } catch (Exception ex) {
+            // 静默吞 — 不暴露用户存在与否
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void resetPassword(String token, String newPassword) {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT id::text AS user_id, metadata
+              FROM users
+             WHERE metadata->>'reset_token' = ?
+               AND (metadata->>'reset_expires_at')::timestamptz > now()
+               AND deleted_at IS NULL
+            """, token);
+        if (rows.isEmpty()) {
+            throw com.xqt.saas.common.ApiException.badRequest("重置链接已失效或不存在");
+        }
+        String userId = (String) rows.get(0).get("user_id");
+        String hash = passwordHasher.hash(newPassword);
+        jdbc.update("""
+            UPDATE users
+               SET password_hash = ?,
+                   failed_login_count = 0,
+                   locked_until = NULL,
+                   metadata = (metadata - 'reset_token') - 'reset_expires_at'
+             WHERE id = ?::uuid
+            """, hash, userId);
     }
 
     private void markLoginSuccess(String userId) {

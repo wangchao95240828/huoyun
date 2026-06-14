@@ -58,6 +58,8 @@ public class SecurityConfig {
                     "/api/auth/login",
                     "/api/auth/me",
                     "/api/auth/logout",
+                    "/api/auth/forgot-password",
+                    "/api/auth/reset-password",
                     "/api/health",
                     "/api/public/**",
                     "/api/device/scale/**",
