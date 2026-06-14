@@ -55,8 +55,9 @@ public class AdminService {
     @Transactional(rollbackFor = Exception.class)
     public ItemResponse<UserView> createUser(AuthPrincipal auth, UserSaveRequest request) {
         context.setTenant(auth);
+        validateUserRequest(auth, request, null);
         if (isBlank(request.password())) {
-            throw ApiException.badRequest("password is required");
+            throw ApiException.badRequest("请输入初始密码");
         }
 
         String userId = repository.createUser(
@@ -82,8 +83,9 @@ public class AdminService {
 
         Map<String, Object> before = repository.findUser(auth.tenantId(), userId);
         if (before == null) {
-            throw ApiException.notFound("user not found");
+            throw ApiException.notFound("找不到该用户");
         }
+        validateUserRequest(auth, request, before);
 
         String passwordHash = isBlank(request.password()) ? null : passwordHasher.hash(request.password());
         String primaryRole = request.roleCodes() == null || request.roleCodes().isEmpty() ? "" : primaryRole(request.roleCodes());
@@ -101,16 +103,80 @@ public class AdminService {
     public CommandResponse deleteUser(AuthPrincipal auth, String userId) {
         context.setTenant(auth);
         if (auth.userId().equals(userId)) {
-            throw ApiException.badRequest("cannot delete current user");
+            throw ApiException.badRequest("不能删除当前登录用户");
         }
         Map<String, Object> before = repository.findUser(auth.tenantId(), userId);
         if (before == null) {
-            throw ApiException.notFound("user not found");
+            throw ApiException.notFound("找不到该用户");
+        }
+        // ACC User.php L721: 对方等级不比你低，你无法删除对方
+        Integer myGrade = currentUserGrade(auth);
+        Integer targetGrade = parseGrade(before.get("user_grade"));
+        if (myGrade != null && targetGrade != null && targetGrade >= myGrade) {
+            throw ApiException.badRequest("对方等级不比你低，你无法删除对方");
         }
 
         repository.deleteUser(auth.tenantId(), auth.userId(), userId);
         auditService.log(auth, "user", userId, "DELETE", before, Map.of("id", userId, "deleted", true));
         return CommandResponse.ok();
+    }
+
+    /**
+     * ACC User.php 全套用户保存校验：密码 / 等级层级 / 绑定互斥。
+     * before=null 时为创建场景。
+     */
+    private void validateUserRequest(AuthPrincipal auth, UserSaveRequest req, Map<String, Object> before) {
+        // ACC L181/L505: 密码长度 >= 5
+        if (!isBlank(req.password())) {
+            if (req.password().length() < 5) {
+                throw ApiException.badRequest("密码长度要大于 5");
+            }
+            // ACC L185/L517: 两次密码一致
+            if (req.confirmPassword() != null && !req.password().equals(req.confirmPassword())) {
+                throw ApiException.badRequest("两次输入的密码不一致");
+            }
+        }
+        // ACC L536/L539/L542: 绑定互斥
+        int boundCount = 0;
+        if (!isBlank(req.boundCustomerId())) boundCount++;
+        if (!isBlank(req.boundSupplierId())) boundCount++;
+        if (!isBlank(req.boundEmployeeId())) boundCount++;
+        if (boundCount > 1) {
+            if (!isBlank(req.boundEmployeeId()) && !isBlank(req.boundCustomerId())) {
+                throw ApiException.badRequest("不能同时绑定员工和客户");
+            }
+            if (!isBlank(req.boundEmployeeId()) && !isBlank(req.boundSupplierId())) {
+                throw ApiException.badRequest("不能同时绑定员工和服务商");
+            }
+            if (!isBlank(req.boundCustomerId()) && !isBlank(req.boundSupplierId())) {
+                throw ApiException.badRequest("不能同时绑定客户和服务商");
+            }
+        }
+        // ACC L532/L601/L615: 只能设置比自己低的等级
+        Integer myGrade = currentUserGrade(auth);
+        if (req.grade() != null && myGrade != null && req.grade() >= myGrade) {
+            throw ApiException.badRequest("你只能设置比你低的等级");
+        }
+        // ACC L147/L619: 不能修改等级 >= 你的用户
+        if (before != null) {
+            Integer targetGrade = parseGrade(before.get("user_grade"));
+            if (myGrade != null && targetGrade != null && targetGrade >= myGrade
+                && !auth.userId().equals((String) before.get("id"))) {
+                throw ApiException.badRequest("该用户等级不比你低，你无法修改其资料");
+            }
+        }
+    }
+
+    private Integer currentUserGrade(AuthPrincipal auth) {
+        try {
+            Map<String, Object> me = repository.findUser(auth.tenantId(), auth.userId());
+            return me == null ? null : parseGrade(me.get("user_grade"));
+        } catch (Exception ex) { return null; }
+    }
+
+    private Integer parseGrade(Object raw) {
+        if (raw == null) return null;
+        try { return Integer.parseInt(raw.toString()); } catch (Exception ex) { return null; }
     }
 
     @Transactional(readOnly = true)

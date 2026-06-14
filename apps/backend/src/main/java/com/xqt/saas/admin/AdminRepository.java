@@ -75,9 +75,10 @@ public class AdminRepository {
     ) {
         return jdbc.queryForObject("""
             INSERT INTO users (
-              tenant_id, username, email, display_name, role_code, password_hash, status, created_by, updated_by
+              tenant_id, username, email, display_name, role_code, password_hash, status, created_by, updated_by,
+              user_grade, bound_customer_id, bound_supplier_id, bound_employee_id
             )
-            VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?::uuid)
+            VALUES (?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid, ?::uuid, ?::text, ?::uuid, ?::uuid, ?::uuid)
             RETURNING id::text
             """,
             String.class,
@@ -89,7 +90,11 @@ public class AdminRepository {
             passwordHash,
             status,
             actorId,
-            actorId
+            actorId,
+            request.grade() == null ? null : String.valueOf(request.grade()),
+            nullToBlank(request.boundCustomerId()).isEmpty() ? null : request.boundCustomerId(),
+            nullToBlank(request.boundSupplierId()).isEmpty() ? null : request.boundSupplierId(),
+            nullToBlank(request.boundEmployeeId()).isEmpty() ? null : request.boundEmployeeId()
         );
     }
 
@@ -102,6 +107,10 @@ public class AdminRepository {
                 role_code = COALESCE(NULLIF(?, ''), role_code),
                 password_hash = COALESCE(?, password_hash),
                 status = COALESCE(NULLIF(?, ''), status),
+                user_grade = COALESCE(?::text, user_grade),
+                bound_customer_id = COALESCE(?::uuid, bound_customer_id),
+                bound_supplier_id = COALESCE(?::uuid, bound_supplier_id),
+                bound_employee_id = COALESCE(?::uuid, bound_employee_id),
                 updated_by = ?::uuid
             WHERE tenant_id = ?::uuid
               AND id = ?::uuid
@@ -113,6 +122,10 @@ public class AdminRepository {
             primaryRole,
             passwordHash,
             nullToBlank(request.status()),
+            request.grade() == null ? null : String.valueOf(request.grade()),
+            nullToBlank(request.boundCustomerId()).isEmpty() ? null : request.boundCustomerId(),
+            nullToBlank(request.boundSupplierId()).isEmpty() ? null : request.boundSupplierId(),
+            nullToBlank(request.boundEmployeeId()).isEmpty() ? null : request.boundEmployeeId(),
             actorId,
             tenantId,
             userId
