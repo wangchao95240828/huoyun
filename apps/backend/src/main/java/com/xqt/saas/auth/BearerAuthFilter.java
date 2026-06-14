@@ -39,6 +39,8 @@ public class BearerAuthFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         return "OPTIONS".equalsIgnoreCase(request.getMethod())
             || "/api/auth/login".equals(path)
+            || "/api/auth/forgot-password".equals(path)
+            || "/api/auth/reset-password".equals(path)
             || "/api/health".equals(path)
             || path.startsWith("/api/customer-api/")
             || path.startsWith("/api/device/scale/")
