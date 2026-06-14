@@ -169,6 +169,15 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
         if (chargeItemId == null || chargeItemId.toString().isBlank()) {
             throw ApiException.badRequest("请选择费用类型");
         }
+        // ACC Charge.php L586: 同一票快件不能两份同类型费用单
+        Integer dup = jdbc.queryForObject("""
+            SELECT count(*) FROM charges
+             WHERE shipment_id = ?::uuid AND charge_item_id = ?::uuid
+               AND status <> 'VOID'::charge_status
+            """, Integer.class, shipmentId.toString(), chargeItemId.toString());
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("该快件已有该类型费用单，同票不能重复创建");
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
         if (amount.signum() <= 0) {
