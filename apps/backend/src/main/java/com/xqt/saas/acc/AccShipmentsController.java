@@ -278,6 +278,10 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
         if (shipmentNo == null || shipmentNo.isBlank()) {
             throw ApiException.badRequest("出货单号必填");
         }
+        // ACC: 运单号长度 6-30
+        if (shipmentNo.length() < 6 || shipmentNo.length() > 30) {
+            throw ApiException.badRequest("出货单号长度不能低于 6 或超过 30");
+        }
         if (customerId == null || customerId.toString().isBlank()) {
             throw ApiException.badRequest("请选择客户");
         }
