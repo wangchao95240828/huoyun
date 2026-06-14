@@ -392,8 +392,29 @@ public class AccOrdersController {
             orderNo = orderNoGenerator.generate("ORDER");
         }
         String customerRef = strOrDefault(body.get("customerRef"), orderNo);
+        // 自定义字段校验 — 集成 AccCustomFieldsController
+        Object customFieldsRaw = body.get("customFields");
+        if (customFieldsRaw instanceof Map<?, ?> cfMap) {
+            // 拉 orders 表的自定义字段定义
+            List<Map<String, Object>> defs = jdbc.queryForList("""
+                SELECT field_key, field_label, field_type, is_required
+                  FROM acc_custom_fields WHERE table_name = 'orders' AND is_active = true
+                """);
+            for (Map<String, Object> def : defs) {
+                String key = (String) def.get("field_key");
+                String label = (String) def.get("field_label");
+                Boolean required = (Boolean) def.get("is_required");
+                Object v = cfMap.get(key);
+                if (Boolean.TRUE.equals(required) && (v == null || v.toString().isBlank())) {
+                    throw ApiException.badRequest("自定义字段 " + label + " 必填");
+                }
+            }
+        }
         // 业务字段 → metadata.acc_compat（与 customer-api submit 同结构）
         Map<String, Object> accCompat = new LinkedHashMap<>();
+        if (customFieldsRaw instanceof Map<?, ?> cf) {
+            accCompat.put("customFields", cf);
+        }
         accCompat.put("product", strOrNull(body.get("product")));
         accCompat.put("channelAccount", strOrNull(body.get("channelAccount")));
         accCompat.put("packageType", strOrNull(body.get("packageType")));

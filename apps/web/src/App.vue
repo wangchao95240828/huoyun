@@ -4498,6 +4498,62 @@ async function doBatchVoidCost() {
   finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 6000); }
 }
 
+async function doApprovalDecide(decision: 'APPROVE' | 'REJECT') {
+  if (selectedIds.value.size === 0) return;
+  const verb = decision === 'APPROVE' ? '通过' : '驳回';
+  const comment = prompt(`${verb}意见（可选）`, '');
+  if (comment === null) return;
+  if (!confirm(`将 ${selectedIds.value.size} 条审批请求标 ${verb}，确定？`)) return;
+  bizLoading.value = true;
+  let ok = 0, fail = 0;
+  for (const id of Array.from(selectedIds.value)) {
+    try {
+      const res = await apiFetch(`${API}/api/admin/approval/${id}/decide`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, comment }),
+      });
+      if (res.ok) ok++; else fail++;
+    } catch { fail++; }
+  }
+  bizMessage.value = `${verb} 完成：成功 ${ok} 条，失败 ${fail} 条`;
+  selectedIds.value.clear();
+  fetchAccData();
+  bizLoading.value = false;
+  setTimeout(()=>bizMessage.value='', 6000);
+}
+
+async function doPeriodClose() {
+  const period = prompt('关账月份 YYYY-MM', new Date().toISOString().slice(0,7));
+  if (period === null) return;
+  bizLoading.value = true;
+  try {
+    // 先 preview
+    const previewRes = await apiFetch(`${API}/api/acc/period-closing/preview`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ period }),
+    });
+    const preview = await previewRes.json();
+    if (!previewRes.ok) { bizMessage.value = '预览失败: ' + (preview.error || previewRes.status); return; }
+    if (preview.alreadyLocked) {
+      bizMessage.value = `${period} 已关账`;
+      return;
+    }
+    const confirmText = `${period} 期间结算预览：\n` +
+      `收入: ${preview.totalRevenue}\n支出: ${preview.totalExpense}\n` +
+      `净利: ${preview.netIncome}\n\n确认关账（不可逆）？`;
+    if (!confirm(confirmText)) return;
+    const closeRes = await apiFetch(`${API}/api/acc/period-closing/close`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ period }),
+    });
+    const close = await closeRes.json();
+    if (!closeRes.ok) { bizMessage.value = '关账失败: ' + (close.error || closeRes.status); return; }
+    bizMessage.value = `${period} 关账成功，凭证 ${close.voucherNo}, 净利 ${close.netIncome}`;
+    fetchAccData();
+  } catch (e: any) { bizMessage.value = '关账失败: ' + e.message; }
+  finally { bizLoading.value = false; setTimeout(()=>bizMessage.value='', 8000); }
+}
+
 async function doGenerateCommissions() {
   const rate = prompt('提成比例（默认 5%）', '0.05');
   if (rate === null) return;
@@ -5724,6 +5780,21 @@ async function doReloadBill(id: number) {
             </button>
             <button class="secondary sm" @click="doExportSupplierStatement" :disabled="bizLoading">
               <FileText :size="13" /> 导出供应商对账 CSV
+            </button>
+          </template>
+          <!-- 审批待办 — 双按钮（通过/驳回） -->
+          <template v-if="accTab === 'approval-pending'">
+            <button class="primary sm" @click="doApprovalDecide('APPROVE')" :disabled="bizLoading || selectedIds.size === 0">
+              <CheckCircle :size="13" /> 通过({{ selectedIds.size }})
+            </button>
+            <button class="secondary sm" @click="doApprovalDecide('REJECT')" :disabled="bizLoading || selectedIds.size === 0" style="color:#dc2626">
+              <XCircle :size="13" /> 驳回({{ selectedIds.size }})
+            </button>
+          </template>
+          <!-- 月度财报 — 期间关账按钮 -->
+          <template v-if="accTab === 'swb-monthly'">
+            <button class="primary sm" @click="doPeriodClose" :disabled="bizLoading">
+              <Save :size="13" /> 月结关账
             </button>
           </template>
           <!-- 财务工作台 - 待审核 tab 工具栏（一审 / 出账 / 合并 三选一）-->
