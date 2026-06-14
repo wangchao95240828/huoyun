@@ -2830,6 +2830,10 @@ const refEndpoints: Record<string, { api: string; nameField: string }> = {
   ports: { api: 'ports', nameField: 'name' },
   currencies: { api: 'currencies', nameField: 'name' },
   'stowage-categories': { api: 'stowage-categories', nameField: 'name' },
+  // 制单表单缺失的 3 个下拉
+  'channel-accounts': { api: 'channel-accounts', nameField: 'account_name' },
+  warehouses: { api: 'warehouses', nameField: 'name' },
+  'importer-templates': { api: 'importer-templates', nameField: 'name' },
 };
 
 // ═══════════════ Helpers ═══════════════
