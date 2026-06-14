@@ -1,6 +1,7 @@
 package com.xqt.saas.acc;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 
 import com.xqt.saas.common.ApiException;
@@ -63,6 +64,25 @@ public class HrAndAssetsAuditPreCheck implements AuditSideEffect {
             String currency = (String) rec.get("currency");
             if (currency == null || currency.length() != 3) {
                 throw ApiException.badRequest("找不到" + zhTable(table) + "的币种");
+            }
+        }
+        // ACC Wage.php L1380: 工资审核前依赖提成订单审核通过
+        if ("acc_wages".equals(table)) {
+            String empId = jdbc.queryForObject(
+                "SELECT employee_id::text FROM acc_wages WHERE id = ?::uuid", String.class, entityId);
+            String month = jdbc.queryForObject(
+                "SELECT the_month FROM acc_wages WHERE id = ?::uuid", String.class, entityId);
+            if (empId != null && month != null) {
+                // 如该员工该月有 commission，必须先审核
+                List<String> pending = jdbc.queryForList("""
+                    SELECT the_month FROM acc_commissions
+                     WHERE employee_id = ?::uuid AND the_month = ?
+                       AND audit_status <> 'AUDITED'
+                    """, String.class, empId, month);
+                if (!pending.isEmpty()) {
+                    throw ApiException.badRequest(
+                        "提成订单 [" + month + "] 未审核通过，请先审核\"提成订单\"再提交工资审核");
+                }
             }
         }
         // ACC Expenses.php L1336/L1383: 费用单分类必填 + 账户余额校验

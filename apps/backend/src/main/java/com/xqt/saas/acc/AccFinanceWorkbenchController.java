@@ -622,18 +622,45 @@ public class AccFinanceWorkbenchController {
             }
 
             String line;
+            int rowIdx = 1;
+            java.util.Set<String> seenTracking = new java.util.HashSet<>();
             while ((line = reader.readLine()) != null) {
+                rowIdx++;
                 if (line.trim().isEmpty()) continue;
                 String[] parts = line.split(",");
+                if (parts.length <= Math.max(idxTrack, idxAmount)) {
+                    skipped.add(Map.of("row", rowIdx, "reason", "列数不足"));
+                    continue;
+                }
                 String trackingNo = parts[idxTrack].trim();
+                if (trackingNo.isEmpty()) {
+                    skipped.add(Map.of("row", rowIdx, "reason", "追踪号不能为空"));
+                    continue;
+                }
+                if (!seenTracking.add(trackingNo.toLowerCase())) {
+                    skipped.add(Map.of("row", rowIdx, "trackingNo", trackingNo, "reason", "追踪号在文件内重复"));
+                    continue;
+                }
                 BigDecimal newAmount;
                 try { newAmount = new BigDecimal(parts[idxAmount].trim()); }
                 catch (Exception ex) {
-                    skipped.add(Map.of("trackingNo", trackingNo, "reason", "金额格式错: " + parts[idxAmount]));
+                    skipped.add(Map.of("row", rowIdx, "trackingNo", trackingNo,
+                        "reason", "第 " + rowIdx + " 行：金额必须为数字"));
+                    continue;
+                }
+                if (newAmount.signum() <= 0) {
+                    skipped.add(Map.of("row", rowIdx, "trackingNo", trackingNo,
+                        "reason", "第 " + rowIdx + " 行：金额必须大于零"));
                     continue;
                 }
                 String currency = idxCurrency >= 0 && parts.length > idxCurrency
                     ? parts[idxCurrency].trim() : null;
+                // ACC Charge.php L1736: 币种格式
+                if (currency != null && !currency.isEmpty() && currency.length() != 3) {
+                    skipped.add(Map.of("row", rowIdx, "trackingNo", trackingNo,
+                        "reason", "第 " + rowIdx + " 行：币种 [" + currency + "] 格式错（3 字母）"));
+                    continue;
+                }
 
                 // 按 tracking_no 找 charges (走 cartons 表) — 一个 shipment 可能多 charge_item（FREIGHT/FUEL/...）
                 List<Map<String, Object>> chRows = jdbc.queryForList("""

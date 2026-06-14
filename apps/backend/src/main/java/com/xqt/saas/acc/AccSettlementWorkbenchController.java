@@ -221,14 +221,35 @@ public class AccSettlementWorkbenchController {
                 throw ApiException.badRequest("CSV 必须包含 tracking_no,actual_cost 列");
             }
             String line;
+            int rowIdx = 1;
+            java.util.Set<String> seenTracking = new java.util.HashSet<>();
             while ((line = reader.readLine()) != null) {
+                rowIdx++;
                 if (line.trim().isEmpty()) continue;
                 String[] parts = line.split(",");
+                if (parts.length <= Math.max(idxTrack, idxAmount)) {
+                    skipped.add(Map.of("row", rowIdx, "reason", "列数不足"));
+                    continue;
+                }
                 String trackingNo = parts[idxTrack].trim();
+                if (trackingNo.isEmpty()) {
+                    skipped.add(Map.of("row", rowIdx, "reason", "追踪号不能为空"));
+                    continue;
+                }
+                // ACC Cost.php L1825 派生: 文件内追踪号重复
+                if (!seenTracking.add(trackingNo.toLowerCase())) {
+                    skipped.add(Map.of("row", rowIdx, "trackingNo", trackingNo, "reason", "追踪号在文件内重复"));
+                    continue;
+                }
                 BigDecimal newAmount;
                 try { newAmount = new BigDecimal(parts[idxAmount].trim()); }
                 catch (Exception ex) {
-                    skipped.add(Map.of("trackingNo", trackingNo, "reason", "金额格式错: " + parts[idxAmount]));
+                    skipped.add(Map.of("row", rowIdx, "trackingNo", trackingNo, "reason", "第 " + rowIdx + " 行：金额必须为数字"));
+                    continue;
+                }
+                // ACC Cost.php L1825: 金额必须大于零
+                if (newAmount.signum() <= 0) {
+                    skipped.add(Map.of("row", rowIdx, "trackingNo", trackingNo, "reason", "第 " + rowIdx + " 行：金额必须大于零"));
                     continue;
                 }
                 List<Map<String, Object>> chRows = jdbc.queryForList("""
