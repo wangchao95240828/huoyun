@@ -7251,7 +7251,7 @@ async function doReloadBill(id: number) {
             <section class="od-section">
               <h4 class="od-title">物流跟踪 ({{ (detailData.trackingEvents || []).length }})</h4>
               <table class="data-table">
-                <thead><tr><th>时间</th><th>状态</th><th>原始状态</th><th>地点</th><th>跟踪号</th><th>描述</th></tr></thead>
+                <thead><tr><th>时间</th><th>状态</th><th>原始状态</th><th>地点</th><th>跟踪号</th><th>来源</th></tr></thead>
                 <tbody>
                   <tr v-for="(t, i) in (detailData.trackingEvents || [])" :key="'t'+i">
                     <td>{{ (t.event_time || '').slice(0,19).replace('T',' ') }}</td>
@@ -7259,7 +7259,7 @@ async function doReloadBill(id: number) {
                     <td>{{ t.raw_status }}</td>
                     <td>{{ t.location || '-' }}</td>
                     <td>{{ t.tracking_no }}</td>
-                    <td>{{ t.description || '-' }}</td>
+                    <td>{{ t.source || '-' }}</td>
                   </tr>
                   <tr v-if="!(detailData.trackingEvents || []).length"><td colspan="6" class="empty-cell">无跟踪事件</td></tr>
                 </tbody>

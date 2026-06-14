@@ -454,7 +454,7 @@ public class AccOrdersController {
             String inClause = String.join(",", shipmentIds.stream().map(s -> "?").toList());
             trackingEvents = jdbc.queryForList(
                 "SELECT event_time, raw_status, normalized_status::text AS normalized_status,"
-                + "       location, description, tracking_no"
+                + "       location, source::text AS source, tracking_no"
                 + "  FROM tracking_events"
                 + " WHERE shipment_id::text IN (" + inClause + ")"
                 + " ORDER BY event_time DESC LIMIT 100",
