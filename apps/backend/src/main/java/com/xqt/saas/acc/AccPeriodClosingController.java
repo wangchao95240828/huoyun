@@ -44,7 +44,7 @@ public class AccPeriodClosingController {
             throw ApiException.badRequest("period 必须为 YYYY-MM 格式");
         }
         String from = period + "-01";
-        String to = period + "-31";
+        String to = lastDayOfPeriod(period);
 
         BigDecimal totalRev = totalForCategory("REVENUE", from, to);
         BigDecimal totalExp = totalForCategory("EXPENSE", from, to);
@@ -80,7 +80,7 @@ public class AccPeriodClosingController {
             throw ApiException.badRequest("该期间已关账: " + period);
         }
         String from = period + "-01";
-        String to = period + "-31";
+        String to = lastDayOfPeriod(period);
 
         // 本年利润科目 3103
         String netIncomeSubject = jdbc.queryForObject(
@@ -184,6 +184,11 @@ public class AccPeriodClosingController {
             "lockInfo", lock != null ? lock : Map.of(),
             "closingVoucher", closing != null ? closing : Map.of()
         );
+    }
+
+    private String lastDayOfPeriod(String period) {
+        java.time.YearMonth ym = java.time.YearMonth.parse(period);
+        return ym.atEndOfMonth().toString();
     }
 
     private BigDecimal totalForCategory(String category, String from, String to) {
