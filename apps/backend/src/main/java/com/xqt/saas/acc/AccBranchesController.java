@@ -86,6 +86,8 @@ public class AccBranchesController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        if (code == null || code.isBlank()) throw ApiException.badRequest("分公司编号必填");
+        if (name == null || name.isBlank()) throw ApiException.badRequest("分公司名称必填");
         String id = jdbc.queryForObject("""
             INSERT INTO organizations (
               tenant_id, code, name, org_type, contact, phone, address, remark

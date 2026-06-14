@@ -75,13 +75,17 @@ public class AccCustomerGroupsController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object name = body.get("name");
+        if (name == null || name.toString().isBlank()) {
+            throw ApiException.badRequest("客户分组名称必填");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO customer_groups (tenant_id, code, name, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?)
             RETURNING id::text
             """, String.class,
-            body.getOrDefault("code", body.get("name")),
-            body.get("name"),
+            body.getOrDefault("code", name),
+            name,
             body.get("remark"));
         return Map.of("id", id);
     }

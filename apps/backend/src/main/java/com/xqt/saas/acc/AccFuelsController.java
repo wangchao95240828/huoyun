@@ -88,8 +88,24 @@ public class AccFuelsController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         Object channelId = body.get("channel_id");
         String yearMonth = (String) body.get("year_month");
+        if (channelId == null || channelId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择渠道");
+        }
+        if (yearMonth == null || !yearMonth.matches("\\d{4}-\\d{2}")) {
+            throw ApiException.badRequest("月份格式错误，应为 YYYY-MM");
+        }
         BigDecimal rate = body.get("rate") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        // 燃油费率合理范围：0-100%
+        if (rate.signum() < 0 || rate.compareTo(new BigDecimal("1")) > 0) {
+            throw ApiException.badRequest("燃油费率必须在 0-1 (0%-100%) 之间");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM fuel_surcharge_rates WHERE channel_id = ?::uuid AND year_month = ?",
+            Integer.class, channelId.toString(), yearMonth);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("该渠道 " + yearMonth + " 的燃油费率已存在");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO fuel_surcharge_rates (tenant_id, channel_id, year_month, rate)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, ?)

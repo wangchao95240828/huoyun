@@ -87,6 +87,18 @@ public AccCollectsController(JdbcTemplate jdbc, JsonSupport json,
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object collectNo = body.getOrDefault("no", body.get("collect_no"));
+        if (collectNo == null || collectNo.toString().isBlank()) {
+            throw ApiException.badRequest("收货单号必填");
+        }
+        Object pieceRaw = body.get("piece");
+        if (pieceRaw instanceof Number pn && pn.intValue() <= 0) {
+            throw ApiException.badRequest("件数必须大于零");
+        }
+        Object weightRaw = body.get("weight");
+        if (weightRaw instanceof Number wn && wn.doubleValue() <= 0) {
+            throw ApiException.badRequest("重量必须大于零");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_collects (tenant_id, collect_no, piece, weight_kg, status, remark, add_name)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?, ?)

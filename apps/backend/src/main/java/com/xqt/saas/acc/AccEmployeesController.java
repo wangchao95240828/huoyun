@@ -77,6 +77,24 @@ public class AccEmployeesController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String empNo = (String) body.get("empNo");
         String name = (String) body.get("name");
+        if (empNo == null || empNo.isBlank()) {
+            throw ApiException.badRequest("员工编号必填");
+        }
+        if (!empNo.matches("[\\x00-\\x7F]+")) {
+            throw ApiException.badRequest("员工编号不能包含中文");
+        }
+        if (name == null || name.isBlank()) {
+            throw ApiException.badRequest("姓名必填");
+        }
+        // ACC Account.php L173: 姓名格式（中文 or 英文字母）
+        if (!name.matches("[\\p{IsHan}]{1,30}|[a-zA-Z\\s\\.\\-]{2,60}")) {
+            throw ApiException.badRequest("姓名格式不正确，请填写标准的中文姓名或者英文姓名");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM acc_employees WHERE emp_no = ?", Integer.class, empNo);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("员工编号已存在: " + empNo);
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_employees (tenant_id, emp_no, name, gender, mobile, branch_id, department_id, position, status, entry_date)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?::text, ?::text,

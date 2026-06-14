@@ -94,6 +94,20 @@ public class AccCurrenciesController {
         String name = (String) body.get("name");
         String symbol = (String) body.get("symbol");
         Object decimalPlaces = body.getOrDefault("decimal_places", body.get("decimal"));
+        if (code == null || !code.matches("[A-Z]{3}")) {
+            throw ApiException.badRequest("货币代码必须为 3 个大写字母 (ISO 4217)");
+        }
+        if (name == null || name.isBlank()) {
+            throw ApiException.badRequest("货币名称必填");
+        }
+        if (decimalPlaces instanceof Number dn && (dn.intValue() < 0 || dn.intValue() > 8)) {
+            throw ApiException.badRequest("小数位数必须在 0-8 之间");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM finance_currency WHERE code = ?", Integer.class, code);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("货币 " + code + " 已存在");
+        }
         Long id = jdbc.queryForObject("""
             INSERT INTO finance_currency (
               tenant_id, created_at, created_by, updated_at, updated_by, code, name,

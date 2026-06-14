@@ -88,6 +88,8 @@ public class AccDepartmentsController {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
         Object parentId = body.get("parent_id");
+        if (code == null || code.isBlank()) throw ApiException.badRequest("部门编号必填");
+        if (name == null || name.isBlank()) throw ApiException.badRequest("部门名称必填");
         String id = jdbc.queryForObject("""
             INSERT INTO organizations (tenant_id, parent_id, code, name, org_type)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, ?, 'department')

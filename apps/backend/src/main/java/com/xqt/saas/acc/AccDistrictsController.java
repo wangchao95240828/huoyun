@@ -75,14 +75,21 @@ public class AccDistrictsController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object code = body.get("code");
+        Object name = body.getOrDefault("name", body.get("cn"));
+        if (code == null || code.toString().isBlank()) throw ApiException.badRequest("行政区代码必填");
+        if (name == null || name.toString().isBlank()) throw ApiException.badRequest("行政区名称必填");
+        Object lvl = body.get("level");
+        if (lvl instanceof Number ln && (ln.intValue() < 1 || ln.intValue() > 5)) {
+            throw ApiException.badRequest("行政区级别必须在 1-5 之间");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO districts (tenant_id, code, name, level, parent_id)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?::uuid)
             RETURNING id::text
             """, String.class,
-            body.get("code"),
-            body.getOrDefault("name", body.get("cn")),
-            body.get("level") instanceof Number n ? n.intValue() : 1,
+            code, name,
+            lvl instanceof Number n ? n.intValue() : 1,
             body.get("parent_id"));
         return Map.of("id", id);
     }

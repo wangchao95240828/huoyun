@@ -75,15 +75,27 @@ public class AccHscodesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object code = body.get("code");
+        if (code == null || !code.toString().matches("\\d{6,10}")) {
+            throw ApiException.badRequest("HS Code 必须为 6-10 位数字");
+        }
+        Object nameEn = body.getOrDefault("nameEN", body.get("name_en"));
+        Object nameCn = body.getOrDefault("nameCN", body.get("name_cn"));
+        if ((nameEn == null || nameEn.toString().isBlank())
+            && (nameCn == null || nameCn.toString().isBlank())) {
+            throw ApiException.badRequest("HS Code 名称(中英)至少填一个");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM hs_codes WHERE code = ?", Integer.class, code.toString());
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("HS Code 已存在: " + code);
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO hs_codes (tenant_id, code, name_en, name_cn, category)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?)
             RETURNING id::text
             """, String.class,
-            body.get("code"),
-            body.getOrDefault("nameEN", body.get("name_en")),
-            body.getOrDefault("nameCN", body.get("name_cn")),
-            body.get("category"));
+            code, nameEn, nameCn, body.get("category"));
         return Map.of("id", id);
     }
 

@@ -76,6 +76,19 @@ public class AccCommissionRulesController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String name = (String) body.get("name");
+        if (name == null || name.isBlank()) {
+            throw ApiException.badRequest("提成规则名称必填");
+        }
+        Object ruleType = body.get("ruleType");
+        if (ruleType == null || ruleType.toString().isBlank()) {
+            throw ApiException.badRequest("提成规则类型必填");
+        }
+        Object percent = body.get("percent");
+        if (percent instanceof Number pn) {
+            if (pn.doubleValue() < 0 || pn.doubleValue() > 1) {
+                throw ApiException.badRequest("提成比例必须在 0-1 (0%-100%) 之间");
+            }
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_commission_rules (tenant_id, name, rule_type, percent, amount, sales, profit, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?::text, ?::numeric,
