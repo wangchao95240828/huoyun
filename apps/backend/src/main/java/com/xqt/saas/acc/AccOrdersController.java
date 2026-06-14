@@ -589,8 +589,8 @@ public class AccOrdersController {
             """, String.class, orderNo, customerId, customerRef, metaJson,
                  strOrNull(body.get("postcode")),
                  strOrNull(body.get("itemType")),
-                 strOrNull(body.get("batteryType")),
-                 strOrNull(body.get("specialType")),
+                 mapBatteryType(body.get("batteryType")),
+                 mapSpecialType(body.get("specialType")),
                  strOrNull(body.get("materialsEn")),
                  Boolean.TRUE.equals(body.get("isInsurance")),
                  Boolean.TRUE.equals(body.get("isRemote")),
@@ -632,6 +632,43 @@ public class AccOrdersController {
     private static String strOrNull(Object o) {
         return o == null || o.toString().isBlank() ? null : o.toString();
     }
+
+    /**
+     * ACC 兼容: batteryType 数字（0=不带电 1=内置 2=干电池）→ DB enum text。
+     * 前端 select v-model.number 发数字，DB CHECK 要 NONE/PURE/BUILT_IN/MATCH。
+     */
+    private static String mapBatteryType(Object o) {
+        if (o == null) return null;
+        String s = o.toString().trim();
+        if (s.isEmpty()) return null;
+        return switch (s) {
+            case "0" -> "NONE";
+            case "1" -> "BUILT_IN";
+            case "2" -> "PURE";        // 干电池 → PURE 锂电池
+            case "3" -> "MATCH";       // 配套
+            // 已经是 enum text 直接透传
+            case "NONE", "PURE", "BUILT_IN", "MATCH" -> s;
+            default -> null;            // 未知值 → NULL（避免 DB CHECK 阻塞）
+        };
+    }
+
+    /**
+     * ACC 兼容: specialType 数字（0=普货 1=特殊产品 2=港发件 3=报关件 4=纺织品 5=仿牌）→ DB enum text。
+     * DB CHECK 接 STANDARD/CHEMICAL/LIQUID/MAGNETIC。
+     */
+    private static String mapSpecialType(Object o) {
+        if (o == null) return null;
+        String s = o.toString().trim();
+        if (s.isEmpty()) return null;
+        return switch (s) {
+            case "0" -> "STANDARD";
+            case "1" -> "CHEMICAL";    // 特殊产品 → CHEMICAL
+            case "2", "3", "4", "5" -> "STANDARD"; // 港发件/报关/纺织/仿牌都走标准
+            case "STANDARD", "CHEMICAL", "LIQUID", "MAGNETIC" -> s;
+            default -> null;
+        };
+    }
+
     private static String strOrDefault(Object o, String def) {
         String s = strOrNull(o);
         return s == null ? def : s;
