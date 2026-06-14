@@ -413,6 +413,8 @@ public class AccOrdersController {
         accCompat.put("batteryCode", strOrNull(body.get("batteryCode")));
         accCompat.put("services", body.get("services"));
         accCompat.put("remark", strOrNull(body.get("remark")));
+        accCompat.put("departurePort", strOrNull(body.get("departurePort")));
+        accCompat.put("arrivalPort", strOrNull(body.get("arrivalPort")));
         accCompat.put("receiver", body.get("receiver"));
         accCompat.put("shipper", body.get("shipper"));
         accCompat.put("shipTo", body.get("shipTo"));

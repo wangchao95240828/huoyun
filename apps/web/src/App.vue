@@ -2016,35 +2016,45 @@ const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v:
 
 const accFormFields: Record<string, FormField[]> = {
   orders: [
+    // ═══ 基本信息（对齐 ACC Express.php 第 1-2 行）═══
     { col: 'TheDate', label: '日期', type: 'date', required: true },
-    { col: 'No', label: '客户单号', type: 'text', required: true },
-    { col: 'TrackNo', label: '服务商单号', type: 'text' },
     { col: 'Customer', label: '客户', type: 'select', ref: 'customers', required: true },
-    { col: 'Product', label: '销售产品', type: 'select', ref: 'products' },
-    { col: 'Channel', label: '渠道', type: 'select', ref: 'channels' },
-    { col: 'Country', label: '目的地', type: 'select', ref: 'countries' },
-    { col: 'Postcode', label: '收件人邮编', type: 'text' },
-    { col: 'Branch', label: '分公司', type: 'select', ref: 'branches' },
-    { col: 'ItemType', label: '物品类型', type: 'select', opts: [
+    { col: 'No', label: '运单号 (客户单号)', type: 'text', required: true },
+    { col: 'TrackNo', label: '转单号 (服务商单号)', type: 'text' },
+    // ═══ 产品/分类（对齐 ACC 第 3-5 行）═══
+    { col: 'Country', label: '目的地', type: 'select', ref: 'countries', required: true },
+    { col: 'ItemType', label: '快件类型', type: 'select', required: true, opts: [
       { v: 'DOCUMENT', l: '文件' }, { v: 'GENERAL', l: '普货' },
       { v: 'SENSITIVE', l: '敏感货' }, { v: 'LIQUID', l: '液体' }, { v: 'POWDER', l: '粉末' }
     ] },
-    { col: 'BatteryType', label: '电池类型', type: 'select', opts: [
+    { col: 'Product', label: '销售产品', type: 'select', ref: 'products', required: true },
+    { col: 'Channel', label: '渠道', type: 'select', ref: 'channels' },
+    // 港口信息（ACC 第 4 行右侧）
+    { col: 'DeparturePort', label: '出发港', type: 'select', ref: 'ports' },
+    { col: 'ArrivalPort', label: '抵达港', type: 'select', ref: 'ports' },
+    { col: 'BatteryType', label: '电池选项', type: 'select', required: true, opts: [
       { v: 'NONE', l: '无电池' }, { v: 'PURE', l: '纯电池' },
       { v: 'BUILT_IN', l: '内置电池' }, { v: 'MATCH', l: '配套电池' }
     ] },
-    { col: 'SpecialType', label: '特殊类型', type: 'select', opts: [
+    { col: 'SpecialType', label: '特殊货物', type: 'select', required: true, opts: [
       { v: 'STANDARD', l: '标准' }, { v: 'CHEMICAL', l: '化工品' },
       { v: 'LIQUID', l: '液体' }, { v: 'MAGNETIC', l: '磁性物品' }
     ] },
-    { col: 'MaterialsEn', label: '英文品名', type: 'text' },
-    { col: 'Piece', label: '件数', type: 'number' },
-    { col: 'Weight', label: '实重(kg)', type: 'number' },
-    { col: 'ChargeWeight', label: '计费重(kg)', type: 'number' },
-    { col: 'Volume', label: '体积(m³)', type: 'number' },
-    { col: 'DeclaredValue', label: '申报价值', type: 'number' },
-    { col: 'IsInsurance', label: '是否参保', type: 'boolean' },
-    { col: 'IsRemote', label: '远程地区', type: 'boolean' },
+    // ═══ 申报信息（对齐 ACC 第 6 行）═══
+    { col: 'MaterialsEn', label: '申报品名(EN)', type: 'text' },
+    { col: 'DeclaredValue', label: '申报价值', type: 'number', required: true },
+    // ═══ 保险/邮编（对齐 ACC 第 7 行）═══
+    { col: 'IsInsurance', label: '购买保险', type: 'boolean' },
+    { col: 'Postcode', label: '邮编', type: 'text' },
+    { col: 'Branch', label: '分公司', type: 'select', ref: 'branches' },
+    // ═══ 计重明细（ACC 表格 grid，xqt-saas 用 textarea + 总计字段）═══
+    { col: 'Piece', label: '件数 (Total)', type: 'number' },
+    { col: 'Weight', label: '实重 kg (Total)', type: 'number' },
+    { col: 'ChargeWeight', label: '计费重 kg (自动计算)', type: 'number' },
+    { col: 'Volume', label: '体积 m³ (自动计算)', type: 'number' },
+    // 偏远地区由 Postcode 自动判定
+    { col: 'IsRemote', label: '远程地区 (Postcode 自动)', type: 'boolean' },
+    // ═══ 收费明细（ACC 自动计算，xqt-saas Submit 时由 RateEngine 算）═══
     { col: 'SurchargeIds', label: '附加费 (逗号分隔 ID)', type: 'text' },
     { col: 'CartonsRows', label: '货箱明细 (每行: 件,重kg,长cm,宽cm,高cm,追踪号)', type: 'textarea' },
     { col: 'RecipientConsignee', label: '收件人姓名', type: 'text' },
@@ -3443,6 +3453,8 @@ async function saveForm() {
         customerRef:   (formData as any).TrackNo,
         product:       (formData as any).Product,
         channelAccount:(formData as any).Channel,
+        departurePort: (formData as any).DeparturePort,
+        arrivalPort:   (formData as any).ArrivalPort,
         country:       (formData as any).Country,
         postcode:      (formData as any).Postcode,
         itemType:      (formData as any).ItemType,
