@@ -253,7 +253,7 @@ const accTotalPages = computed(() => Math.max(1, Math.ceil(accTotal.value / accP
 interface FormField {
   col: string;
   label: string;
-  type: 'text' | 'number' | 'date' | 'textarea' | 'select' | 'boolean';
+  type: 'text' | 'number' | 'date' | 'textarea' | 'select' | 'boolean' | 'radio' | 'section';
   required?: boolean;
   opts?: Array<{ v: number | string; l: string }>;
   ref?: string;
@@ -2016,47 +2016,47 @@ const settlementOpts = [{ v: 0, l: '不限' }, { v: 1, l: '货到付款' }, { v:
 
 const accFormFields: Record<string, FormField[]> = {
   orders: [
-    // ═══ 基本信息（对齐 ACC Express.php 第 1-2 行）═══
+    { col: '__sec_basic', label: '基本信息', type: 'section' },
     { col: 'TheDate', label: '日期', type: 'date', required: true },
     { col: 'Customer', label: '客户', type: 'select', ref: 'customers', required: true },
     { col: 'No', label: '运单号 (客户单号)', type: 'text', required: true },
     { col: 'TrackNo', label: '转单号 (服务商单号)', type: 'text' },
-    // ═══ 产品/分类（对齐 ACC 第 3-5 行）═══
+    { col: '__sec_product', label: '产品/分类', type: 'section' },
     { col: 'Country', label: '目的地', type: 'select', ref: 'countries', required: true },
-    { col: 'ItemType', label: '快件类型', type: 'select', required: true, opts: [
+    { col: 'ItemType', label: '快件类型', type: 'radio', required: true, opts: [
       { v: 'DOCUMENT', l: '文件' }, { v: 'GENERAL', l: '普货' },
       { v: 'SENSITIVE', l: '敏感货' }, { v: 'LIQUID', l: '液体' }, { v: 'POWDER', l: '粉末' }
     ] },
     { col: 'Product', label: '销售产品', type: 'select', ref: 'products', required: true },
     { col: 'Channel', label: '渠道', type: 'select', ref: 'channels' },
-    // 港口信息（ACC 第 4 行右侧）
     { col: 'DeparturePort', label: '出发港', type: 'select', ref: 'ports' },
     { col: 'ArrivalPort', label: '抵达港', type: 'select', ref: 'ports' },
-    { col: 'BatteryType', label: '电池选项', type: 'select', required: true, opts: [
+    { col: 'BatteryType', label: '电池选项', type: 'radio', required: true, opts: [
       { v: 'NONE', l: '无电池' }, { v: 'PURE', l: '纯电池' },
       { v: 'BUILT_IN', l: '内置电池' }, { v: 'MATCH', l: '配套电池' }
     ] },
-    { col: 'SpecialType', label: '特殊货物', type: 'select', required: true, opts: [
+    { col: 'SpecialType', label: '特殊货物', type: 'radio', required: true, opts: [
       { v: 'STANDARD', l: '标准' }, { v: 'CHEMICAL', l: '化工品' },
       { v: 'LIQUID', l: '液体' }, { v: 'MAGNETIC', l: '磁性物品' }
     ] },
-    // ═══ 申报信息（对齐 ACC 第 6 行）═══
+    { col: '__sec_declare', label: '申报信息', type: 'section' },
     { col: 'MaterialsEn', label: '申报品名(EN)', type: 'text' },
     { col: 'DeclaredValue', label: '申报价值', type: 'number', required: true },
-    // ═══ 保险/邮编（对齐 ACC 第 7 行）═══
+    { col: '__sec_recv', label: '收件/保险', type: 'section' },
     { col: 'IsInsurance', label: '购买保险', type: 'boolean' },
     { col: 'Postcode', label: '邮编', type: 'text' },
     { col: 'Branch', label: '分公司', type: 'select', ref: 'branches' },
-    // ═══ 计重明细（ACC 表格 grid，xqt-saas 用 textarea + 总计字段）═══
+    { col: '__sec_weight', label: '计重明细', type: 'section' },
     { col: 'Piece', label: '件数 (Total)', type: 'number' },
     { col: 'Weight', label: '实重 kg (Total)', type: 'number' },
     { col: 'ChargeWeight', label: '计费重 kg (自动计算)', type: 'number' },
     { col: 'Volume', label: '体积 m³ (自动计算)', type: 'number' },
-    // 偏远地区由 Postcode 自动判定
     { col: 'IsRemote', label: '远程地区 (Postcode 自动)', type: 'boolean' },
-    // ═══ 收费明细（ACC 自动计算，xqt-saas Submit 时由 RateEngine 算）═══
+    { col: '__sec_fee', label: '收费明细', type: 'section' },
     { col: 'SurchargeIds', label: '附加费 (逗号分隔 ID)', type: 'text' },
+    { col: '__sec_cartons', label: '货箱明细', type: 'section' },
     { col: 'CartonsRows', label: '货箱明细 (每行: 件,重kg,长cm,宽cm,高cm,追踪号)', type: 'textarea' },
+    { col: '__sec_recv2', label: '收件人信息', type: 'section' },
     { col: 'RecipientConsignee', label: '收件人姓名', type: 'text' },
     { col: 'RecipientCompany',   label: '收件人公司', type: 'text' },
     { col: 'RecipientPhone',     label: '收件人电话', type: 'text' },
@@ -6677,26 +6677,43 @@ async function doReloadBill(id: number) {
         <div class="modal-body">
           <div class="error-bar" v-if="formError">{{ formError }}</div>
           <div class="form-grid">
-            <div class="form-field" v-for="field in currentFormFields" :key="field.col"
-                 :class="{ 'full-width': field.type === 'textarea' }">
-              <label>{{ field.label }} <span class="required" v-if="field.required">*</span></label>
-              <input v-if="field.type === 'text'" type="text" v-model="formData[field.col]" />
-              <input v-else-if="field.type === 'number'" type="number" step="any" v-model.number="formData[field.col]" />
-              <input v-else-if="field.type === 'date'" type="date" v-model="formData[field.col]" />
-              <textarea v-else-if="field.type === 'textarea'" v-model="formData[field.col]" rows="3" />
-              <select v-else-if="field.type === 'select' && field.opts" v-model="formData[field.col]">
-                <option value="">请选择</option>
-                <option v-for="opt in field.opts" :key="opt.v" :value="opt.v">{{ opt.l }}</option>
-              </select>
-              <select v-else-if="field.type === 'select' && field.ref" v-model="formData[field.col]">
-                <option value="">请选择</option>
-                <option v-for="opt in (selectOptions[field.ref!] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
-              </select>
-              <div v-else-if="field.type === 'boolean'" class="toggle-wrap">
-                <input type="checkbox" :id="'f_' + field.col" v-model="formData[field.col]" :true-value="1" :false-value="0" />
-                <label :for="'f_' + field.col" class="toggle-label">{{ formData[field.col] == 1 ? '是' : '否' }}</label>
+            <template v-for="field in currentFormFields" :key="field.col">
+              <!-- ACC section header（type='section' 用作分组分隔）-->
+              <div v-if="field.type === 'section'" class="form-section-header full-width">
+                {{ field.label }}
               </div>
-            </div>
+              <div v-else class="form-field"
+                   :class="{ 'full-width': field.type === 'textarea' || field.type === 'radio' }">
+                <label>
+                  <span v-if="field.required" class="required-star">*</span>
+                  {{ field.label }}
+                </label>
+                <input v-if="field.type === 'text'" type="text" v-model="formData[field.col]" />
+                <input v-else-if="field.type === 'number'" type="number" step="any" v-model.number="formData[field.col]" />
+                <input v-else-if="field.type === 'date'" type="date" v-model="formData[field.col]" />
+                <textarea v-else-if="field.type === 'textarea'" v-model="formData[field.col]" rows="3" />
+                <!-- ACC 风格 radio buttons：与 select+opts 同结构但视觉是 radio -->
+                <div v-else-if="field.type === 'radio' && field.opts" class="radio-group">
+                  <label v-for="opt in field.opts" :key="opt.v" class="radio-item"
+                         :class="{ active: formData[field.col] === opt.v }">
+                    <input type="radio" :name="'r_' + field.col" :value="opt.v" v-model="formData[field.col]" />
+                    <span>{{ opt.l }}</span>
+                  </label>
+                </div>
+                <select v-else-if="field.type === 'select' && field.opts" v-model="formData[field.col]">
+                  <option value="">请选择</option>
+                  <option v-for="opt in field.opts" :key="opt.v" :value="opt.v">{{ opt.l }}</option>
+                </select>
+                <select v-else-if="field.type === 'select' && field.ref" v-model="formData[field.col]">
+                  <option value="">请选择</option>
+                  <option v-for="opt in (selectOptions[field.ref!] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                </select>
+                <div v-else-if="field.type === 'boolean'" class="toggle-wrap">
+                  <input type="checkbox" :id="'f_' + field.col" v-model="formData[field.col]" :true-value="1" :false-value="0" />
+                  <label :for="'f_' + field.col" class="toggle-label">{{ formData[field.col] == 1 ? '是' : '否' }}</label>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
         <div class="modal-footer">

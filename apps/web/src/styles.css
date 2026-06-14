@@ -1669,6 +1669,61 @@ input, select, textarea { font: inherit; }
 }
 .form-field textarea { resize: vertical; min-height: 60px; }
 
+/* ═══ ACC 风格 section header ═══ */
+.form-section-header {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-primary, #1e293b);
+  background: linear-gradient(90deg, #f1f5f9, #fff);
+  padding: 8px 12px;
+  border-left: 4px solid #6366f1;
+  border-radius: 4px;
+  margin: 6px 0 4px;
+}
+
+/* ═══ ACC 风格 radio button 组 ═══ */
+.radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+.radio-group .radio-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--c-border, #cbd5e1);
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  background: #fff;
+  user-select: none;
+  transition: all .15s;
+}
+.radio-group .radio-item input[type="radio"] {
+  margin: 0;
+  width: 12px;
+  height: 12px;
+}
+.radio-group .radio-item.active {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+}
+.radio-group .radio-item:hover:not(.active) {
+  border-color: #6366f1;
+  color: #6366f1;
+}
+
+/* ═══ ACC 风格 红色 * 必填 标记 ═══ */
+.form-field .required-star {
+  color: #ef4444;
+  font-weight: 700;
+  margin-right: 2px;
+}
+
 .toggle-wrap {
   display: flex;
   align-items: center;
