@@ -85,7 +85,13 @@ public class AccReceivedSmsController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("收款短信金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到币种");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_received_sms (
               tenant_id, source_name, account_no, payer, amount, currency,

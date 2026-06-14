@@ -88,9 +88,28 @@ abstract class AccFinesBase {
     }
 
     protected Map<String, Object> createImpl(Map<String, Object> body) {
+        Object fineNo = body.getOrDefault("no", body.get("fine_no"));
+        if (fineNo == null || fineNo.toString().isBlank()) {
+            throw ApiException.badRequest("罚款单号必填");
+        }
+        if ("CUSTOMER".equals(side())) {
+            if (body.get("customer_id") == null || body.get("customer_id").toString().isBlank()) {
+                throw ApiException.badRequest("请选择客户");
+            }
+        } else if ("SUPPLIER".equals(side())) {
+            if (body.get("partner_id") == null || body.get("partner_id").toString().isBlank()) {
+                throw ApiException.badRequest("请选择供应商");
+            }
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("罚款金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到币种");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_fines (
               tenant_id, fine_no, the_date, side, customer_id, partner_id, amount, currency, remark, add_name

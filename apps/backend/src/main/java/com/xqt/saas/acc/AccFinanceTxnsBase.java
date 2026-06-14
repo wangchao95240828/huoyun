@@ -188,9 +188,29 @@ abstract class AccFinanceTxnsBase {
     }
 
     protected Map<String, Object> createImpl(Map<String, Object> body) {
+        Object txnNo = body.getOrDefault("no", body.get("txn_no"));
+        if (txnNo == null || txnNo.toString().isBlank()) {
+            throw ApiException.badRequest("单号必填");
+        }
+        if ("CUSTOMER".equals(side())) {
+            if (body.get("customer_id") == null || body.get("customer_id").toString().isBlank()) {
+                throw ApiException.badRequest("请选择客户");
+            }
+        } else if ("SUPPLIER".equals(side())) {
+            if (body.get("partner_id") == null || body.get("partner_id").toString().isBlank()) {
+                throw ApiException.badRequest("请选择供应商");
+            }
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        // ACC Received.php L377 / CRefund.php L436: 金额必须大于零
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到币种");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_finance_txns (
               tenant_id, txn_no, the_date, side, txn_type,

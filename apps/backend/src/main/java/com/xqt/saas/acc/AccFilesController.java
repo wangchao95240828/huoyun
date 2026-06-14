@@ -80,6 +80,13 @@ public class AccFilesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        if (body.get("fileName") == null || body.get("fileName").toString().isBlank()) {
+            throw ApiException.badRequest("文件名必填");
+        }
+        Object size = body.get("sizeBytes");
+        if (size instanceof Number sn && sn.longValue() < 0) {
+            throw ApiException.badRequest("文件大小不能为负");
+        }
         String id = jdbc.queryForObject(
             "INSERT INTO acc_files ("
             + "  tenant_id, file_name, file_type, mime_type, size_bytes,"

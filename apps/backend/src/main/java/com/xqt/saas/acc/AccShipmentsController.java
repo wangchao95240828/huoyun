@@ -275,6 +275,17 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String shipmentNo = (String) body.get("shipment_no");
         Object customerId = body.get("customer_id");
+        if (shipmentNo == null || shipmentNo.isBlank()) {
+            throw ApiException.badRequest("出货单号必填");
+        }
+        if (customerId == null || customerId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择客户");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM shipments WHERE shipment_no = ?", Integer.class, shipmentNo);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("相同出货单号已存在: " + shipmentNo);
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO shipments (tenant_id, customer_id, shipment_no, status)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, 'DRAFT')
