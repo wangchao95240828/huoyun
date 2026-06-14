@@ -89,9 +89,25 @@ public class AccBorrowingsController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object borrower = body.getOrDefault("name", body.get("borrower_name"));
+        if (borrower == null || borrower.toString().isBlank()) {
+            throw ApiException.badRequest("借款人姓名必填");
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        // ACC Borrowing.php L1108: 本金/利息必须为正数
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("借款金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到币种");
+        }
+        // ACC Borrowing.php L1183: 利率（如果有）必须 >= 0
+        Object rateRaw = body.get("rate");
+        if (rateRaw instanceof Number rn && rn.doubleValue() < 0) {
+            throw ApiException.badRequest("利率不能为负");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_borrowings (
               tenant_id, borrower_name, the_date, borrowing_type, amount, currency, rate, remark, add_name

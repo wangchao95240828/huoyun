@@ -88,9 +88,19 @@ public class AccDividendsController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object personName = body.getOrDefault("name", body.get("person_name"));
+        if (personName == null || personName.toString().isBlank()) {
+            throw ApiException.badRequest("分红人姓名必填");
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("分红金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到币种");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_dividends (
               tenant_id, dividend_no, the_date, dividend_type, person_name,

@@ -75,11 +75,29 @@ public class AccBankNamesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object name = body.get("name");
+        Object code = body.get("code");
+        if (name == null || name.toString().isBlank()) {
+            throw ApiException.badRequest("银行名称必填");
+        }
+        // SWIFT 码 8 或 11 位字母数字（如填）
+        Object swift = body.get("swift");
+        if (swift != null && !swift.toString().isBlank()
+            && !swift.toString().matches("[A-Z0-9]{8}|[A-Z0-9]{11}")) {
+            throw ApiException.badRequest("SWIFT 码必须为 8 或 11 位字母数字");
+        }
+        if (code != null && !code.toString().isBlank()) {
+            Integer dup = jdbc.queryForObject(
+                "SELECT count(*) FROM bank_names WHERE code = ?", Integer.class, code.toString());
+            if (dup != null && dup > 0) {
+                throw ApiException.badRequest("相同代码的银行已存在: " + code);
+            }
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO bank_names (tenant_id, name, code, swift)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?)
             RETURNING id::text
-            """, String.class, body.get("name"), body.get("code"), body.get("swift"));
+            """, String.class, name, code, swift);
         return Map.of("id", id);
     }
 

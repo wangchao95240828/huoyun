@@ -76,14 +76,32 @@ public class AccCountriesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object code = body.get("code");
+        if (code == null || !code.toString().matches("[A-Z]{2}")) {
+            throw ApiException.badRequest("国家代码必须为 2 个大写字母 (ISO 3166-1 alpha-2)");
+        }
+        Object code3 = body.get("code3");
+        if (code3 != null && !code3.toString().isBlank()
+            && !code3.toString().matches("[A-Z]{3}")) {
+            throw ApiException.badRequest("3 位国家代码必须为 3 个大写字母 (ISO 3166-1 alpha-3)");
+        }
+        Object name = body.getOrDefault("name", body.get("en_name"));
+        if (name == null || name.toString().isBlank()) {
+            throw ApiException.badRequest("英文国家名称必填");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM countries WHERE code = ?", Integer.class, code.toString());
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("相同代码的国家已存在: " + code);
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO countries (tenant_id, code, code3, cn_name, en_name, is_open)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?)
             RETURNING id::text
             """, String.class,
-            body.get("code"), body.get("code3"),
+            code, code3,
             body.getOrDefault("cn", body.get("cn_name")),
-            body.getOrDefault("name", body.get("en_name")),
+            name,
             body.get("isOpen") instanceof Boolean b ? b : true);
         return Map.of("id", id);
     }

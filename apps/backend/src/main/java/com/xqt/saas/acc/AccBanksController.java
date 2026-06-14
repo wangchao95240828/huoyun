@@ -80,8 +80,22 @@ public class AccBanksController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        // ACC Account.php L250: 找不到该银行 派生 / Bank L185 派生
+        if (body.get("name") == null || body.get("name").toString().isBlank()) {
+            throw ApiException.badRequest("账户名称必填");
+        }
+        if (body.get("bank_name") == null || body.get("bank_name").toString().isBlank()) {
+            throw ApiException.badRequest("开户银行必填");
+        }
+        String currency = body.getOrDefault("currency", "CNY").toString();
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("币种代码必须为 3 个字母");
+        }
         BigDecimal deposit = body.get("deposit") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (deposit.signum() < 0) {
+            throw ApiException.badRequest("期初余额不能为负");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO financial_accounts (
               tenant_id, owner_type, account_type, account_name, bank_name,

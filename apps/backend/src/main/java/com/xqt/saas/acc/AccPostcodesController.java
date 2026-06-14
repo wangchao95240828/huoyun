@@ -75,13 +75,25 @@ public class AccPostcodesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object country = body.getOrDefault("country", body.get("country_code"));
+        Object postcode = body.get("postcode");
+        if (country == null || country.toString().isBlank()) {
+            throw ApiException.badRequest("国家代码必填");
+        }
+        // ACC 派生：国家代码必须是 2 个大写字母
+        if (!country.toString().matches("[A-Z]{2}")) {
+            throw ApiException.badRequest("国家代码必须为 2 个大写字母 (ISO 3166-1 alpha-2)");
+        }
+        if (postcode == null || postcode.toString().isBlank()) {
+            throw ApiException.badRequest("邮编必填");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO postcodes (tenant_id, country_code, postcode, region, city, state_code)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?)
             RETURNING id::text
             """, String.class,
-            body.getOrDefault("country", body.get("country_code")),
-            body.get("postcode"),
+            country,
+            postcode,
             body.getOrDefault("province", body.get("region")),
             body.get("city"),
             body.get("state_code"));

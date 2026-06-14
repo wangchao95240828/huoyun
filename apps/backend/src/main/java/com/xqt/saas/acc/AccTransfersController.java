@@ -97,9 +97,26 @@ public class AccTransfersController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        Object fromBank = body.get("from_bank_id");
+        Object toBank = body.get("to_bank_id");
+        if (fromBank == null || fromBank.toString().isBlank()) {
+            throw ApiException.badRequest("请选择转出账户");
+        }
+        if (toBank == null || toBank.toString().isBlank()) {
+            throw ApiException.badRequest("请选择转入账户");
+        }
+        if (fromBank.toString().equals(toBank.toString())) {
+            throw ApiException.badRequest("转出账户与转入账户不能相同");
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("转账金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到币种");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_transfers (
               tenant_id, transfer_no, the_date, from_bank_id, to_bank_id,
