@@ -1,8 +1,13 @@
 package com.xqt.saas.common;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 import com.xqt.saas.auth.AuthPrincipal;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -23,6 +28,41 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class BranchAccessFilter {
+    private final JdbcTemplate jdbc;
+
+    @Autowired
+    public BranchAccessFilter(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+
+    /** 测试用 — 不带 binding lookup 的简化构造。 */
+    public BranchAccessFilter() { this.jdbc = null; }
+
+    /** ACC bound_customer_id/bound_supplier_id 绑定关系 — 5 秒缓存。 */
+    private record Bindings(String customerId, String supplierId) {}
+    private static class CacheEntry { Bindings bindings; long expiresAt; }
+    private final ConcurrentHashMap<String, CacheEntry> bindCache = new ConcurrentHashMap<>();
+
+    private Bindings bindings(String userId) {
+        if (jdbc == null) return new Bindings(null, null); // 测试无 jdbc 时短路
+        long now = System.currentTimeMillis();
+        CacheEntry e = bindCache.get(userId);
+        if (e != null && e.expiresAt > now) return e.bindings;
+        Bindings b;
+        try {
+            Map<String, Object> row = jdbc.queryForMap(
+                "SELECT bound_customer_id::text AS bc, bound_supplier_id::text AS bs FROM users WHERE id = ?::uuid",
+                userId);
+            b = new Bindings((String) row.get("bc"), (String) row.get("bs"));
+        } catch (Exception ex) {
+            b = new Bindings(null, null);
+        }
+        CacheEntry ne = new CacheEntry();
+        ne.bindings = b;
+        ne.expiresAt = now + TimeUnit.SECONDS.toMillis(5);
+        bindCache.put(userId, ne);
+        return b;
+    }
+
+    public void invalidate(String userId) { bindCache.remove(userId); }
 
     /**
      * 给"按 branch_id 隔离"的表（orders / shipments / charges）用。
@@ -35,6 +75,18 @@ public class BranchAccessFilter {
         if (roles.contains("ADMIN") || roles.contains("FINANCE_MANAGER")
             || roles.contains("FINANCE")) {
             return AccessClause.empty();
+        }
+        // ACC bound_customer_id: 客户portal 用户只看自己客户的数据
+        Bindings b = bindings(p.userId());
+        if (b.customerId != null) {
+            return new AccessClause(
+                " AND " + tableAlias + ".customer_id = ?::uuid",
+                List.of(b.customerId)
+            );
+        }
+        if (b.supplierId != null) {
+            // 供应商账号：不应该看到 orders/shipments
+            return new AccessClause(" AND 1=0", List.of());
         }
         if (roles.contains("BRANCH_MANAGER")) {
             if (p.branchId() == null || p.branchId().isBlank()) {
@@ -68,6 +120,16 @@ public class BranchAccessFilter {
             || roles.contains("FINANCE")) {
             return AccessClause.empty();
         }
+        Bindings b = bindings(p.userId());
+        if (b.customerId != null) {
+            return new AccessClause(
+                " AND " + tableAlias + ".customer_id = ?::uuid",
+                List.of(b.customerId)
+            );
+        }
+        if (b.supplierId != null) {
+            return new AccessClause(" AND 1=0", List.of());
+        }
         if (roles.contains("BRANCH_MANAGER")) {
             if (p.branchId() == null || p.branchId().isBlank()) {
                 return AccessClause.empty();
@@ -99,6 +161,16 @@ public class BranchAccessFilter {
         if (roles.contains("ADMIN") || roles.contains("FINANCE_MANAGER")
             || roles.contains("FINANCE")) {
             return AccessClause.empty();
+        }
+        Bindings b = bindings(p.userId());
+        if (b.customerId != null) {
+            return new AccessClause(
+                " AND " + tableAlias + ".id = ?::uuid",
+                List.of(b.customerId)
+            );
+        }
+        if (b.supplierId != null) {
+            return new AccessClause(" AND 1=0", List.of());
         }
         if (roles.contains("BRANCH_MANAGER")) {
             if (p.branchId() == null || p.branchId().isBlank()) {
