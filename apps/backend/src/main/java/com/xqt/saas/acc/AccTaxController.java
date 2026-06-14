@@ -34,7 +34,6 @@ public class AccTaxController {
 
     @GetMapping("/rates")
     public Map<String, Object> rates() {
-        ensureTable();
         List<Map<String, Object>> data = jdbc.queryForList("""
             SELECT id::text, code, name, rate, tax_type, country_code,
                    effective_from, effective_to, is_active
@@ -46,7 +45,6 @@ public class AccTaxController {
     @PostMapping("/rates")
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> createRate(@RequestBody Map<String, Object> body) {
-        ensureTable();
         String code = (String) body.get("code");
         String name = (String) body.get("name");
         String taxType = (String) body.get("taxType");
@@ -118,42 +116,74 @@ public class AccTaxController {
         );
     }
 
+    /** 业务侧记一笔税 — invoice/charges audit 后调。 */
+    @PostMapping("/records")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> recordTax(@RequestBody Map<String, Object> body) {
+        String sourceType = (String) body.get("sourceType");
+        String sourceId = (String) body.get("sourceId");
+        String taxCode = (String) body.get("taxCode");
+        String direction = body.getOrDefault("direction", "AR").toString();
+        Object taxableRaw = body.get("taxableAmount");
+        if (sourceType == null || sourceId == null) {
+            throw ApiException.badRequest("sourceType / sourceId 必填");
+        }
+        BigDecimal taxable;
+        try { taxable = new BigDecimal(taxableRaw.toString()); }
+        catch (Exception ex) { throw ApiException.badRequest("taxableAmount 必填且为数字"); }
+        BigDecimal rate;
+        try {
+            rate = jdbc.queryForObject(
+                "SELECT rate FROM acc_tax_rates WHERE code = ? AND is_active = true",
+                BigDecimal.class, taxCode);
+        } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
+            throw ApiException.notFound("找不到税率代码: " + taxCode);
+        }
+        BigDecimal tax = taxable.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal total = taxable.add(tax);
+        String currency = body.getOrDefault("currency", "CNY").toString();
+        String id = jdbc.queryForObject("""
+            INSERT INTO acc_tax_records (source_type, source_id, tax_code,
+              taxable_amount, tax_amount, total_amount, currency, direction)
+            VALUES (?, ?::uuid, ?, ?, ?, ?, ?, ?)
+            RETURNING id::text
+            """, String.class, sourceType, sourceId, taxCode,
+                 taxable, tax, total, currency, direction);
+        return Map.of("id", id, "taxAmount", tax, "totalAmount", total);
+    }
+
     @GetMapping("/summary")
     public Map<String, Object> summary(@RequestParam String period) {
         if (!period.matches("\\d{4}-\\d{2}")) {
             throw ApiException.badRequest("period 必须为 YYYY-MM 格式");
         }
-        // 这里仅是占位 — 实际生产需要在 invoice/payment 时落 tax_records 表，
-        // 然后按 period 汇总。这里返回基本统计
         String from = period + "-01";
         String to = period + "-31";
-        BigDecimal arTax = jdbc.queryForObject("""
-            SELECT coalesce(sum((metadata->>'tax_amount')::numeric), 0)
-              FROM customer_invoices
-             WHERE issued_at >= ?::date AND issued_at <= ?::date
-            """, BigDecimal.class, from, to);
-        return Map.of("period", period, "arTax", arTax,
-            "note", "占位实现 — 生产需建 tax_records 表");
-    }
-
-    private void ensureTable() {
-        try {
-            jdbc.execute("""
-                CREATE TABLE IF NOT EXISTS acc_tax_rates (
-                    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-                    tenant_id     uuid NOT NULL DEFAULT '2bda8c16-7b19-4ce6-ab71-9584f5a140ed'::uuid,
-                    code          text NOT NULL,
-                    name          text NOT NULL,
-                    rate          numeric(7,4) NOT NULL,
-                    tax_type      text NOT NULL,
-                    country_code  text,
-                    effective_from date NOT NULL DEFAULT current_date,
-                    effective_to   date,
-                    is_active     boolean NOT NULL DEFAULT true,
-                    created_at    timestamptz NOT NULL DEFAULT now(),
-                    CONSTRAINT acc_tax_rates_tenant_code_unique UNIQUE (tenant_id, code)
-                )
-                """);
-        } catch (Exception ignored) {}
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT tax_code, direction, currency,
+                   sum(taxable_amount) AS taxable_total,
+                   sum(tax_amount) AS tax_total,
+                   sum(total_amount) AS total_total,
+                   count(*) AS record_count
+              FROM acc_tax_records
+             WHERE the_date >= ?::date AND the_date <= ?::date
+             GROUP BY tax_code, direction, currency
+             ORDER BY direction, tax_code
+            """, from, to);
+        BigDecimal arTotal = rows.stream()
+            .filter(r -> "AR".equals(r.get("direction")))
+            .map(r -> (BigDecimal) r.get("tax_total"))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal apTotal = rows.stream()
+            .filter(r -> "AP".equals(r.get("direction")))
+            .map(r -> (BigDecimal) r.get("tax_total"))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return Map.of(
+            "period", period,
+            "data", rows,
+            "arTaxTotal", arTotal,
+            "apTaxTotal", apTotal,
+            "netTax", arTotal.subtract(apTotal)
+        );
     }
 }

@@ -103,7 +103,13 @@ public class AccProductItemsController {
                     throw ApiException.badRequest(
                         "新价格表开始时间与已存在的价格表时间相差不到 60 秒，请调整");
                 }
-            } catch (Exception ignored) {}
+            } catch (ApiException ex) {
+                throw ex;
+            } catch (Exception ex) {
+                // 时间格式异常/DB 异常，吞掉只警告（不让校验阻塞建单）
+                org.slf4j.LoggerFactory.getLogger(AccProductItemsController.class)
+                    .warn("ProductItem 时间间隔校验异常 (skip): {}", ex.getMessage());
+            }
         }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_product_items (tenant_id, code, name, name_en, hs_code, category,

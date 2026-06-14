@@ -102,10 +102,15 @@ public class FinanceAuditGlSideEffect implements AuditSideEffect {
     @Override
     public void onUndone(String table, String entityId, String tenantId, String actorName) {
         try {
-            jdbc.update("""
+            int n = jdbc.update("""
                 UPDATE acc_gl_vouchers SET status='VOID'
                  WHERE source_type = ? AND source_id = ?::uuid AND status = 'POSTED'
                 """, table, entityId);
-        } catch (Exception ignored) {}
+            if (n == 0) {
+                LOGGER.info("No POSTED voucher to VOID for {} {}", table, entityId);
+            }
+        } catch (Exception ex) {
+            LOGGER.warn("Voucher VOID failed for {} {}: {}", table, entityId, ex.getMessage());
+        }
     }
 }
