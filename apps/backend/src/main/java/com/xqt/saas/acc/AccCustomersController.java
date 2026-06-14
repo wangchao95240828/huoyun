@@ -133,6 +133,21 @@ public AccCustomersController(JdbcTemplate jdbc, JsonSupport json,
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        if (code == null || code.isBlank()) {
+            throw ApiException.badRequest("客户编号必填");
+        }
+        // ACC Product.php L585 派生: 客户编号 ASCII-only
+        if (!code.matches("[\\x00-\\x7F]+")) {
+            throw ApiException.badRequest("客户编号不能包含中文");
+        }
+        if (name == null || name.isBlank()) {
+            throw ApiException.badRequest("客户名称必填");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM customers WHERE code = ?", Integer.class, code);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("相同编号的客户已存在: " + code);
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO customers (tenant_id, code, name)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?)
