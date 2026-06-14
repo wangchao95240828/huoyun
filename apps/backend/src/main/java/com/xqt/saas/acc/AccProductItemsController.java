@@ -90,6 +90,21 @@ public class AccProductItemsController {
         if (unitPrice instanceof Number un && un.doubleValue() < 0) {
             throw ApiException.badRequest("单价不能为负");
         }
+        // ACC ProductItem.php L1596: 新价格开始时间不能与上一条距离过近（<60秒）
+        Object startTime = body.get("startTime");
+        if (startTime != null && !startTime.toString().isBlank()) {
+            try {
+                Integer recentCount = jdbc.queryForObject("""
+                    SELECT count(*) FROM acc_product_items
+                     WHERE code = ? AND created_at > (?::timestamptz - interval '60 seconds')
+                       AND created_at < (?::timestamptz + interval '60 seconds')
+                    """, Integer.class, code, startTime.toString(), startTime.toString());
+                if (recentCount != null && recentCount > 0) {
+                    throw ApiException.badRequest(
+                        "新价格表开始时间与已存在的价格表时间相差不到 60 秒，请调整");
+                }
+            } catch (Exception ignored) {}
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_product_items (tenant_id, code, name, name_en, hs_code, category,
                                            unit_price, currency, is_active, remark)
