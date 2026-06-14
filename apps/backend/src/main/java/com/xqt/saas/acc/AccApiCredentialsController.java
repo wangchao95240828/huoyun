@@ -82,11 +82,17 @@ public class AccApiCredentialsController {
         String tenantId = currentTenantId();
         String ownerType = strOr((String) body.get("ownerType"), "CUSTOMER");
         String ownerId = strOrNull(body.get("ownerId"));
+        if (!java.util.List.of("CUSTOMER","TENANT","PARTNER").contains(ownerType)) {
+            throw ApiException.badRequest("ownerType 必须是 CUSTOMER/TENANT/PARTNER");
+        }
         if ("CUSTOMER".equals(ownerType) && ownerId == null) {
             throw ApiException.badRequest("ownerType=CUSTOMER 时 ownerId 必填");
         }
         List<Object> scopes = body.get("scopes") instanceof List<?> l ? (List<Object>) l : List.of();
         String expiresAt = strOrNull(body.get("expiresAt"));
+        if (expiresAt != null && !expiresAt.matches("\\d{4}-\\d{2}-\\d{2}.*")) {
+            throw ApiException.badRequest("过期时间格式应为 ISO 日期/时间");
+        }
         String remark = strOrNull(body.get("remark"));
 
         String accessKey = "ak_" + randomToken(16);

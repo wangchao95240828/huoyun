@@ -82,6 +82,17 @@ public class AccWebhookEventsController {
     /** 手动重试：把 DEAD / FAILED / SUCCESS 改回 PENDING，next_attempt_at=now，让 dispatcher 立即重发。 */
     @PostMapping("/{id}/retry")
     public Map<String, Object> retry(@PathVariable String id) {
+        // 校验事件存在 + 状态合法
+        String currentStatus;
+        try {
+            currentStatus = jdbc.queryForObject(
+                "SELECT status FROM webhook_events WHERE id = ?::uuid", String.class, id);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            throw ApiException.notFound("找不到该 Webhook 事件");
+        }
+        if ("PENDING".equals(currentStatus)) {
+            throw ApiException.badRequest("该事件正在 PENDING 状态，无需重试");
+        }
         int n = jdbc.update("""
             UPDATE webhook_events SET
               status = 'PENDING',
@@ -90,6 +101,6 @@ public class AccWebhookEventsController {
             WHERE id = ?::uuid
             """, id);
         if (n == 0) throw ApiException.notFound("事件不存在");
-        return Map.of("id", id, "requeued", true);
+        return Map.of("id", id, "requeued", true, "previousStatus", currentStatus);
     }
 }

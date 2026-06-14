@@ -111,6 +111,15 @@ public class AccDwsController {
         BigDecimal width  = num(body.get("width"));
         BigDecimal height = num(body.get("height"));
 
+        // ACC Orders.php L1774: 实重必须大于零的数字
+        if (weight != null && weight.signum() <= 0) {
+            return fail("称重值必须大于零");
+        }
+        // ACC L1776/L1778/L1780: 长/宽/高若提供则必须大于零
+        if (length != null && length.signum() <= 0) return fail("长度必须为大于零的数字");
+        if (width != null && width.signum() <= 0)   return fail("宽度必须为大于零的数字");
+        if (height != null && height.signum() <= 0) return fail("高度必须为大于零的数字");
+
         BigDecimal volumeWeight = (length != null && width != null && height != null)
             ? length.multiply(width).multiply(height)
                 .divide(new BigDecimal("6000"), 3, RoundingMode.HALF_UP)

@@ -73,11 +73,20 @@ public class AccWebhookEndpointsController {
     @SuppressWarnings("unchecked")
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String url = strOrNull(body.get("url"));
-        if (url == null) throw ApiException.badRequest("url 必填");
+        if (url == null) throw ApiException.badRequest("Webhook URL 必填");
+        if (!url.matches("https?://.+")) {
+            throw ApiException.badRequest("URL 必须以 http:// 或 https:// 开头");
+        }
+        if (url.length() > 500) {
+            throw ApiException.badRequest("URL 长度不能超过 500 字符");
+        }
         String customerId = strOrNull(body.get("customerId"));
         String description = strOrNull(body.get("description"));
         List<Object> eventTypes = body.get("eventTypes") instanceof List<?> l ? (List<Object>) l
             : List.of("order.submitted", "order.cancelled", "order.tracking.updated");
+        if (eventTypes.isEmpty()) {
+            throw ApiException.badRequest("至少选择一个事件类型");
+        }
 
         String secret = "whsec_" + randomToken(32);
         String id;

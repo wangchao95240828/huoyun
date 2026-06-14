@@ -78,7 +78,11 @@ public class AccOrderPrintController {
     @SuppressWarnings("unchecked")
     private Map<String, Object> buildPrintPayload(Map<String, Object> body, String docType) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.isEmpty()) throw ApiException.badRequest("ids 必填");
+        // ACC Online.php 派生: 请至少选择一项打印
+        if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项要打印的订单");
+        if (ids.size() > 500) {
+            throw ApiException.badRequest("单次打印数量过多 (" + ids.size() + ")，请分批 (上限 500)");
+        }
         List<Map<String, Object>> docs = new java.util.ArrayList<>();
         List<String> notFound = new java.util.ArrayList<>();
         for (String id : ids) {
