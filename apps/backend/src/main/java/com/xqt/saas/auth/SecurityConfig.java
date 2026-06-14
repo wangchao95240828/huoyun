@@ -60,6 +60,7 @@ public class SecurityConfig {
                     "/api/auth/logout",
                     "/api/auth/forgot-password",
                     "/api/auth/reset-password",
+                    "/api/customer-register",
                     "/api/health",
                     "/api/public/**",
                     "/api/device/scale/**",

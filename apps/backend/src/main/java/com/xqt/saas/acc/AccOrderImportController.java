@@ -80,19 +80,48 @@ public class AccOrderImportController {
         }
         int created = 0, failed = 0;
         java.util.List<String> errors = new java.util.ArrayList<>();
-        // ACC ExpressBatch.php L1573: 文件内单号重复检测（CSV 第 2 列 customerNo）
+        // ACC ExpressBatch.php L1573: 文件内单号重复检测
         java.util.Map<String, Integer> seenNos = new java.util.HashMap<>();
-        try (InputStream is = new ByteArrayInputStream(file.getBytes());
-             java.io.BufferedReader r = new java.io.BufferedReader(
-                 new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8))) {
-            String header = r.readLine();
-            if (header != null && header.startsWith("﻿")) header = header.substring(1);
-            String line;
-            int rowIdx = 1;
-            while ((line = r.readLine()) != null) {
-                rowIdx++;
-                if (line.isBlank()) continue;
-                String[] cells = splitCsv(line);
+        // xlsx/xls 用 easyexcel 读，csv/txt 走文本流
+        String lower = name.toLowerCase();
+        java.util.List<String[]> allRows = new java.util.ArrayList<>();
+        if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+            try (InputStream is = new ByteArrayInputStream(file.getBytes())) {
+                com.alibaba.excel.EasyExcel.read(is, new com.alibaba.excel.read.listener.ReadListener<Map<Integer, String>>() {
+                    boolean first = true;
+                    @Override public void invoke(Map<Integer, String> data, com.alibaba.excel.context.AnalysisContext ctx) {
+                        if (first) { first = false; return; }
+                        String[] cells = new String[Math.max(18, data.size())];
+                        for (int i = 0; i < cells.length; i++) {
+                            cells[i] = data.getOrDefault(i, "");
+                        }
+                        allRows.add(cells);
+                    }
+                    @Override public void doAfterAllAnalysed(com.alibaba.excel.context.AnalysisContext ctx) {}
+                }).sheet().doRead();
+            } catch (Exception ex) {
+                throw ApiException.badRequest("Excel 读取失败: " + ex.getMessage());
+            }
+        } else {
+            try (InputStream is = new ByteArrayInputStream(file.getBytes());
+                 java.io.BufferedReader r = new java.io.BufferedReader(
+                     new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8))) {
+                String header = r.readLine();
+                if (header != null && header.startsWith("﻿")) header = header.substring(1);
+                String line;
+                while ((line = r.readLine()) != null) {
+                    if (line.isBlank()) continue;
+                    allRows.add(splitCsv(line));
+                }
+            } catch (IOException ex) {
+                throw ApiException.badRequest("读取失败：" + ex.getMessage());
+            }
+        }
+        // 处理所有行
+        for (int idx = 0; idx < allRows.size(); idx++) {
+            int rowIdx = idx + 2; // +1 header, +1 0-indexed
+            String[] cells = allRows.get(idx);
+            if (true) {
                 if (cells.length < 18) {
                     failed++;
                     errors.add("第 " + rowIdx + " 行：列数不足 (期望 18 列)");
@@ -116,8 +145,6 @@ public class AccOrderImportController {
                     errors.add("第 " + rowIdx + " 行：" + ex.getMessage());
                 }
             }
-        } catch (IOException ex) {
-            throw ApiException.badRequest("读取失败：" + ex.getMessage());
         }
         // 落 import 历史
         try {
