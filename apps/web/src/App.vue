@@ -539,6 +539,11 @@ const accTabs = [
   { key: "swb-profit",       label: "利润分析",           icon: BarChart3,   api: "settlement-workbench/profit-list" },
   { key: "swb-aging",        label: "账龄分析",           icon: Clock,       api: "settlement-workbench/aging" },
   { key: "swb-monthly",      label: "月度财报",           icon: BarChart3,   api: "settlement-workbench/monthly-report" },
+  { key: "gl-income",        label: "利润表 (GL)",         icon: BarChart3,   api: "gl/reports/income-statement" },
+  { key: "gl-balance",       label: "资产负债表 (GL)",      icon: BarChart3,   api: "gl/reports/balance-sheet" },
+  { key: "gl-cash",          label: "现金流量表 (GL)",      icon: BarChart3,   api: "gl/reports/cash-flow" },
+  { key: "gl-trial",         label: "试算平衡 (GL)",        icon: BarChart3,   api: "gl/reports/trial-balance" },
+  { key: "approval-pending", label: "审批待办",            icon: AlertCircle, api: "../admin/approval/pending" },
   { key: "swb-commissions",  label: "业绩提成",           icon: Gift,        api: "settlement-workbench/commissions" },
   // alair: 应收款项目（A1 财务任务）
   { key: "customer-receivables", label: "应收款项目", icon: TrendingUp, api: "customer-receivables" },
@@ -785,6 +790,11 @@ const accGroupAccounting = [
   T("swb-profit"),
   T("swb-aging"),
   T("swb-monthly"),
+  T("gl-income"),
+  T("gl-balance"),
+  T("gl-cash"),
+  T("gl-trial"),
+  T("approval-pending"),
   T("swb-commissions"),
   // 其余核算项
   T("bills"),
@@ -1153,6 +1163,39 @@ Object.assign(accColumns, {
     { key: "ap", label: "AP", fmt: "money" },
     { key: "profit", label: "利润", fmt: "money" },
     { key: "shipment_count", label: "运单数" },
+  ],
+  "gl-income": [
+    { key: "code", label: "科目代码" },
+    { key: "name", label: "科目名" },
+    { key: "amount", label: "金额", fmt: "money" },
+  ],
+  "gl-balance": [
+    { key: "code", label: "科目代码" },
+    { key: "name", label: "科目名" },
+    { key: "balance", label: "余额", fmt: "money" },
+  ],
+  "gl-cash": [
+    { key: "the_date", label: "日期", fmt: "date" },
+    { key: "voucher_no", label: "凭证号" },
+    { key: "description", label: "摘要" },
+    { key: "source_type", label: "来源" },
+    { key: "net_flow", label: "净流量", fmt: "money" },
+  ],
+  "gl-trial": [
+    { key: "code", label: "科目代码" },
+    { key: "name", label: "科目名" },
+    { key: "category", label: "类别" },
+    { key: "debit", label: "借方合计", fmt: "money" },
+    { key: "credit", label: "贷方合计", fmt: "money" },
+  ],
+  "approval-pending": [
+    { key: "resource", label: "资源" },
+    { key: "action", label: "动作" },
+    { key: "resource_id", label: "资源 ID" },
+    { key: "required_count", label: "需审批级数" },
+    { key: "decision_count", label: "已批示数" },
+    { key: "requested_by", label: "申请人" },
+    { key: "created_at", label: "时间", fmt: "datetime" },
   ],
   "swb-commissions": [
     { key: "employee_code", label: "员工编码" },
@@ -2002,6 +2045,8 @@ const readOnlyTabs = new Set(['profits', 'void-orders', 'sales-prices', 'custome
   // 核算工作台 view tab 只读
   'swb-cost-pending', 'swb-pending-pay', 'swb-paid', 'swb-profit',
   'swb-aging', 'swb-monthly', 'swb-commissions',
+  // GL 报表 + 审批待办 全只读
+  'gl-income', 'gl-balance', 'gl-cash', 'gl-trial', 'approval-pending',
   // 问题件/赔偿子页只读
   'asks-customer', 'asks-supplier', 'asks-processing', 'asks-pending', 'asks-history',
   'reparations-pending', 'reparations-history',
