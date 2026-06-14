@@ -32,12 +32,15 @@ import com.xqt.saas.customerapi.CustomerApiResponses.TrackingList;
 import com.xqt.saas.rates.RateEngine;
 import com.xqt.saas.rates.RateQuoteRequest;
 import com.xqt.saas.rates.RateQuoteResponse.Quote;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CustomerApiService {
+    private static final Logger logger = LoggerFactory.getLogger(CustomerApiService.class);
     private static final DateTimeFormatter ORDER_NO_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
     private static final String ORDER_NO_PREFIX = "DOC";
     private static final int ORDER_NO_MIN_LEN = 6;
@@ -433,6 +436,17 @@ public class CustomerApiService {
             // 非 strict（dev/demo）：退化为简化估算，保证联调能继续
             prepayAmount = estimatePrepayAmount(weight, declaredValue);
         }
+
+        // ═══ ACC Express.php L1538: 客户授信额度校验 ═══
+        // 月结客户：未结清账款 (AR 未付) + 本单预扣 > credit_limit 则拒绝
+        validateCreditLimit(principal.tenantId(), principal.customerId(),
+            prepayAmount, prepayCurrency);
+
+        // ═══ ACC Express.php L1612: 敏感货物/仿牌品类 (SpecialType=1/5) 需要审批 ═══
+        validateSensitiveCargo(principal.tenantId(), orderId, accCompat, prepayAmount, prepayCurrency);
+
+        // ═══ ACC base.php 597: 收件人邮编与目的地国家匹配（postcodes 字典） ═══
+        validatePostcodeCountry(principal.tenantId(), accCompat);
 
         String balanceAccountId = null;
         String prepaidChargeId = null;
@@ -973,6 +987,164 @@ public class CustomerApiService {
      * 默认 base 30 CNY，按可计重量 × 25 CNY/kg 估算；申报金额按 0.1% 附加费。
      * 仅非 strict（dev/demo）模式作为兜底，不再是生产主路径。
      */
+    /**
+     * ACC Express.php L1538: 客户授信额度校验。
+     * 月结客户场景：
+     *   已发生未付清 AR (charges side=AR, status NOT IN PAID/VOID) + 本单预扣
+     *   > customers.credit_limit
+     * 则拒绝下单。
+     *
+     * credit_limit IS NULL → 无授信限制（典型 prepay 客户）
+     * credit_limit = 0 → 显式禁用授信（必须 prepay 余额）
+     */
+    private void validateCreditLimit(String tenantId, String customerId,
+                                      BigDecimal newPrepayAmount, String currency) {
+        if (newPrepayAmount == null || newPrepayAmount.signum() <= 0) return;
+        BigDecimal limit;
+        try {
+            Object raw = jdbc.queryForObject(
+                "SELECT credit_limit FROM customers WHERE id = ?::uuid",
+                Object.class, customerId);
+            limit = toBigDecimalOrNull(raw);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            return;
+        }
+        if (limit == null) return;
+        // 当前未付 AR 总额（同币种）
+        BigDecimal unpaidAr;
+        try {
+            Object raw = jdbc.queryForObject("""
+                SELECT coalesce(sum(ch.amount - coalesce(ch.paid_amount, 0)), 0)
+                  FROM charges ch
+                 WHERE ch.tenant_id = ?::uuid
+                   AND ch.customer_id = ?::uuid
+                   AND ch.side = 'AR'
+                   AND ch.currency = ?
+                   AND ch.status NOT IN ('PAID', 'VOID')
+                """, Object.class, tenantId, customerId, currency);
+            unpaidAr = toBigDecimalOrNull(raw);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            unpaidAr = BigDecimal.ZERO;
+        }
+        if (unpaidAr == null) unpaidAr = BigDecimal.ZERO;
+        BigDecimal projected = unpaidAr.add(newPrepayAmount);
+        if (projected.compareTo(limit) > 0) {
+            throw ApiException.badRequest(
+                "客户授信额度不足：未结清 AR " + unpaidAr.toPlainString()
+                + " + 本单 " + newPrepayAmount.toPlainString()
+                + " = " + projected.toPlainString() + " " + currency
+                + "，超过授信额度 " + limit.toPlainString() + " " + currency);
+        }
+    }
+
+    private static BigDecimal toBigDecimalOrNull(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof BigDecimal bd) return bd;
+        if (raw instanceof Number n) return new BigDecimal(n.toString());
+        try { return new BigDecimal(raw.toString()); }
+        catch (NumberFormatException ex) { return null; }
+    }
+
+    /**
+     * ACC Express.php L1612: 敏感货物 / 仿牌等需要审批确认。
+     * 前端 specialType 数字:
+     *   0=普货 1=特殊产品(化工/液体) 2=港发件 3=报关件 4=纺织 5=仿牌
+     * 当 specialType >= 1 (非普货)，要求该订单已存在 APPROVED 的 approval_request
+     * 否则拒绝并提示走审批。
+     *
+     * 5=仿牌走最严校验：必须先有 APPROVED + 备注。
+     */
+    private void validateSensitiveCargo(String tenantId, String orderId,
+                                         Map<String, Object> accCompat,
+                                         BigDecimal amount, String currency) {
+        Object stRaw = accCompat.get("specialType");
+        if (stRaw == null) return;
+        int st;
+        try {
+            st = stRaw instanceof Number n ? n.intValue() : Integer.parseInt(stRaw.toString());
+        } catch (NumberFormatException ex) {
+            return;
+        }
+        if (st <= 0) return;
+        // 查该订单是否已经有 APPROVED 的审批
+        Boolean hasApproved;
+        try {
+            hasApproved = jdbc.queryForObject("""
+                SELECT count(*) > 0 FROM approval_requests
+                 WHERE tenant_id = ?::uuid
+                   AND resource = 'orders'
+                   AND resource_id = ?
+                   AND action = 'SUBMIT_SENSITIVE'
+                   AND status = 'APPROVED'
+                """, Boolean.class, tenantId, orderId);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            hasApproved = false;
+        }
+        if (Boolean.TRUE.equals(hasApproved)) return;
+
+        // 没有 APPROVED → 自动提交一笔审批请求，让管理员去审；本次提交拒绝
+        try {
+            jdbc.update("""
+                INSERT INTO approval_requests (
+                  tenant_id, resource, action, target_id, resource_id, status, required_count,
+                  requester_id, payload, reason
+                ) VALUES (?::uuid, 'orders', 'SUBMIT_SENSITIVE', NULL, ?, 'PENDING', ?, NULL,
+                  jsonb_build_object('amount', ?::numeric, 'currency', ?::text, 'specialType', ?::int),
+                  ?)
+                ON CONFLICT DO NOTHING
+                """, tenantId, orderId,
+                st == 5 ? 2 : 1,  // 仿牌要 2 级审
+                amount, currency, st,
+                sensitiveCargoReason(st));
+        } catch (org.springframework.dao.DataAccessException ignored) {
+            // 表/列不全也不阻塞主流程拒绝
+        }
+        throw ApiException.badRequest(
+            "敏感货物需要审批：" + sensitiveCargoReason(st)
+            + "。已自动提交审批请求，请通知管理员在【管理 → 待审批】处理后再提交此订单。");
+    }
+
+    private String sensitiveCargoReason(int specialType) {
+        return switch (specialType) {
+            case 1 -> "特殊产品（化工/液体）";
+            case 2 -> "港发件";
+            case 3 -> "报关件";
+            case 4 -> "纺织品";
+            case 5 -> "仿牌品（高风险，需 2 级审批）";
+            default -> "敏感品类 " + specialType;
+        };
+    }
+
+    /**
+     * ACC base.php 597: 收件人邮编与目的地国家匹配。
+     * 软警告：postcodes 字典里找不到匹配的 (country_code, postcode)，落日志但不阻塞下单。
+     * （字典可能不完整，硬拒会大量误伤）
+     */
+    private void validatePostcodeCountry(String tenantId, Map<String, Object> accCompat) {
+        Object countryRaw = accCompat.get("country");
+        if (countryRaw == null) return;
+        String country = countryRaw.toString().trim();
+        if (country.isEmpty()) return;
+        Object receiverRaw = accCompat.get("receiver");
+        if (!(receiverRaw instanceof Map<?, ?> m)) return;
+        Object pcRaw = ((Map<String, Object>) m).get("postcode");
+        if (pcRaw == null) return;
+        String pc = pcRaw.toString().trim();
+        if (pc.isEmpty()) return;
+        try {
+            Integer hit = jdbc.queryForObject(
+                "SELECT count(*) FROM postcodes WHERE tenant_id = ?::uuid"
+                + " AND country_code = ? AND postcode = ?",
+                Integer.class, tenantId, country, pc);
+            if (hit == null || hit == 0) {
+                // 字典里没找到匹配 — 记日志，不阻塞
+                logger.warn("postcode-country 软校验未命中: country={} postcode={}", country, pc);
+            }
+        } catch (org.springframework.dao.DataAccessException ignored) {
+            // 字典查询失败也不阻塞
+        }
+    }
+
     private BigDecimal estimatePrepayAmount(BigDecimal weight, BigDecimal declaredValue) {
         BigDecimal base = new BigDecimal("30");
         BigDecimal w = (weight == null || weight.signum() <= 0) ? BigDecimal.ONE : weight;
