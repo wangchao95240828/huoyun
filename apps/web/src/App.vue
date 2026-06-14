@@ -3470,14 +3470,18 @@ async function saveForm() {
         surchargeIds:  ((formData as any).SurchargeIds || '').split(',').map((s:string)=>s.trim()).filter(Boolean),
         remark:        (formData as any).Remark,
         receiver: {
+          // 同时输出 consignee + name 别名，SubmitValidator 读 name，ACC compat 读 consignee
           consignee: (formData as any).RecipientConsignee || '',
+          name:      (formData as any).RecipientConsignee || '',
           company:   (formData as any).RecipientCompany   || '',
           phone:     (formData as any).RecipientPhone     || '',
           email:     (formData as any).RecipientEmail     || '',
           address:   (formData as any).RecipientAddress   || '',
           city:      (formData as any).RecipientCity      || '',
           province:  (formData as any).RecipientProvince  || '',
+          state:     (formData as any).RecipientProvince  || '',
           houseNo:   (formData as any).RecipientHouseNo   || '',
+          postcode:  (formData as any).Postcode           || '',
           amazonRef: (formData as any).AmazonRef          || '',
           taxNo:     (formData as any).TaxNo              || '',
           isCustoms: !!(formData as any).IsCustoms,
