@@ -1036,8 +1036,8 @@ Object.assign(accColumns, {
     { key: "totalPiece", label: "件数" },
     { key: "totalWeight", label: "重量(kg)" },
     { key: "totalVolume", label: "体积" },
-    { key: "etd", label: "ETD" },
-    { key: "eta", label: "ETA" },
+    { key: "etd", label: "预计离开 ETD" },
+    { key: "eta", label: "预计到达 ETA" },
     { key: "addTime", label: "创建时间", fmt: "date" },
   ],
   charges: [
@@ -1171,8 +1171,8 @@ Object.assign(accColumns, {
   "swb-monthly": [
     { key: "month", label: "月份" },
     { key: "currency", label: "币种" },
-    { key: "ar", label: "AR", fmt: "money" },
-    { key: "ap", label: "AP", fmt: "money" },
+    { key: "ar", label: "应收 (AR)", fmt: "money" },
+    { key: "ap", label: "应付 (AP)", fmt: "money" },
     { key: "profit", label: "利润", fmt: "money" },
     { key: "shipment_count", label: "运单数" },
   ],
@@ -1594,7 +1594,7 @@ Object.assign(accColumns, {
     { key: "isDefault", label: "默认", fmt: "bool" },
     { key: "bankName", label: "开户行" },
     { key: "accountNo", label: "银行账号" },
-    { key: "swiftCode", label: "SWIFT" },
+    { key: "swiftCode", label: "SWIFT 码" },
     { key: "bankAddress", label: "开户行地址" },
     { key: "currency", label: "币种" },
     { key: "deposit", label: "存款", fmt: "money" },
@@ -1861,7 +1861,7 @@ Object.assign(accColumns, {
     { key: "remark", label: "备注" },
   ],
   "api-credentials": [
-    { key: "access_key", label: "Access Key" },
+    { key: "access_key", label: "访问密钥" },
     { key: "owner_code", label: "客户编号" },
     { key: "owner_name", label: "客户名称" },
     { key: "call_count", label: "累计调用" },
@@ -1872,7 +1872,7 @@ Object.assign(accColumns, {
   ],
   "api-call-logs": [
     { key: "created_at", label: "时间" },
-    { key: "access_key", label: "Access Key" },
+    { key: "access_key", label: "访问密钥" },
     { key: "owner_name", label: "客户" },
     { key: "method", label: "方法" },
     { key: "endpoint", label: "端点" },
@@ -1886,7 +1886,7 @@ Object.assign(accColumns, {
     { key: "customer_name", label: "客户" },
     { key: "event_types", label: "订阅事件" },
     { key: "active", label: "启用", fmt: "bool" },
-    { key: "secret_masked", label: "Secret" },
+    { key: "secret_masked", label: "密钥(隐藏)" },
     { key: "total_events", label: "总投递" },
     { key: "dead_events", label: "死信" },
     { key: "description", label: "备注" },
@@ -1955,7 +1955,7 @@ Object.assign(accColumns, {
   files: [
     { key: "fileName", label: "文件名" },
     { key: "fileType", label: "类型" },
-    { key: "mimeType", label: "MIME" },
+    { key: "mimeType", label: "MIME 类型" },
     { key: "sizeBytes", label: "大小" },
     { key: "uploaderName", label: "上传人" },
     { key: "status", label: "状态" },
@@ -2869,9 +2869,16 @@ function ratio(value: number, total: number): number {
 
 function trackingStatusLabel(status?: string): string {
   const labels: Record<string, string> = {
+    // 订单状态
+    DRAFT: "草稿",
+    SUBMITTED: "已提交",
+    ACCEPTED: "已受理",
+    FULFILLING: "履约中",
+    COMPLETED: "已完成",
+    CANCELLED: "已取消",
+    // 运单/物流状态
     CREATED: "已建单",
     ORDERED: "已下单",
-    DRAFT: "草稿",
     IN_WAREHOUSE: "已入仓",
     MEASURED: "已测量",
     BOOKED: "已订舱",
@@ -2883,10 +2890,52 @@ function trackingStatusLabel(status?: string): string {
     CLAIMING: "理赔中",
     RETURNED: "已退回",
     VOID: "已作废",
+    // 财务/审核通用状态
+    PENDING: "待处理",
+    PROCESSING: "处理中",
+    AUDITED: "已审核",
+    UNAUDITED: "未审核",
+    APPROVED: "已通过",
+    REJECTED: "已拒绝",
+    PAID: "已付清",
+    PARTIAL: "部分付",
+    UNSETTLED: "未结算",
+    SETTLED: "已结算",
+    ESTIMATED: "已估算",
+    LOCKED: "已锁定",
+    ADJUSTED: "已调整",
+    // 通用方向 / 类型
+    AR: "应收",
+    AP: "应付",
+    PREPAY: "预扣",
+    PAYMENT: "付款",
+    REFUND: "退款",
+    ADJUST: "调整",
+    REBATE: "返利",
+    FINE: "罚款",
+    COMPENSATE: "赔偿",
+    DEBIT: "出账",
+    CREDIT: "入账",
+    CUSTOMER: "客户",
+    SUPPLIER: "供应商",
+    PARTNER: "合作伙伴",
+    TENANT: "租户",
+    DOCUMENT: "文件",
+    PARCEL: "包裹",
+    // 仓储/分支
+    DOMESTIC: "国内仓",
+    OVERSEAS: "海外仓",
+    TRANSIT: "中转仓",
+    VIRTUAL: "虚拟仓",
+    ACTIVE: "启用",
+    DISABLED: "停用",
+    ARCHIVED: "已归档",
   };
   const code = String(status ?? "").toUpperCase();
   return labels[code] ?? (code || "-");
 }
+// 列里直接做替换：把 row.status 类英文枚举映射成中文
+const zhStatus = trackingStatusLabel;
 
 function fmtTime(value?: string): string {
   if (!value) return "暂无轨迹时间";
@@ -5541,7 +5590,7 @@ async function doReloadBill(id: number) {
                 <p>业务线结构</p>
                 <h2>卖货客户 / 制单客户</h2>
               </div>
-              <span>Flow</span>
+              <span>业务线</span>
             </div>
             <div class="flow-list">
               <div v-for="flow in dashboardFlows" :key="flow.code" class="flow-row">
@@ -5564,9 +5613,9 @@ async function doReloadBill(id: number) {
             <div class="panel-title">
               <div>
                 <p>收入占比</p>
-                <h2>Revenue Mix</h2>
+                <h2>收入构成</h2>
               </div>
-              <span>Chart</span>
+              <span>图表</span>
             </div>
             <div class="donut-wrap">
               <div class="donut" :style="donutStyle">
@@ -5591,7 +5640,7 @@ async function doReloadBill(id: number) {
                 <p>财务结构</p>
                 <h2>应收 / 应付 / 毛利</h2>
               </div>
-              <span>Finance</span>
+              <span>财务</span>
             </div>
             <div class="finance-bars">
               <div v-for="bar in financeBars" :key="bar.label" class="finance-bar">
@@ -5610,7 +5659,7 @@ async function doReloadBill(id: number) {
                 <p>经营链路</p>
                 <h2>从接单到毛利</h2>
               </div>
-              <span>Pipeline</span>
+              <span>经营链路</span>
             </div>
             <div class="pipeline">
               <div v-for="node in pipelineNodes" :key="node.label" class="pipeline-node">
@@ -5627,7 +5676,7 @@ async function doReloadBill(id: number) {
                 <p>关注事项</p>
                 <h2>运营提醒</h2>
               </div>
-              <span>Notice</span>
+              <span>提醒</span>
             </div>
             <div class="alert-list">
               <div v-for="item in dashboardAlerts" :key="item.title" :class="['alert-row', item.tone]">
@@ -6002,7 +6051,7 @@ async function doReloadBill(id: number) {
                 <td>{{ row.pieces ?? '-' }}</td>
                 <td>{{ row.country }}</td>
                 <td>{{ row.product }}</td>
-                <td>{{ row.status }}</td>
+                <td>{{ zhStatus(row.status) }}</td>
               </tr>
             </tbody>
           </table>
@@ -6100,7 +6149,7 @@ async function doReloadBill(id: number) {
                 <td>{{ row.weight }}</td>
                 <td>{{ row.country }}</td>
                 <td>{{ row.product }}</td>
-                <td>{{ row.status }}</td>
+                <td>{{ zhStatus(row.status) }}</td>
                 <template v-if="accTab === 'orders-update-tracking'">
                   <td>{{ row.trackNo }}</td>
                   <td style="color:#dc2626;font-weight:bold">{{ row.newValue }}</td>
@@ -6149,7 +6198,7 @@ async function doReloadBill(id: number) {
 
         <!-- API 文档：内嵌 Swagger UI -->
         <div v-if="isApiDocsPage" style="background:#fff;border:1px solid #cbd5e1;border-radius:4px;margin-top:8px;height:calc(100vh - 220px);overflow:hidden">
-          <iframe :src="apiDocsUrl" style="width:100%;height:100%;border:0" title="API Documentation"></iframe>
+          <iframe :src="apiDocsUrl" style="width:100%;height:100%;border:0" title="API 文档"></iframe>
         </div>
 
         <!-- 财务工作台 - 总览 dashboard (所有 fwb tab 都展示) -->
@@ -7113,10 +7162,10 @@ async function doReloadBill(id: number) {
               <h4 class="od-title">基本信息</h4>
               <div class="od-grid">
                 <div><label>订单号</label><span>{{ detailData.basic?.order_no || '-' }}</span></div>
-                <div><label>状态</label><span>{{ detailData.basic?.status || '-' }}</span></div>
+                <div><label>状态</label><span>{{ zhStatus(detailData.basic?.status) }}</span></div>
                 <div><label>客户</label><span>{{ detailData.basic?.customer_name || '-' }} ({{ detailData.basic?.customer_code || '-' }})</span></div>
                 <div><label>客户单号</label><span>{{ detailData.basic?.customer_ref || '-' }}</span></div>
-                <div><label>来源</label><span>{{ detailData.basic?.source || '-' }}</span></div>
+                <div><label>来源</label><span>{{ ({LOCAL:'本地',ACC:'ACC',XQT:'XQT',API:'API',IMPORT:'导入'} as any)[detailData.basic?.source] || (detailData.basic?.source || '-') }}</span></div>
                 <div><label>分店</label><span>{{ detailData.basic?.branch_name || '-' }}</span></div>
                 <div><label>创建时间</label><span>{{ (detailData.basic?.created_at || '').slice(0,19).replace('T',' ') }}</span></div>
                 <div><label>提交时间</label><span>{{ (detailData.basic?.submitted_at || '').slice(0,19).replace('T',' ') || '-' }}</span></div>
@@ -7231,10 +7280,10 @@ async function doReloadBill(id: number) {
                 <thead><tr><th>方向</th><th>金额</th><th>币种</th><th>状态</th><th>审核</th><th>结算</th><th>已付</th><th>账单号</th></tr></thead>
                 <tbody>
                   <tr v-for="(c, i) in (detailData.charges || [])" :key="'ch'+i">
-                    <td>{{ c.side }}</td>
+                    <td>{{ zhStatus(c.side) }}</td>
                     <td class="money-cell">{{ c.amount }}</td>
                     <td>{{ c.currency }}</td>
-                    <td>{{ c.status }}</td>
+                    <td>{{ zhStatus(c.status) }}</td>
                     <td>{{ c.audit_status || '-' }}</td>
                     <td>{{ c.settlement_status || '-' }}</td>
                     <td class="money-cell">{{ c.paid_amount || '0' }}</td>
@@ -7249,8 +7298,8 @@ async function doReloadBill(id: number) {
                 <tbody>
                   <tr v-for="(l, i) in (detailData.ledger || [])" :key="'l'+i">
                     <td>{{ (l.created_at || '').slice(0,19).replace('T',' ') }}</td>
-                    <td>{{ l.biz_type }}</td>
-                    <td>{{ l.direction }}</td>
+                    <td>{{ zhStatus(l.biz_type) }}</td>
+                    <td>{{ zhStatus(l.direction) }}</td>
                     <td class="money-cell">{{ l.amount }}</td>
                     <td class="money-cell">{{ l.balance_before }}</td>
                     <td class="money-cell">{{ l.balance_after }}</td>
@@ -7288,7 +7337,7 @@ async function doReloadBill(id: number) {
                 <tbody>
                   <tr v-for="(a, i) in (detailData.auditHistory || [])" :key="'a'+i">
                     <td>{{ (a.occurred_at || '').slice(0,19).replace('T',' ') }}</td>
-                    <td>{{ a.action }}</td>
+                    <td>{{ zhStatus(a.action) }}</td>
                     <td>{{ a.actor_name || '-' }}</td>
                     <td>{{ a.remark || '-' }}</td>
                   </tr>
