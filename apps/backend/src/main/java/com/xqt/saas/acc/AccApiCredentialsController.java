@@ -1,6 +1,5 @@
 package com.xqt.saas.acc;
 
-import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -24,7 +23,11 @@ import org.springframework.web.bind.annotation.RestController;
  * /api/acc/api-credentials —— 客户 API 凭证管理（对应 ACC CustomerAPI.php API列表）。
  *
  * 字段：access_key（公开） / secret（仅创建/轮换时返回明文一次） / owner_type+owner_id / status / scopes / expires_at / last_used_at。
- * secret_hash 永远不返回明文；轮换返回新明文，立即落 hash。
+ *
+ * ⚠️ secret_hash 列实际存的是 **明文 secret**（与 migration 016 注释、ACC PHP 签名兼容）。
+ * 原因：客户用 md5(join(',',sorted_values) + secret) 算签名，服务端必须用同一明文重算才能比对。
+ * 如果存 sha256(secret)，客户端不知道 hash，签名永远 mismatch。
+ * 安全策略：DB 行级 RLS + secret 仅响应一次。后续可演进到加密存储（不可对客户端可见 hash）。
  */
 @RestController
 @RequestMapping("/api/acc/api-credentials")
@@ -97,8 +100,7 @@ public class AccApiCredentialsController {
 
         String accessKey = "ak_" + randomToken(16);
         String secret = "sk_" + randomToken(32);
-        String secretHash = sha256(secret);
-
+        // 注意：secret_hash 列存明文 secret（详见类注释）。
         String id;
         try {
             id = jdbc.queryForObject("""
@@ -106,7 +108,7 @@ public class AccApiCredentialsController {
                 VALUES (?::uuid, ?, ?::uuid, ?, ?, 'ACTIVE', ?::jsonb, ?::timestamptz, ?)
                 RETURNING id::text
                 """, String.class,
-                tenantId, ownerType, ownerId, accessKey, secretHash,
+                tenantId, ownerType, ownerId, accessKey, secret,
                 scopes.isEmpty() ? "[]" : toJsonArray(scopes),
                 expiresAt, remark);
         } catch (DataAccessException ex) {
@@ -141,12 +143,11 @@ public class AccApiCredentialsController {
         return Map.of("id", id, "updated", true);
     }
 
-    /** 轮换 secret：生成新明文，立即落 hash，返回明文一次。 */
+    /** 轮换 secret：生成新明文存入，并返回一次。 */
     @PostMapping("/{id}/rotate")
     public Map<String, Object> rotate(@PathVariable String id) {
         String secret = "sk_" + randomToken(32);
-        String hash = sha256(secret);
-        int n = jdbc.update("UPDATE api_credentials SET secret_hash = ? WHERE id = ?::uuid AND status <> 'REVOKED'", hash, id);
+        int n = jdbc.update("UPDATE api_credentials SET secret_hash = ? WHERE id = ?::uuid AND status <> 'REVOKED'", secret, id);
         if (n == 0) throw ApiException.badRequest("凭证不存在或已吊销");
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", id);
@@ -174,8 +175,7 @@ public class AccApiCredentialsController {
     @PostMapping("/{id}/reset-secret")
     public Map<String, Object> resetSecret(@PathVariable String id) {
         String secret = "sk_" + randomToken(32);
-        String hash = sha256(secret);
-        int n = jdbc.update("UPDATE api_credentials SET secret_hash = ? WHERE id = ?::uuid AND status <> 'REVOKED'", hash, id);
+        int n = jdbc.update("UPDATE api_credentials SET secret_hash = ? WHERE id = ?::uuid AND status <> 'REVOKED'", secret, id);
         if (n == 0) throw ApiException.badRequest("凭证不存在或已吊销");
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", id);
@@ -196,15 +196,6 @@ public class AccApiCredentialsController {
         byte[] buf = new byte[byteLen];
         rng.nextBytes(buf);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
-    }
-
-    private static String sha256(String input) {
-        try {
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(input.getBytes());
-            return Base64.getEncoder().encodeToString(hash);
-        } catch (Exception ex) {
-            throw new IllegalStateException(ex);
-        }
     }
 
     private static String toJsonArray(List<?> items) {
