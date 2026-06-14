@@ -101,7 +101,7 @@ public class RateEngine {
         String remoteLevel = repository.findRemoteLevel(
             tenantId, channelId, request.countryCode(), request.postalCode());
         if ("EMBARGO".equals(remoteLevel)) {
-            blockers.add("destination is in embargo zone");
+            blockers.add("目的地 " + request.countryCode() + " " + request.postalCode() + " 在禁运地区");
         }
 
         // ─── 价格匹配（客户专属 > 组价 > 普通价）───
@@ -125,8 +125,10 @@ public class RateEngine {
             Map<String, Object> baseCard = repository.findActiveRateCard(
                 tenantId, channelId, "AR", request.currency(), request.chargeDate());
             if (baseCard == null) {
-                throw ApiException.notFound("no active AR rate card for channel " + request.channelCode()
-                    + " currency " + request.currency() + " on " + request.chargeDate());
+                throw ApiException.notFound(
+                    "渠道 [" + request.channelCode() + "] 在 " + request.chargeDate()
+                    + " 没有 " + request.currency() + " 币种的有效销售价表。"
+                    + "请到「数据管理 → 销售价格」补充该渠道+币种的价表，或检查价表生效日期");
             }
             chosenRateCardId = (String) baseCard.get("id");
         }
@@ -140,8 +142,10 @@ public class RateEngine {
         Map<String, Object> tier = repository.findTier(
             tenantId, chosenRateCardId, resolvedZone, chargeable, request.postalCode());
         if (tier == null) {
-            throw ApiException.notFound("no rate tier covers " + chargeable
-                + " kg in zone " + resolvedZone);
+            throw ApiException.notFound(
+                "渠道 [" + request.channelCode() + "] 的价表不包含此重量段：" + chargeable + " kg / 区域 "
+                + resolvedZone + " (邮编 " + request.postalCode() + ")。"
+                + "请确认价表是否覆盖目的地区域及重量梯度");
         }
         String postalPriorityLabel = formatPostalPriority(tier);
 
@@ -486,20 +490,20 @@ public class RateEngine {
     private void checkBatteryRestriction(Map<String, Object> restrict, int batteryType, List<String> blockers) {
         if (batteryType == 0) return;
         if (Boolean.FALSE.equals(restrict.get("battery_allowed"))) {
-            blockers.add("battery not allowed");
+            blockers.add("此渠道不接受带电池货物");
         } else if (batteryType == 1 && Boolean.FALSE.equals(restrict.get("battery_built_in_allowed"))) {
-            blockers.add("built-in battery not allowed");
+            blockers.add("此渠道不接受内置电池");
         } else if (batteryType == 2 && Boolean.FALSE.equals(restrict.get("battery_dry_allowed"))) {
-            blockers.add("dry battery not allowed");
+            blockers.add("此渠道不接受干电池");
         }
     }
 
     private void checkSpecialRestriction(Map<String, Object> restrict, int specialType, List<String> blockers) {
         if (specialType == 5 && Boolean.FALSE.equals(restrict.get("brand_allowed"))) {
-            blockers.add("brand-name (counterfeit) not allowed");
+            blockers.add("此渠道不接受仿牌商品");
         }
         if (Boolean.FALSE.equals(restrict.get("sensitive_allowed")) && specialType > 0 && specialType != 5) {
-            blockers.add("sensitive goods not allowed");
+            blockers.add("此渠道不接受敏感货物");
         }
     }
 
@@ -509,9 +513,9 @@ public class RateEngine {
         boolean isBlacklist = Boolean.TRUE.equals(restrict.get("country_blacklist"));
         boolean hit = allowedCountry.equalsIgnoreCase(countryCode);
         if (isBlacklist && hit) {
-            blockers.add("country " + countryCode + " is blacklisted");
+            blockers.add("目的国 " + countryCode + " 在此渠道黑名单");
         } else if (!isBlacklist && !hit) {
-            blockers.add("country " + countryCode + " is not in whitelist");
+            blockers.add("目的国 " + countryCode + " 不在此渠道白名单");
         }
     }
 
@@ -519,7 +523,7 @@ public class RateEngine {
         String pattern = (String) restrict.get("postal_pattern");
         if (pattern == null || pattern.isBlank() || postalCode == null) return;
         if (!postalCode.matches(pattern)) {
-            blockers.add("postal " + postalCode + " is not allowed for this service");
+            blockers.add("邮编 " + postalCode + " 不符合此渠道允许范围");
         }
     }
 
@@ -534,15 +538,15 @@ public class RateEngine {
 
         if (maxCount != null && maxCount > 0
                 && countUsed != null && countUsed + 1 > maxCount) {
-            blockers.add("channel account max_count exceeded (" + countUsed + "/" + maxCount + ")");
+            blockers.add("渠道账号当日单数已达上限 (" + countUsed + "/" + maxCount + ")");
         }
         if (maxPiece != null && maxPiece > 0
                 && pieceUsed != null && pieceUsed + pieces > maxPiece) {
-            blockers.add("channel account max_piece exceeded (" + (pieceUsed + pieces) + "/" + maxPiece + ")");
+            blockers.add("渠道账号当日件数已达上限 (" + (pieceUsed + pieces) + "/" + maxPiece + ")");
         }
         if (maxWeight != null && maxWeight.signum() > 0
                 && weightUsed != null && weightUsed.add(weight).compareTo(maxWeight) > 0) {
-            blockers.add("channel account max_weight exceeded (" + weightUsed.add(weight) + "/" + maxWeight + ")");
+            blockers.add("渠道账号当日重量已达上限 (" + weightUsed.add(weight) + "/" + maxWeight + " kg)");
         }
     }
 

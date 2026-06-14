@@ -242,7 +242,7 @@ class RateEngineTests {
             0, 0, 0);
         Quote q = engine.quote(TENANT, req);
 
-        assertThat(q.blockers()).contains("destination is in embargo zone");
+        assertThat(q.blockers()).anyMatch(s -> s.startsWith("目的地") && s.contains("禁运"));
     }
 
     // ═══════════════ 7. 电池不允许 ═══════════════
@@ -262,7 +262,7 @@ class RateEngineTests {
 
         Quote q = engine.quote(TENANT, withBattery(2));
 
-        assertThat(q.blockers()).contains("battery not allowed");
+        assertThat(q.blockers()).contains("此渠道不接受带电池货物");
     }
 
     // ═══════════════ 8. 仿牌不允许 ═══════════════
@@ -282,7 +282,7 @@ class RateEngineTests {
 
         Quote q = engine.quote(TENANT, withSpecial(5));
 
-        assertThat(q.blockers()).contains("brand-name (counterfeit) not allowed");
+        assertThat(q.blockers()).contains("此渠道不接受仿牌商品");
     }
 
     // ═══════════════ 9. 渠道账号超重 ═══════════════
@@ -303,7 +303,7 @@ class RateEngineTests {
         Quote q = engine.quote(TENANT, withAccountAndWeight("ACC-001", new BigDecimal("5"), 1));
 
         // 已用 5 + 新增 5 = 10 > 8（max_weight），超限
-        assertThat(q.blockers()).anyMatch(s -> s.startsWith("channel account max_weight exceeded"));
+        assertThat(q.blockers()).anyMatch(s -> s.startsWith("渠道账号当日重量已达上限"));
     }
 
     // ═══════════════ 10. 渠道账号超件数 ═══════════════
@@ -324,7 +324,7 @@ class RateEngineTests {
         Quote q = engine.quote(TENANT, withAccountAndWeight("ACC-001", new BigDecimal("5"), 3));
 
         // 已用 9 + 新增 3 = 12 > 10
-        assertThat(q.blockers()).anyMatch(s -> s.startsWith("channel account max_piece exceeded"));
+        assertThat(q.blockers()).anyMatch(s -> s.startsWith("渠道账号当日件数已达上限"));
     }
 
     // ═══════════════ 11. 佣金计算 ═══════════════
