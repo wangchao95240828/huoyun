@@ -58,6 +58,17 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
         if (creds == null) {
             throw ApiException.badRequest("UPS 渠道账号未配置: " + ctx.channelCode());
         }
+        if (creds.endpointUrl == null || creds.endpointUrl.isBlank()) {
+            throw ApiException.badRequest(
+                "UPS 渠道[" + ctx.channelCode() + "]缺 endpoint_url 配置。"
+                + "请到「API 对接中心 → 渠道账号」补 endpoint_url=https://wwwcie.ups.com/api (sandbox) 或 https://onlinetools.ups.com/api (生产)，"
+                + "并填 api_key/api_secret/account_no");
+        }
+        if (creds.clientId == null || creds.clientId.isBlank()
+                || creds.clientSecret == null || creds.clientSecret.isBlank()) {
+            throw ApiException.badRequest(
+                "UPS 渠道[" + ctx.channelCode() + "]缺 api_key / api_secret，请补全 UPS OAuth 凭证");
+        }
 
         try {
             String token = getAccessToken(ctx.tenantId(), creds);
