@@ -111,6 +111,18 @@
 			<version>3.0.6</version>
 			<scope>compile</scope>
 		</dependency>
+
+		<!-- SMTP 邮件 (生产化 NotificationService) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+
+		<!-- Micrometer Prometheus 指标 -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
 	</dependencies>
 
 	<build>
