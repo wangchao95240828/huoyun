@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.JsonSupport;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -103,8 +104,14 @@ public class AccPackagesController {
             shipmentNo = generatePackageNo();
         }
         Object customerId = body.get("customer_id");
+        if (customerId == null || customerId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择客户");
+        }
         BigDecimal declaredValue = body.get("declared_value") instanceof Number n
             ? new BigDecimal(n.toString()) : null;
+        if (declaredValue != null && declaredValue.signum() < 0) {
+            throw ApiException.badRequest("申报价值不能为负");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO shipments (tenant_id, customer_id, shipment_no, status, declared_value)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, 'DRAFT', ?)
