@@ -53,6 +53,10 @@ public class AdminRepository {
               u.last_login_at,
               u.created_at,
               u.updated_at,
+              u.user_grade,
+              u.bound_customer_id::text AS bound_customer_id,
+              u.bound_supplier_id::text AS bound_supplier_id,
+              u.bound_employee_id::text AS bound_employee_id,
               COALESCE(array_agg(DISTINCT r.code) FILTER (WHERE r.code IS NOT NULL), ARRAY[]::text[]) AS roles
             FROM users u
             LEFT JOIN user_roles ur ON ur.tenant_id = u.tenant_id AND ur.user_id = u.id
