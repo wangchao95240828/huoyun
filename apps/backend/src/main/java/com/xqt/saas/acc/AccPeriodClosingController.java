@@ -40,7 +40,7 @@ public class AccPeriodClosingController {
     @PostMapping("/preview")
     public Map<String, Object> preview(@RequestBody Map<String, Object> body) {
         String period = (String) body.get("period");
-        if (period == null || !period.matches("\\d{4}-\\d{2}")) {
+        if (period == null || !period.matches("\\d{4}-(0[1-9]|1[0-2])")) {
             throw ApiException.badRequest("period 必须为 YYYY-MM 格式");
         }
         String from = period + "-01";
@@ -71,7 +71,7 @@ public class AccPeriodClosingController {
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> close(@RequestBody Map<String, Object> body) {
         String period = (String) body.get("period");
-        if (period == null || !period.matches("\\d{4}-\\d{2}")) {
+        if (period == null || !period.matches("\\d{4}-(0[1-9]|1[0-2])")) {
             throw ApiException.badRequest("period 必须为 YYYY-MM 格式");
         }
         Boolean alreadyLocked = jdbc.queryForObject(
@@ -161,7 +161,7 @@ public class AccPeriodClosingController {
 
     @GetMapping("/status")
     public Map<String, Object> status(@RequestParam String period) {
-        if (!period.matches("\\d{4}-\\d{2}")) {
+        if (!period.matches("\\d{4}-(0[1-9]|1[0-2])")) {
             throw ApiException.badRequest("period 必须为 YYYY-MM 格式");
         }
         Map<String, Object> lock;
