@@ -67,8 +67,40 @@ public class SecurityConfig {
                     "/swagger-ui/**",
                     "/swagger-ui.html"
                 ).permitAll()
-                // Finance routes: authenticated users only.
-                // Fine-grained RBAC can be added here or via @PreAuthorize on individual controllers.
+                // ═══ ACC 业务权限（对齐 acc/User.php Permissions 设计）═══
+                // 制单/订单 — operation.order.read/write
+                .requestMatchers(HttpMethod.POST, "/api/acc/orders/**").hasAnyAuthority("operation.order.write", "ROLE_ADMIN")
+                .requestMatchers(HttpMethod.PUT,  "/api/acc/orders/**").hasAnyAuthority("operation.order.write", "ROLE_ADMIN")
+                .requestMatchers(HttpMethod.DELETE, "/api/acc/orders/**").hasAnyAuthority("operation.order.write", "ROLE_ADMIN")
+                .requestMatchers(HttpMethod.GET,  "/api/acc/orders/**").hasAnyAuthority("operation.order.read", "operation.order.write", "ROLE_ADMIN")
+                // 财务工作台 / 核算工作台 — finance.*
+                .requestMatchers(HttpMethod.POST, "/api/acc/finance-workbench/**").hasAnyAuthority("finance.receivable.write", "ROLE_ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/acc/settlement-workbench/**").hasAnyAuthority("finance.payable.write", "ROLE_ADMIN")
+                .requestMatchers(HttpMethod.GET,  "/api/acc/finance-workbench/**").hasAnyAuthority("finance.receivable.read", "finance.receivable.write", "ROLE_ADMIN")
+                .requestMatchers(HttpMethod.GET,  "/api/acc/settlement-workbench/**").hasAnyAuthority("finance.payable.read", "finance.payable.write", "ROLE_ADMIN")
+                // 财务单据 (charges/costs/bills/payments/receiveds)
+                .requestMatchers(HttpMethod.POST, "/api/acc/charges/**", "/api/acc/bills/**", "/api/acc/receiveds/**").hasAnyAuthority("finance.receivable.write", "ROLE_ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/acc/costs/**", "/api/acc/payments/**").hasAnyAuthority("finance.payable.write", "ROLE_ADMIN")
+                // 罚款 / 调账 / 退款 / 返利 (acc_fines / acc_finance_txns)
+                .requestMatchers(HttpMethod.POST, "/api/acc/customer-fines/**", "/api/acc/customer-adjusts/**", "/api/acc/customer-refunds/**", "/api/acc/customer-rebates/**", "/api/acc/customer-sponsors/**")
+                    .hasAnyAuthority("finance.adjust.approve", "finance.receivable.write", "ROLE_ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/acc/supplier-fines/**", "/api/acc/supplier-adjusts/**", "/api/acc/supplier-refunds/**", "/api/acc/supplier-rebates/**", "/api/acc/supplier-sponsors/**")
+                    .hasAnyAuthority("finance.adjust.approve", "finance.payable.write", "ROLE_ADMIN")
+                // 资金账户 / 银行 / 转账 / 分红
+                .requestMatchers(HttpMethod.POST, "/api/acc/banks/**", "/api/acc/transfers/**", "/api/acc/dividends/**", "/api/acc/assets/**")
+                    .hasAnyAuthority("finance.account.write", "ROLE_ADMIN")
+                // 配载 / 出货 — warehouse + flow
+                .requestMatchers(HttpMethod.POST, "/api/acc/shipments/**", "/api/acc/stowages/**", "/api/acc/transits/**", "/api/acc/dispatches/**")
+                    .hasAnyAuthority("operation.order.write", "warehouse.scan.write", "ROLE_ADMIN")
+                // HR — admin-only (社保/公积金/工资/借款/考勤/员工)
+                .requestMatchers(HttpMethod.POST, "/api/acc/wages/**", "/api/acc/borrowings/**", "/api/acc/employees/**", "/api/acc/socials/**", "/api/acc/funds/**", "/api/acc/attendances/**")
+                    .hasAnyAuthority("admin.user.write", "ROLE_ADMIN")
+                // API 对接 — admin
+                .requestMatchers(HttpMethod.POST, "/api/acc/api-credentials/**", "/api/acc/webhook-endpoints/**", "/api/acc/scheduled-tasks/**", "/api/acc/logistics-interfaces/**")
+                    .hasAnyAuthority("admin.user.write", "ROLE_ADMIN")
+                // 价目表 / 渠道 / 燃油 / 偏远 / 国家 / 邮编 — 主数据
+                .requestMatchers(HttpMethod.POST, "/api/acc/channels/**", "/api/acc/channel-accounts/**", "/api/acc/products/**", "/api/acc/product-items/**", "/api/acc/fuels/**", "/api/acc/remotes/**", "/api/acc/countries/**", "/api/acc/postcodes/**", "/api/acc/districts/**", "/api/acc/hscodes/**", "/api/acc/ports/**", "/api/acc/bank-names/**", "/api/acc/currencies/**", "/api/acc/branches/**", "/api/acc/departments/**", "/api/acc/fee-types/**", "/api/acc/fee-item-types/**", "/api/acc/expense-categories/**", "/api/acc/fees/**", "/api/acc/customers/**", "/api/acc/customer-groups/**", "/api/acc/potentials/**", "/api/acc/sold-tos/**", "/api/acc/notices/**", "/api/acc/importer-templates/**", "/api/acc/message-templates/**")
+                    .hasAnyAuthority("finance.rate.write", "operation.order.write", "ROLE_ADMIN")
                 .requestMatchers("/api/finance/**").authenticated()
                 .anyRequest().authenticated()
             )
