@@ -52,12 +52,14 @@ public class MultiStageApprovalService {
     public String submitRequest(String resource, String action, String resourceId,
                                   BigDecimal amount, String currency, String tenantId, String userId) {
         int stages = requiredStages(amount);
+        // target_id 是单 uuid，service 接 comma-separated → 落 resource_id（text）
         String requestId = jdbc.queryForObject("""
             INSERT INTO approval_requests (
-              tenant_id, resource, action, resource_id, status, required_count,
-              requested_by, payload
-            ) VALUES (?::uuid, ?, ?, ?, 'PENDING', ?, ?::uuid,
-              jsonb_build_object('amount', ?::numeric, 'currency', ?::text))
+              tenant_id, resource, action, target_id, resource_id, status, required_count,
+              requester_id, payload, reason
+            ) VALUES (?::uuid, ?, ?, NULL, ?, 'PENDING', ?, ?::uuid,
+              jsonb_build_object('amount', ?::numeric, 'currency', ?::text),
+              '自动触发')
             RETURNING id::text
             """, String.class, tenantId, resource, action, resourceId, stages, userId,
                  amount, currency);
@@ -73,7 +75,7 @@ public class MultiStageApprovalService {
         Map<String, Object> req;
         try {
             req = jdbc.queryForMap("""
-                SELECT status, required_count, requested_by::text AS requested_by, resource, action
+                SELECT status, required_count, requester_id::text AS requester_id, resource, action
                   FROM approval_requests WHERE id = ?::uuid AND tenant_id = ?::uuid
                 """, requestId, tenantId);
         } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
@@ -82,7 +84,7 @@ public class MultiStageApprovalService {
         if (!"PENDING".equals(req.get("status"))) {
             throw ApiException.badRequest("该审批请求已 " + req.get("status") + "，不能再批示");
         }
-        if (userId.equals(req.get("requested_by"))) {
+        if (userId.equals(req.get("requester_id"))) {
             throw ApiException.badRequest("不能审批自己提交的请求");
         }
         // 同审批人不能重复
@@ -122,7 +124,7 @@ public class MultiStageApprovalService {
     public List<Map<String, Object>> listPending(String tenantId) {
         return jdbc.queryForList("""
             SELECT id::text, resource, action, resource_id, required_count,
-                   payload, requested_by::text AS requested_by, created_at,
+                   payload, requester_id::text AS requester_id, created_at,
                    (SELECT count(*) FROM approval_decisions WHERE request_id = approval_requests.id) AS decision_count
               FROM approval_requests
              WHERE tenant_id = ?::uuid AND status = 'PENDING'

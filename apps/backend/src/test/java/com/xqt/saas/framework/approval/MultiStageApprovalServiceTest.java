@@ -55,7 +55,7 @@ class MultiStageApprovalServiceTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForMap(any(String.class), any(Object[].class)))
             .thenReturn(Map.of("status", "PENDING", "required_count", 2,
-                "requested_by", "user-1", "resource", "x", "action", "y"));
+                "requester_id", "user-1", "resource", "x", "action", "y"));
         MultiStageApprovalService svc = new MultiStageApprovalService(jdbc);
         assertThatThrownBy(() -> svc.decide("id", "APPROVE", "ok", "tenant", "user-1"))
             .isInstanceOf(ApiException.class)
