@@ -34,9 +34,12 @@ public class AccSmsReconcileService {
         Pattern.compile("(?:转入|存入|收入|存款|进账|到账)([\\d,]+\\.?\\d*)\\s*元"),
         Pattern.compile("([\\d,]+\\.?\\d*)\\s*元.*?(?:转入|存入|收入|进账|到账)"),
         Pattern.compile("人民币([\\d,]+\\.?\\d*)\\s*元"),
-        Pattern.compile("RMB([\\d,]+\\.?\\d*)"),
-        Pattern.compile("CNY([\\d,]+\\.?\\d*)"),
-        Pattern.compile("USD([\\d,]+\\.?\\d*)"),
+        Pattern.compile("RMB\\s*([\\d,]+\\.?\\d*)"),
+        Pattern.compile("CNY\\s*([\\d,]+\\.?\\d*)"),
+        Pattern.compile("USD\\s*([\\d,]+\\.?\\d*)"),
+        Pattern.compile("EUR\\s*([\\d,]+\\.?\\d*)"),
+        Pattern.compile("HKD\\s*([\\d,]+\\.?\\d*)"),
+        Pattern.compile("GBP\\s*([\\d,]+\\.?\\d*)"),
     };
 
     /** 付款人提取（名字/公司名）— 含中英文/数字/连字符，支持带冒号或不带。 */
