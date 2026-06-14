@@ -276,6 +276,18 @@ const detailData = ref<any>(null);
 const detailType = ref('');
 const bizLoading = ref(false);
 const bizMessage = ref('');
+const bizMessageType = ref<'info' | 'success' | 'error'>('info');
+function setBizError(msg: string, holdMs = 15000) {
+  bizMessage.value = msg;
+  bizMessageType.value = 'error';
+  if (holdMs > 0) setTimeout(() => { bizMessage.value = ''; bizMessageType.value = 'info'; }, holdMs);
+}
+function setBizOk(msg: string, holdMs = 4000) {
+  bizMessage.value = msg;
+  bizMessageType.value = 'success';
+  if (holdMs > 0) setTimeout(() => { bizMessage.value = ''; bizMessageType.value = 'info'; }, holdMs);
+}
+function clearBizMessage() { bizMessage.value = ''; bizMessageType.value = 'info'; }
 const showBizDialog = ref(false);
 const bizDialogType = ref('');
 const bizDialogData = reactive<Record<string, any>>({});
@@ -4052,17 +4064,16 @@ async function callOrdersBatch(endpoint: string, extra: Record<string, any> = {}
     });
     const j = await res.json();
     if (res.ok) {
-      bizMessage.value = `${endpoint} 完成: ${JSON.stringify(j).slice(0, 200)}`;
+      setBizOk(`${endpoint} 完成: ${JSON.stringify(j).slice(0, 200)}`);
       selectedIds.value.clear();
       await fetchAccData();
     } else {
-      bizMessage.value = `${endpoint} 失败: ${j.error ?? res.status}`;
+      setBizError(`${endpoint} 失败：${j.error ?? res.status}`);
     }
   } catch (e: any) {
-    bizMessage.value = `${endpoint} 异常: ${e.message}`;
+    setBizError(`${endpoint} 异常：${e.message}`);
   } finally {
     bizLoading.value = false;
-    setTimeout(() => { bizMessage.value = ''; }, 6000);
   }
 }
 
@@ -5922,7 +5933,10 @@ async function doReloadBill(id: number) {
             <BarChart3 :size="13" /> 利润汇总
           </button>
           <span class="result-count" v-if="!accLoading">共 {{ accTotal }} 条</span>
-          <span class="biz-message" v-if="bizMessage">{{ bizMessage }}</span>
+          <span class="biz-message" :class="bizMessageType" v-if="bizMessage" @click="clearBizMessage" title="点击关闭">
+            {{ bizMessage }}
+            <span v-if="bizMessageType === 'error'" style="margin-left:8px; opacity:0.7;">✕</span>
+          </span>
         </div>
 
         <!-- ACC 5 个批量操作页面的专用面板（在表格上方） -->
