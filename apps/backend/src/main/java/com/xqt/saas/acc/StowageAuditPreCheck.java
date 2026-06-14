@@ -36,6 +36,21 @@ public class StowageAuditPreCheck implements AuditSideEffect {
 
     @Override
     public void beforeAudit(String table, String entityId, String tenantId, String actorName) {
+        // ACC Stowage.php L1116: 配载当前状态不能跳跃到目标状态
+        // 状态机：CREATED → PICKED_UP → IN_TRANSIT → DELIVERED → COMPLETED
+        String currentStatus;
+        try {
+            currentStatus = jdbc.queryForObject(
+                "SELECT status::text FROM stowages WHERE id = ?::uuid", String.class, entityId);
+        } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
+            throw com.xqt.saas.common.ApiException.notFound("找不到该配载");
+        }
+        // 配载审核要求 status 至少 PICKED_UP（已开始出货）
+        if ("CREATED".equals(currentStatus) || "DRAFT".equals(currentStatus)) {
+            throw com.xqt.saas.common.ApiException.badRequest(
+                "配载当前状态 " + currentStatus + "，未到达可审核阶段");
+        }
+
         // ACC L1681 / L2490：配载下必须挂有 cartons（通过 cartons.stowage_id 关联）
         Integer cartonCount = jdbc.queryForObject(
             "SELECT count(*) FROM cartons WHERE stowage_id = ?::uuid", Integer.class, entityId);

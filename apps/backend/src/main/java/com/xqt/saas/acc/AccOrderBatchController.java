@@ -342,7 +342,24 @@ public class AccOrderBatchController {
     @Transactional
     public Map<String, Object> batchMerge(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
-        if (ids.size() < 2) throw ApiException.badRequest("至少选 2 个订单合并");
+        // ACC CBill.php L185: 请至少选择两个同客户的账号进行合并
+        if (ids.size() < 2) throw ApiException.badRequest("请至少选择 2 个同客户的订单进行合并");
+        // ACC CBill.php L2266: 合并账单只能合并同一个客户的
+        List<String> distinctCustomers = jdbc.queryForList("""
+            SELECT DISTINCT customer_id::text FROM orders WHERE id = ANY(?::uuid[])
+            """, String.class, (Object) ids.toArray(new String[0]));
+        if (distinctCustomers.size() > 1) {
+            throw ApiException.badRequest("合并订单只能合并同一个客户的");
+        }
+        // 有已审核 charge 的不能合并
+        List<String> hasAudited = jdbc.queryForList("""
+            SELECT DISTINCT o.order_no FROM orders o
+              JOIN charges c ON c.order_id = o.id
+             WHERE o.id = ANY(?::uuid[]) AND c.audit_status='AUDITED'
+            """, String.class, (Object) ids.toArray(new String[0]));
+        if (!hasAudited.isEmpty()) {
+            throw ApiException.badRequest("含有已审核费用的订单不能合并: " + String.join(",", hasAudited));
+        }
         // 用第 1 个作为主单，其余 metadata.merged_into = 主单 id, 自身 status=CANCELLED
         String masterId = ids.get(0);
         int merged = 0;
