@@ -84,7 +84,26 @@ public class AccWagesController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String employeeId = (String) body.get("employeeId");
+        if (employeeId == null || employeeId.isBlank()) {
+            throw ApiException.badRequest("请选择员工");
+        }
         String theMonth = (String) body.get("theMonth");
+        // ACC Wage.php L1671: 月份出错（必须 YYYY-MM 格式）
+        if (theMonth == null || !theMonth.matches("\\d{4}-\\d{2}")) {
+            throw ApiException.badRequest("月份格式错误，应为 YYYY-MM");
+        }
+        // 同员工同月不可重复
+        Integer dup = jdbc.queryForObject("""
+            SELECT count(*) FROM acc_wages WHERE employee_id = ?::uuid AND the_month = ?
+            """, Integer.class, employeeId, theMonth);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("该员工 " + theMonth + " 的工资记录已存在");
+        }
+        // total 必须 >= 0（允许 0 是抵扣过多的极端场景）
+        Object totalRaw = body.get("total");
+        if (totalRaw instanceof Number tn && tn.doubleValue() < 0) {
+            throw ApiException.badRequest("工资总额不能为负");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_wages (tenant_id, employee_id, the_month, basic, bonus, commission, deduction, total, currency, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, ?::numeric, ?::numeric,

@@ -81,9 +81,33 @@ public class AccCyclesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        // ACC Cycle.php L827: 相同的费用已经存在 + L818 分类存在
+        String name = (String) body.get("name");
+        if (name == null || name.isBlank()) {
+            throw ApiException.badRequest("周期费用名称必填");
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("周期费用金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        // ACC Cycle.php L342: 找不到币种
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到币种");
+        }
+        // ACC Cycle.php L811: 续费到期时间小于或等于当前实际的到期时间 — 这里检查 start_date < end_date
+        String startDate = (String) body.getOrDefault("startDate", body.get("start_date"));
+        String endDate   = (String) body.getOrDefault("endDate", body.get("end_date"));
+        if (startDate != null && endDate != null && endDate.compareTo(startDate) < 0) {
+            throw ApiException.badRequest("结束日期不能早于开始日期");
+        }
+        // 同名重复检测
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM acc_cycles WHERE name = ?", Integer.class, name);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("相同名称的周期费用已存在");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_cycles (
               tenant_id, name, cycle, start_date, end_date, currency, amount,

@@ -125,11 +125,36 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         Object customerId = body.get("customer_id");
+        // ACC Received.php L1339/L405: 找不到选定的客户
+        if (customerId == null || customerId.toString().isBlank()) {
+            throw ApiException.badRequest("找不到选定的客户");
+        }
+        // ACC Received.php L377: 金额必须大于零
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("金额必须大于零");
+        }
+        // ACC Received.php L379: 手续费不能小于零，也不能大于付款金额
+        BigDecimal poundage = body.get("poundage") instanceof Number pn
+            ? new BigDecimal(pn.toString()) : BigDecimal.ZERO;
+        if (poundage.signum() < 0) {
+            throw ApiException.badRequest("手续费不能小于零");
+        }
+        if (poundage.compareTo(amount) > 0) {
+            throw ApiException.badRequest("手续费不能大于付款金额");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        // ACC Received.php L1259: 找不到选择的货币
+        if (currency == null || currency.length() != 3) {
+            throw ApiException.badRequest("找不到选择的货币");
+        }
         String referenceNo = (String) body.getOrDefault("reference_no", body.get("no"));
         Object bankId = body.getOrDefault("financial_account_id", body.get("bankId"));
+        // ACC Received.php L372: 请选择收款账户
+        if (bankId == null || bankId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择收款账户");
+        }
         String remark = (String) body.get("remark");
         String id = jdbc.queryForObject("""
             INSERT INTO payments (

@@ -121,19 +121,46 @@ public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String paymentNo = (String) body.get("payment_no");
         Object partnerId = body.get("partner_id");
+        // ACC Pay.php L1519/L1555: 找不到该供应商
+        if (partnerId == null || partnerId.toString().isBlank()) {
+            throw ApiException.badRequest("找不到该供应商");
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        // 付款金额必须大于零
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("付款金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        // ACC Pay.php L1147: 找不到付款货币
+        if (currency == null || currency.length() != 3) {
+            throw ApiException.badRequest("找不到付款货币");
+        }
+        // ACC Pay.php L1116/L1935: 请选择付款银行账号
+        Object accountId = body.getOrDefault("financial_account_id", body.get("bankId"));
+        if (accountId == null || accountId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择付款银行账号");
+        }
+        // ACC Pay.php L1194: 汇率必须大于零（如果带）
+        Object fxRateRaw = body.get("fx_rate");
+        if (fxRateRaw != null) {
+            try {
+                BigDecimal fx = new BigDecimal(fxRateRaw.toString());
+                if (fx.signum() <= 0) throw ApiException.badRequest("汇率必须大于零");
+            } catch (NumberFormatException ex) {
+                throw ApiException.badRequest("汇率必须为数字");
+            }
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO partner_payments (
-              tenant_id, partner_id, payment_no, currency, amount, status
+              tenant_id, partner_id, payment_no, currency, amount, status, financial_account_id
             ) VALUES (
-              current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, ?, ?, 'DRAFT'
+              current_setting('app.current_tenant_id')::uuid, ?::uuid, ?, ?, ?, 'DRAFT', ?::uuid
             )
             RETURNING id::text
             """, String.class,
-            partnerId == null ? null : partnerId.toString(),
-            paymentNo, currency, amount);
+            partnerId.toString(),
+            paymentNo, currency, amount, accountId.toString());
         // AP 付款的汇率快照：复刻 ACC 落库时 freeze 当时汇率
         moneySnapshotService.snapshot(TABLE, id, amount, currency);
         return Map.of("id", id, "payment_no", paymentNo);
