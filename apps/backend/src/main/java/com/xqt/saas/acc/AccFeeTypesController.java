@@ -96,6 +96,29 @@ public class AccFeeTypesController {
         if (!java.util.List.of("AR","AP","BOTH").contains(side)) {
             throw ApiException.badRequest("结算方向必须是 AR/AP/BOTH");
         }
+        // ACC FeeType.php L212/L234: 判断公式校验
+        Object condRaw = body.get("condition");
+        if (condRaw != null && !condRaw.toString().isBlank()) {
+            String cond = condRaw.toString();
+            // 必须含 {var} 参数
+            if (!cond.matches(".*\\{[^}]+\\}.*")) {
+                throw ApiException.badRequest("判断公式要么为空，要么必须包含一个参数 {xxx}");
+            }
+        }
+        // ACC FeeType.php L?: 超限值区间格式 30-50
+        Object rangeRaw = body.get("overLimit");
+        if (rangeRaw != null && !rangeRaw.toString().isBlank()) {
+            String rng = rangeRaw.toString();
+            if (!rng.matches("\\d+(\\.\\d+)?-\\d+(\\.\\d+)?")) {
+                throw ApiException.badRequest("超限值必须为区间范围，例如 30-50");
+            }
+            String[] parts = rng.split("-");
+            double start = Double.parseDouble(parts[0]);
+            double end = Double.parseDouble(parts[1]);
+            if (start >= end) {
+                throw ApiException.badRequest("超限值区间起始值 " + start + " 不能大于或等于终止值 " + end);
+            }
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO charge_items (tenant_id, code, name, category, default_side, default_uom)
             VALUES (

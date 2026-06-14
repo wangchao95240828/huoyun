@@ -50,6 +50,11 @@ public class StowageAuditPreCheck implements AuditSideEffect {
             throw com.xqt.saas.common.ApiException.badRequest(
                 "配载当前状态 " + currentStatus + "，未到达可审核阶段");
         }
+        // ACC Stowage.php L1116: 状态机不能跳跃（DELIVERED 后不能回退到 IN_TRANSIT）
+        if ("DELIVERED".equals(currentStatus) || "COMPLETED".equals(currentStatus)) {
+            throw com.xqt.saas.common.ApiException.badRequest(
+                "配载状态为 " + currentStatus + " 终态，无法再审核（终态不可逆）");
+        }
 
         // ACC L1681 / L2490：配载下必须挂有 cartons（通过 cartons.stowage_id 关联）
         Integer cartonCount = jdbc.queryForObject(

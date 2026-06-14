@@ -39,10 +39,12 @@ public class AccSmsReconcileService {
         Pattern.compile("USD([\\d,]+\\.?\\d*)"),
     };
 
-    /** 付款人提取（名字/公司名）。 */
+    /** 付款人提取（名字/公司名）— 含中英文/数字/连字符，支持带冒号或不带。 */
     private static final Pattern[] PAYER_PATTERNS = {
-        Pattern.compile("(?:付款方|来款人|对方户名|对方账户名)[:：]?\\s*([\\u4e00-\\u9fa5A-Za-z0-9\\s（）]+?)(?:[，。,]|$)"),
-        Pattern.compile("(?:转入|存入)([\\u4e00-\\u9fa5A-Za-z]{2,30})\\s*\\d"),
+        // 付款方：XXX / 付款方 XXX (中英冒号都支持)
+        Pattern.compile("(?:付款方|来款人|对方户名|对方账户名|汇款人)[:：]\\s*([\\u4e00-\\u9fa5A-Za-z0-9\\-\\s（）]+?)(?:[，。,;\\s]|$)"),
+        Pattern.compile("(?:付款方|来款人|对方户名|对方账户名|汇款人)\\s+([\\u4e00-\\u9fa5A-Za-z0-9\\-]+)"),
+        Pattern.compile("(?:转入|存入)\\s*([\\u4e00-\\u9fa5A-Za-z][\\u4e00-\\u9fa5A-Za-z0-9\\-]{1,30})\\s*\\d"),
         Pattern.compile("([\\u4e00-\\u9fa5]{2,4})\\s+(?:汇入|转入)"),
     };
 
