@@ -29,10 +29,19 @@ public class AccGlReportsController {
         this.jdbc = jdbc;
     }
 
-    /** 利润表 = 收入 - 费用。 */
+    /**
+     * 利润表 = 收入 - 费用。
+     * 接受 period=YYYY-MM（ACC 月度报表习惯）或 from/to YYYY-MM-DD。
+     * period 优先于 from/to；都不传时报 400。
+     */
     @GetMapping("/income-statement")
-    public Map<String, Object> incomeStatement(@RequestParam(required = false) String from,
+    public Map<String, Object> incomeStatement(@RequestParam(required = false) String period,
+                                                @RequestParam(required = false) String from,
                                                 @RequestParam(required = false) String to) {
+        if (period != null && !period.isBlank()) {
+            String[] range = periodToRange(period);
+            from = range[0]; to = range[1];
+        }
         validateDates(from, to);
         String dateFilter = " AND v.the_date >= ?::date AND v.the_date <= ?::date";
         // 按 category 汇总（REVENUE / EXPENSE）
@@ -173,10 +182,15 @@ public class AccGlReportsController {
         return row;
     }
 
-    /** 现金流量表 = 经营/投资/融资三个类别的现金科目流水。 */
+    /** 现金流量表 = 经营/投资/融资三个类别的现金科目流水。同样接受 period 或 from/to。 */
     @GetMapping("/cash-flow")
-    public Map<String, Object> cashFlow(@RequestParam(required = false) String from,
+    public Map<String, Object> cashFlow(@RequestParam(required = false) String period,
+                                         @RequestParam(required = false) String from,
                                          @RequestParam(required = false) String to) {
+        if (period != null && !period.isBlank()) {
+            String[] range = periodToRange(period);
+            from = range[0]; to = range[1];
+        }
         validateDates(from, to);
         // 现金类科目：1001 库存现金, 1002 银行存款
         List<Map<String, Object>> rows = jdbc.queryForList("""
@@ -242,11 +256,19 @@ public class AccGlReportsController {
 
     private void validateDates(String from, String to) {
         if (from == null || !from.matches("\\d{4}-\\d{2}-\\d{2}"))
-            throw ApiException.badRequest("from 必须为 YYYY-MM-DD 格式");
+            throw ApiException.badRequest("from 必须为 YYYY-MM-DD 格式（或传 period=YYYY-MM）");
         if (to == null || !to.matches("\\d{4}-\\d{2}-\\d{2}"))
-            throw ApiException.badRequest("to 必须为 YYYY-MM-DD 格式");
+            throw ApiException.badRequest("to 必须为 YYYY-MM-DD 格式（或传 period=YYYY-MM）");
         if (from.compareTo(to) > 0)
             throw ApiException.badRequest("from 不能晚于 to");
+    }
+
+    /** period=YYYY-MM → [first day, last day]. 月份 2/4/6/9/11 自动算正确末日。 */
+    private String[] periodToRange(String period) {
+        if (!period.matches("\\d{4}-(0[1-9]|1[0-2])"))
+            throw ApiException.badRequest("period 必须为 YYYY-MM 格式");
+        java.time.YearMonth ym = java.time.YearMonth.parse(period);
+        return new String[]{ym.atDay(1).toString(), ym.atEndOfMonth().toString()};
     }
 
     private BigDecimal sumBalance(List<Map<String, Object>> rows) {
