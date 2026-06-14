@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>客户portal — 新航线</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+         background: #f1f5f9; color: #1e293b; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  header { background: linear-gradient(90deg, #6366f1, #8b5cf6); color: #fff; padding: 16px 0; margin-bottom: 16px; }
+  header h1 { margin: 0 16px; font-size: 18px; }
+  header .user-bar { font-size: 12px; margin: 4px 16px 0; opacity: .8; }
+  .card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 16px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card h2 { margin: 0 0 12px; font-size: 14px; color: #475569; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 12px; }
+  .stat { background: #f8fafc; padding: 10px 14px; border-radius: 6px; border-left: 3px solid #6366f1; }
+  .stat .label { font-size: 11px; color: #64748b; }
+  .stat .val { font-size: 18px; font-weight: 600; color: #6366f1; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid #f1f5f9; }
+  th { background: #f8fafc; color: #475569; font-weight: 600; }
+  .login-box { max-width: 360px; margin: 80px auto; }
+  .login-box input { width: 100%; padding: 10px 12px; margin-bottom: 12px;
+                     border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+  button { padding: 10px 20px; background: #6366f1; color: #fff; border: 0; border-radius: 6px;
+           cursor: pointer; font-size: 13px; font-weight: 600; }
+  button:hover { background: #4f46e5; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tab { padding: 8px 16px; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px;
+         border: 1px solid #e2e8f0; }
+  .tab.active { background: #6366f1; color: #fff; border-color: #6366f1; }
+  .error { color: #ef4444; font-size: 12px; margin-bottom: 8px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.submitted { background: #dbeafe; color: #1e40af; }
+  .badge.draft { background: #fef3c7; color: #92400e; }
+  .badge.cancelled { background: #fee2e2; color: #991b1b; }
+  .empty { padding: 20px; text-align: center; color: #94a3b8; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- Login view -->
+  <div v-if="!token" class="container login-box">
+    <div class="card">
+      <h2>客户portal 登录</h2>
+      <input v-model="loginUsername" placeholder="账号 / 邮箱" />
+      <input v-model="loginPassword" type="password" placeholder="密码" />
+      <div class="error" v-if="loginError">{{ loginError }}</div>
+      <button @click="login" :disabled="loginLoading">{{ loginLoading ? '登录中…' : '登录' }}</button>
+      <p style="font-size:11px;color:#94a3b8;margin-top:16px">
+        无账号？<a href="#" @click.prevent="showRegister=true">立即注册</a>
+        ·
+        <a href="#" @click.prevent="showForgot=true">忘记密码</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- Main view -->
+  <template v-else>
+    <header>
+      <h1>客户portal — 新航线 ACC</h1>
+      <div class="user-bar">
+        欢迎，{{ user.displayName || user.username }}
+        <a href="#" @click.prevent="logout" style="color:#fff;margin-left:12px;text-decoration:underline">退出</a>
+      </div>
+    </header>
+
+    <div class="container">
+      <div class="tabs">
+        <div class="tab" :class="{active: tab==='dashboard'}" @click="loadDashboard">总览</div>
+        <div class="tab" :class="{active: tab==='orders'}" @click="loadOrders">我的订单</div>
+        <div class="tab" :class="{active: tab==='balance'}" @click="loadBalance">账户余额</div>
+        <div class="tab" :class="{active: tab==='notices'}" @click="loadNotices">公告</div>
+      </div>
+
+      <!-- 总览 -->
+      <div v-if="tab==='dashboard'" class="card">
+        <h2>账户总览</h2>
+        <div class="stat-grid" v-if="dashboard">
+          <div class="stat">
+            <div class="label">本月订单</div>
+            <div class="val">{{ dashboard.monthOrders || 0 }}</div>
+          </div>
+          <div class="stat" style="border-color:#ef4444">
+            <div class="label">未付账单</div>
+            <div class="val" style="color:#ef4444">{{ dashboard.unpaidInvoices || 0 }}</div>
+          </div>
+          <div class="stat" v-for="b in dashboard.balances || []" :key="b.currency" style="border-color:#10b981">
+            <div class="label">{{ b.currency }} 余额</div>
+            <div class="val" style="color:#10b981">{{ b.balance }}</div>
+          </div>
+        </div>
+        <div v-else class="empty">加载中…</div>
+      </div>
+
+      <!-- 我的订单 -->
+      <div v-if="tab==='orders'" class="card">
+        <h2>我的订单</h2>
+        <table v-if="orders.length">
+          <thead><tr><th>订单号</th><th>状态</th><th>邮编</th><th>申报价值</th><th>创建时间</th></tr></thead>
+          <tbody>
+            <tr v-for="o in orders" :key="o.id">
+              <td>{{ o.order_no }}</td>
+              <td><span class="badge" :class="o.status.toLowerCase()">{{ o.status }}</span></td>
+              <td>{{ o.postcode }}</td>
+              <td>{{ o.declared_value }}</td>
+              <td>{{ o.created_at }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty">暂无订单</div>
+      </div>
+
+      <!-- 余额 -->
+      <div v-if="tab==='balance'" class="card">
+        <h2>账户余额</h2>
+        <table v-if="balances.length">
+          <thead><tr><th>账户</th><th>币种</th><th>余额</th></tr></thead>
+          <tbody>
+            <tr v-for="b in balances" :key="b.currency"><td>{{ b.account_name }}</td><td>{{ b.currency }}</td><td>{{ b.balance }}</td></tr>
+          </tbody>
+        </table>
+        <div v-else class="empty">无账户</div>
+      </div>
+
+      <!-- 公告 -->
+      <div v-if="tab==='notices'" class="card">
+        <h2>公告</h2>
+        <table v-if="notices.length">
+          <thead><tr><th>标题</th><th>内容</th><th>时间</th></tr></thead>
+          <tbody>
+            <tr v-for="n in notices" :key="n.id">
+              <td>{{ n.title }}</td><td>{{ n.content }}</td><td>{{ n.created_at }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty">暂无公告</div>
+      </div>
+    </div>
+  </template>
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script>
+const { createApp, ref, onMounted } = Vue;
+createApp({
+  setup() {
+    const API = location.origin;
+    const token = ref(localStorage.getItem('portal_token') || '');
+    const user = ref(JSON.parse(localStorage.getItem('portal_user') || 'null') || {});
+    const loginUsername = ref(''), loginPassword = ref(''), loginError = ref(''), loginLoading = ref(false);
+    const tab = ref('dashboard');
+    const dashboard = ref(null);
+    const orders = ref([]);
+    const balances = ref([]);
+    const notices = ref([]);
+
+    async function apiCall(path, opts = {}) {
+      const res = await fetch(API + path, {
+        ...opts,
+        headers: { 'Content-Type': 'application/json',
+                   'Authorization': 'Bearer ' + token.value, ...(opts.headers || {}) }
+      });
+      const j = await res.json();
+      if (!res.ok && j.error) throw new Error(j.error);
+      return j.data || j;
+    }
+
+    async function login() {
+      loginError.value = '';
+      loginLoading.value = true;
+      try {
+        const r = await fetch(API + '/api/auth/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: loginUsername.value, password: loginPassword.value })
+        });
+        const j = await r.json();
+        if (!r.ok || !j.data?.token) {
+          loginError.value = j.error || '登录失败';
+          return;
+        }
+        token.value = j.data.token;
+        user.value = j.data.user || { username: loginUsername.value };
+        localStorage.setItem('portal_token', token.value);
+        localStorage.setItem('portal_user', JSON.stringify(user.value));
+        loadDashboard();
+      } catch (e) { loginError.value = e.message; }
+      finally { loginLoading.value = false; }
+    }
+
+    function logout() {
+      token.value = '';
+      user.value = {};
+      localStorage.removeItem('portal_token');
+      localStorage.removeItem('portal_user');
+    }
+
+    async function loadDashboard() {
+      tab.value = 'dashboard';
+      try { dashboard.value = await apiCall('/api/customer-portal/dashboard'); }
+      catch (e) { dashboard.value = { error: e.message }; }
+    }
+    async function loadOrders() {
+      tab.value = 'orders';
+      try {
+        const d = await apiCall('/api/customer-portal/orders');
+        orders.value = d.data || d;
+      } catch (e) { orders.value = []; }
+    }
+    async function loadBalance() {
+      tab.value = 'balance';
+      try {
+        const d = await apiCall('/api/customer-portal/balance');
+        balances.value = d.data || d;
+      } catch (e) { balances.value = []; }
+    }
+    async function loadNotices() {
+      tab.value = 'notices';
+      try {
+        const d = await apiCall('/api/client-notice/my');
+        notices.value = d.data || d;
+      } catch (e) { notices.value = []; }
+    }
+
+    if (token.value) loadDashboard();
+
+    return { token, user, loginUsername, loginPassword, loginError, loginLoading,
+             login, logout, tab, dashboard, orders, balances, notices,
+             loadDashboard, loadOrders, loadBalance, loadNotices };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
