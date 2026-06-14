@@ -88,6 +88,15 @@ public class AccRemotesController {
         String pattern = (String) body.getOrDefault("postcode", body.get("postal_code_pattern"));
         String country = (String) body.getOrDefault("country", body.get("country_code"));
         String level = (String) body.getOrDefault("type", body.getOrDefault("level", "REMOTE"));
+        if (country == null || !country.matches("[A-Z]{2}")) {
+            throw ApiException.badRequest("国家代码必须为 ISO alpha-2");
+        }
+        if (pattern == null || pattern.isBlank()) {
+            throw ApiException.badRequest("邮编规则必填");
+        }
+        if (!java.util.List.of("REMOTE","SUPER_REMOTE","NORMAL").contains(level)) {
+            throw ApiException.badRequest("偏远等级必须是 NORMAL/REMOTE/SUPER_REMOTE");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO remote_zones (
               tenant_id, channel_id, version, country_code, postal_code_pattern, level, effective_from

@@ -163,9 +163,21 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         Object shipmentId = body.get("shipment_id");
         Object chargeItemId = body.get("charge_item_id");
+        if (shipmentId == null || shipmentId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择关联快件");
+        }
+        if (chargeItemId == null || chargeItemId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择费用类型");
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("费用金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到费用结算货币");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO charges (
               tenant_id, shipment_id, charge_item_id, side, status, currency, amount

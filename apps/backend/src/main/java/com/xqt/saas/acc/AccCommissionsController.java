@@ -87,6 +87,16 @@ public class AccCommissionsController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String employeeId = (String) body.get("employeeId");
         String theMonth = (String) body.get("theMonth");
+        if (employeeId == null || employeeId.isBlank()) {
+            throw ApiException.badRequest("请选择员工");
+        }
+        if (theMonth == null || !theMonth.matches("\\d{4}-\\d{2}")) {
+            throw ApiException.badRequest("月份格式错误，应为 YYYY-MM");
+        }
+        Object amt = body.get("amount");
+        if (amt instanceof Number an && an.doubleValue() <= 0) {
+            throw ApiException.badRequest("提成金额必须大于零");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_commissions (tenant_id, employee_id, rule_id, the_month, amount, currency,
                                          sales_amount, profit_amount, status, remark)

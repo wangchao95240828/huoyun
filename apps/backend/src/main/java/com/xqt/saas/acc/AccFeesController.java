@@ -75,6 +75,9 @@ public class AccFeesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        if (body.get("name") == null || body.get("name").toString().isBlank()) {
+            throw ApiException.badRequest("杂费套餐名称必填");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_fees (tenant_id, code, name, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?)

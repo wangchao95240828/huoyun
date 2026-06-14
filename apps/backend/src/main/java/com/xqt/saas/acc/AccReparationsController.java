@@ -109,7 +109,13 @@ public class AccReparationsController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         BigDecimal applyAmount = body.get("applyAmount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        if (applyAmount.signum() <= 0) {
+            throw ApiException.badRequest("申请赔偿金额必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到币种");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_reparations (
               tenant_id, shipment_id, customer_ref, apply_amount, currency, reason, status, add_name

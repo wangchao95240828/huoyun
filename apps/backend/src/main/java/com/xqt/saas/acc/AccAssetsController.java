@@ -79,9 +79,23 @@ public class AccAssetsController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        if (body.get("name") == null || body.get("name").toString().isBlank()) {
+            throw ApiException.badRequest("固定资产名称必填");
+        }
         BigDecimal amount = body.get("amount") instanceof Number n
             ? new BigDecimal(n.toString()) : BigDecimal.ZERO;
+        // ACC Assets.php L276: 购置费用必须大于零
+        if (amount.signum() <= 0) {
+            throw ApiException.badRequest("购置费用必须大于零");
+        }
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("找不到购置币种");
+        }
+        Object months = body.get("depreciationMonths");
+        if (months instanceof Number mn && mn.intValue() <= 0) {
+            throw ApiException.badRequest("折旧月数必须大于零");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_assets (
               tenant_id, name, the_date, currency, amount, depreciation,

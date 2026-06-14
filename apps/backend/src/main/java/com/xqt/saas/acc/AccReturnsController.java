@@ -96,6 +96,21 @@ public class AccReturnsController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        if (body.get("return_no") == null || body.get("return_no").toString().isBlank()) {
+            throw ApiException.badRequest("退件单号必填");
+        }
+        if (body.get("original_shipment_id") == null
+            || body.get("original_shipment_id").toString().isBlank()) {
+            throw ApiException.badRequest("请选择原快件");
+        }
+        Object refund = body.get("refund_amount");
+        if (refund instanceof Number rn && rn.doubleValue() < 0) {
+            throw ApiException.badRequest("退款金额不能为负");
+        }
+        Object comp = body.get("compensate_amount");
+        if (comp instanceof Number cn && cn.doubleValue() < 0) {
+            throw ApiException.badRequest("补偿金额不能为负");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO return_orders (
               tenant_id, return_no, original_shipment_id, status, reason,

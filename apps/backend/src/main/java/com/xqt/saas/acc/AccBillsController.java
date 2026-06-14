@@ -145,6 +145,20 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
         String invoiceNo = (String) body.get("invoice_no");
         Object customerId = body.get("customer_id");
         String currency = (String) body.getOrDefault("currency", "CNY");
+        if (invoiceNo == null || invoiceNo.isBlank()) {
+            throw ApiException.badRequest("账单号必填");
+        }
+        if (customerId == null || customerId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择客户");
+        }
+        if (currency.length() != 3) {
+            throw ApiException.badRequest("币种代码必须为 3 字母");
+        }
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM customer_invoices WHERE invoice_no = ?", Integer.class, invoiceNo);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("账单号已存在: " + invoiceNo);
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO customer_invoices (
               tenant_id, customer_id, invoice_no, currency, status

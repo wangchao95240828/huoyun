@@ -82,6 +82,16 @@ public class AccFundPersonsController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String fundId = (String) body.get("fundId");
         String employeeId = (String) body.get("employeeId");
+        if (fundId == null || fundId.isBlank()) throw ApiException.badRequest("请选择公积金期");
+        if (employeeId == null || employeeId.isBlank()) throw ApiException.badRequest("请选择员工");
+        Object personAmt = body.get("personAmount");
+        if (personAmt instanceof Number pn && pn.doubleValue() < 0) {
+            throw ApiException.badRequest("个人金额不能为负");
+        }
+        Object companyAmt = body.get("companyAmount");
+        if (companyAmt instanceof Number cn && cn.doubleValue() < 0) {
+            throw ApiException.badRequest("公司金额不能为负");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_fund_persons (tenant_id, fund_id, employee_id, person_amount, company_amount, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,

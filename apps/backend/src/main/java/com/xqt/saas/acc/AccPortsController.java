@@ -77,6 +77,11 @@ public class AccPortsController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        if (code == null || code.isBlank()) throw ApiException.badRequest("港口代码必填");
+        if (!code.matches("[A-Z]{3,5}")) {
+            throw ApiException.badRequest("港口代码必须为 3-5 位大写字母 (IATA/UNLOCODE)");
+        }
+        if (name == null || name.isBlank()) throw ApiException.badRequest("港口名称必填");
         String id = jdbc.queryForObject("""
             INSERT INTO stowage_ports (tenant_id, code, name, country, is_active)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?::text, ?::boolean)
