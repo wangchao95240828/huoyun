@@ -2244,3 +2244,42 @@ input, select, textarea { font: inherit; }
   font-size: 13px;
   color: #78350f;
 }
+
+/* ============ ACC 风格订单详情面板 (od = order-detail) ============ */
+.order-detail { display: flex; flex-direction: column; gap: 16px; }
+.od-section {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.od-title {
+  margin: 0 0 10px 0;
+  padding-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b;
+  border-bottom: 1px solid #f1f5f9;
+}
+.od-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 16px;
+}
+.od-grid > div {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+.od-grid > div.full-width { grid-column: 1 / -1; }
+.od-grid > div > label {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.od-grid > div > span {
+  color: #0f172a;
+  word-break: break-word;
+}

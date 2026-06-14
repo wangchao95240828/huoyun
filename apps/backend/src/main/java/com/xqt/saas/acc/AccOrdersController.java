@@ -353,6 +353,127 @@ public class AccOrdersController {
         );
     }
 
+    /**
+     * ACC 风格订单详情聚合 — 一次拉够：基本/货物/收件/发件/进口商/申报/装箱/财务/跟踪/审计。
+     * 前端直接 render 不用做多次 fetch。对应 ACC 旧版 「订单详情」 7 个分区。
+     */
+    @GetMapping("/{id}/detail")
+    public Map<String, Object> detail(@PathVariable String id) {
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+
+        // 1) 基本信息 + customer + branch join
+        Map<String, Object> basic;
+        try {
+            basic = jdbc.queryForMap("""
+                SELECT o.id::text AS id, o.order_no, o.status, o.source, o.customer_ref,
+                       o.external_id, o.customer_id::text AS customer_id,
+                       o.created_at, o.submitted_at, o.accepted_at, o.completed_at,
+                       o.metadata,
+                       c.name AS customer_name, c.code AS customer_code,
+                       org.name AS branch_name
+                  FROM orders o
+                  LEFT JOIN customers c ON c.id = o.customer_id
+                  LEFT JOIN organizations org ON org.id = o.branch_id
+                 WHERE o.id = ?::uuid
+                """, id);
+        } catch (org.springframework.dao.EmptyResultDataAccessException ex) {
+            throw ApiException.notFound("订单不存在");
+        }
+        // metadata 拆出来给货物/收件人/发件人/进口商/附加服务等 ACC 字段
+        Object md = basic.remove("metadata");
+        result.put("basic", json.row(basic));
+        result.put("metadata", md);
+
+        // 2) 相关 shipments
+        List<Map<String, Object>> shipments = jdbc.queryForList("""
+            SELECT s.id::text AS id, s.shipment_no, s.status::text AS status,
+                   s.destination_country, s.destination_postal_code,
+                   s.destination_warehouse_code, s.declared_value, s.declared_currency,
+                   s.insured, s.ordered_at, s.warehouse_in_at, s.departed_at, s.delivered_at,
+                   ch.name AS channel_name, ch.code AS channel_code
+              FROM shipment_order_links sol
+              JOIN shipments s ON s.id = sol.shipment_id
+              LEFT JOIN channels ch ON ch.id = s.channel_id
+             WHERE sol.order_id = ?::uuid
+             ORDER BY s.shipment_no
+            """, id);
+        result.put("shipments", shipments);
+
+        // 3) cartons + declarations 跨所有 shipments
+        List<String> shipmentIds = shipments.stream()
+            .map(s -> (String) s.get("id")).toList();
+        List<Map<String, Object>> cartons = List.of();
+        List<Map<String, Object>> declarations = List.of();
+        if (!shipmentIds.isEmpty()) {
+            String inClause = String.join(",", shipmentIds.stream().map(s -> "?").toList());
+            Object[] args = shipmentIds.toArray();
+            cartons = jdbc.queryForList(
+                "SELECT s.shipment_no, c.carton_no, c.tracking_no, c.carrier_master_tracking_no,"
+                + "       c.actual_weight_kg, c.chargeable_weight_kg, c.cbm,"
+                + "       c.length_cm, c.width_cm, c.height_cm"
+                + "  FROM cartons c JOIN shipments s ON s.id = c.shipment_id"
+                + " WHERE c.shipment_id::text IN (" + inClause + ")"
+                + " ORDER BY s.shipment_no, c.carton_no", args);
+            declarations = jdbc.queryForList(
+                "SELECT s.shipment_no, d.item_name, d.material, d.hs_code, d.quantity, d.value_amount"
+                + "  FROM declarations d JOIN shipments s ON s.id = d.shipment_id"
+                + " WHERE d.shipment_id::text IN (" + inClause + ")"
+                + " ORDER BY s.shipment_no, d.item_name", args);
+        }
+        result.put("cartons", cartons);
+        result.put("declarations", declarations);
+
+        // 4) charges + invoice
+        List<Map<String, Object>> charges = jdbc.queryForList("""
+            SELECT ch.id::text AS id, ch.side, ch.amount, ch.currency,
+                   ch.status::text AS status, ch.audit_status, ch.settlement_status,
+                   ch.paid_amount, ch.created_at,
+                   ci.invoice_no, ci.id::text AS invoice_id
+              FROM charges ch
+              LEFT JOIN customer_invoice_lines il ON il.charge_id = ch.id
+              LEFT JOIN customer_invoices ci ON ci.id = il.invoice_id
+             WHERE ch.order_id = ?::uuid
+             ORDER BY ch.side, ch.created_at
+            """, id);
+        result.put("charges", charges);
+
+        // 5) ledger
+        List<Map<String, Object>> ledger = jdbc.queryForList("""
+            SELECT created_at, biz_type::text AS biz_type, direction::text AS direction,
+                   amount, balance_before, balance_after, remark
+              FROM balance_ledger
+             WHERE source_id IN (SELECT id FROM charges WHERE order_id = ?::uuid)
+                OR (source_type = 'order' AND source_ref = (SELECT order_no FROM orders WHERE id = ?::uuid))
+             ORDER BY created_at DESC LIMIT 50
+            """, id, id);
+        result.put("ledger", ledger);
+
+        // 6) tracking events 跨所有 cartons
+        List<Map<String, Object>> trackingEvents = List.of();
+        if (!shipmentIds.isEmpty()) {
+            String inClause = String.join(",", shipmentIds.stream().map(s -> "?").toList());
+            trackingEvents = jdbc.queryForList(
+                "SELECT event_time, raw_status, normalized_status::text AS normalized_status,"
+                + "       location, description, tracking_no"
+                + "  FROM tracking_events"
+                + " WHERE shipment_id::text IN (" + inClause + ")"
+                + " ORDER BY event_time DESC LIMIT 100",
+                shipmentIds.toArray());
+        }
+        result.put("trackingEvents", trackingEvents);
+
+        // 7) audit_events for this order
+        List<Map<String, Object>> auditHistory = jdbc.queryForList("""
+            SELECT occurred_at, action, actor_name, remark
+              FROM audit_events
+             WHERE entity_type = 'orders' AND entity_id = ?
+             ORDER BY occurred_at DESC LIMIT 50
+            """, id);
+        result.put("auditHistory", auditHistory);
+
+        return result;
+    }
+
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String orderNo = (String) body.getOrDefault("order_no", body.get("orderNo"));

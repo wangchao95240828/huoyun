@@ -5246,6 +5246,11 @@ async function viewDetail(row: any) {
     const res = await apiFetch(`${API}/api/acc/stowages/${row.id}/packages`);
     detailData.value = await res.json();
     detailType.value = 'stowage-packages';
+  } else if (tab.api === 'orders') {
+    // ACC 风格订单详情：基本/货物/收件/发件/进口商/申报/装箱/财务/跟踪/审计
+    const res = await apiFetch(`${API}/api/acc/orders/${row.id}/detail`);
+    detailData.value = await res.json();
+    detailType.value = 'order-detail';
   } else {
     const res = await apiFetch(`${API}/api/acc/${tab.api}/${row.id}/raw`);
     detailData.value = await res.json();
@@ -6945,9 +6950,9 @@ async function doReloadBill(id: number) {
 
     <!-- ════════ Detail / Report Modal ════════ -->
     <div class="modal-backdrop" v-if="showDetail" @click.self="showDetail = false">
-      <div class="modal-dialog" style="max-width: 900px;">
+      <div class="modal-dialog" :style="detailType === 'order-detail' ? 'max-width: 1200px;' : 'max-width: 900px;'">
         <div class="modal-header">
-          <h3>{{ detailType === 'shipment-items' ? '出货明细' : detailType === 'bill-items' ? '账单明细' : detailType === 'stowage-packages' ? '配载包裹' : detailType === 'commission-result' ? '提成计算结果' : detailType === 'profit-summary' ? '利润汇总报表' : '记录详情' }}</h3>
+          <h3>{{ detailType === 'shipment-items' ? '出货明细' : detailType === 'bill-items' ? '账单明细' : detailType === 'stowage-packages' ? '配载包裹' : detailType === 'commission-result' ? '提成计算结果' : detailType === 'profit-summary' ? '利润汇总报表' : detailType === 'order-detail' ? '订单详情' : '记录详情' }}</h3>
           <button class="modal-close" @click="showDetail = false"><X :size="18" /></button>
         </div>
         <div class="modal-body">
@@ -7087,6 +7092,198 @@ async function doReloadBill(id: number) {
               </tbody>
             </table>
           </div>
+          <!-- ACC 风格订单详情 (9 个分区) -->
+          <div v-if="detailType === 'order-detail' && detailData" class="order-detail">
+            <!-- 1. 基本信息 -->
+            <section class="od-section">
+              <h4 class="od-title">基本信息</h4>
+              <div class="od-grid">
+                <div><label>订单号</label><span>{{ detailData.basic?.order_no || '-' }}</span></div>
+                <div><label>状态</label><span>{{ detailData.basic?.status || '-' }}</span></div>
+                <div><label>客户</label><span>{{ detailData.basic?.customer_name || '-' }} ({{ detailData.basic?.customer_code || '-' }})</span></div>
+                <div><label>客户单号</label><span>{{ detailData.basic?.customer_ref || '-' }}</span></div>
+                <div><label>来源</label><span>{{ detailData.basic?.source || '-' }}</span></div>
+                <div><label>分店</label><span>{{ detailData.basic?.branch_name || '-' }}</span></div>
+                <div><label>创建时间</label><span>{{ (detailData.basic?.created_at || '').slice(0,19).replace('T',' ') }}</span></div>
+                <div><label>提交时间</label><span>{{ (detailData.basic?.submitted_at || '').slice(0,19).replace('T',' ') || '-' }}</span></div>
+                <div><label>受理时间</label><span>{{ (detailData.basic?.accepted_at || '').slice(0,19).replace('T',' ') || '-' }}</span></div>
+                <div><label>完成时间</label><span>{{ (detailData.basic?.completed_at || '').slice(0,19).replace('T',' ') || '-' }}</span></div>
+              </div>
+            </section>
+
+            <!-- 2. 货物/发货信息 (metadata) -->
+            <section class="od-section" v-if="detailData.metadata">
+              <h4 class="od-title">货物 / 发货信息</h4>
+              <div class="od-grid">
+                <div><label>英文品名</label><span>{{ detailData.metadata.materialsEn || detailData.metadata.materials_en || '-' }}</span></div>
+                <div><label>中文品名</label><span>{{ detailData.metadata.materialsCn || detailData.metadata.materials_cn || '-' }}</span></div>
+                <div><label>件数</label><span>{{ detailData.metadata.piece || '-' }}</span></div>
+                <div><label>重量(kg)</label><span>{{ detailData.metadata.weight || '-' }}</span></div>
+                <div><label>体积(m³)</label><span>{{ detailData.metadata.volume || '-' }}</span></div>
+                <div><label>货物金额</label><span>{{ detailData.metadata.declaredValue || detailData.metadata.declared_value || '-' }} {{ detailData.metadata.currency || '' }}</span></div>
+                <div><label>运费</label><span>{{ detailData.metadata.freight || '-' }}</span></div>
+                <div><label>保险</label><span>{{ detailData.metadata.insurance || '-' }}</span></div>
+                <div><label>发货产品</label><span>{{ detailData.metadata.product || '-' }}</span></div>
+                <div><label>制单账号</label><span>{{ detailData.metadata.channelAccount || detailData.metadata.channel_account || '-' }}</span></div>
+                <div><label>包裹类型</label><span>{{ detailData.metadata.packageType || '-' }}</span></div>
+                <div><label>电池</label><span>{{ detailData.metadata.batteryCode || '-' }} ({{ ['不带电','内置电池','干电池'][detailData.metadata.batteryType || 0] }})</span></div>
+                <div><label>特殊货物</label><span>{{ ['普货','特殊产品','港发件','报关件','纺织品','仿牌'][detailData.metadata.specialType || 0] }}</span></div>
+                <div><label>标签</label><span>{{ detailData.metadata.labelType || '-' }}</span></div>
+                <div class="full-width" v-if="detailData.metadata.services?.length"><label>附加服务</label><span>{{ (detailData.metadata.services || []).join(', ') }}</span></div>
+                <div class="full-width" v-if="detailData.metadata.remark"><label>备注</label><span>{{ detailData.metadata.remark }}</span></div>
+              </div>
+            </section>
+
+            <!-- 3/4/5. 收件人/发件人/进口商 -->
+            <section class="od-section" v-if="detailData.metadata?.receiver">
+              <h4 class="od-title">收件人</h4>
+              <div class="od-grid">
+                <div><label>公司</label><span>{{ detailData.metadata.receiver.company || '-' }}</span></div>
+                <div><label>姓名</label><span>{{ detailData.metadata.receiver.name || '-' }}</span></div>
+                <div><label>电话</label><span>{{ detailData.metadata.receiver.phone || '-' }}</span></div>
+                <div><label>国家</label><span>{{ detailData.metadata.country || '-' }}</span></div>
+                <div><label>邮编</label><span>{{ detailData.metadata.receiver.postcode || '-' }}</span></div>
+                <div><label>城市</label><span>{{ detailData.metadata.receiver.city || '-' }}</span></div>
+                <div><label>省/洲</label><span>{{ detailData.metadata.receiver.province || '-' }}</span></div>
+                <div><label>VAT</label><span>{{ detailData.metadata.receiver.vat || '-' }}</span></div>
+                <div class="full-width"><label>地址</label><span>{{ detailData.metadata.receiver.address || '-' }}</span></div>
+              </div>
+            </section>
+
+            <section class="od-section" v-if="detailData.metadata?.shipper && detailData.metadata.shipper.company">
+              <h4 class="od-title">发件人</h4>
+              <div class="od-grid">
+                <div><label>公司</label><span>{{ detailData.metadata.shipper.company || '-' }}</span></div>
+                <div><label>姓名</label><span>{{ detailData.metadata.shipper.name || '-' }}</span></div>
+                <div><label>电话</label><span>{{ detailData.metadata.shipper.phone || '-' }}</span></div>
+                <div><label>邮编</label><span>{{ detailData.metadata.shipper.postcode || '-' }}</span></div>
+                <div><label>城市</label><span>{{ detailData.metadata.shipper.city || '-' }}</span></div>
+                <div><label>VAT</label><span>{{ detailData.metadata.shipper.vat || '-' }}</span></div>
+                <div class="full-width"><label>地址</label><span>{{ detailData.metadata.shipper.address || '-' }}</span></div>
+              </div>
+            </section>
+
+            <section class="od-section" v-if="detailData.metadata?.shipTo && detailData.metadata.shipTo.company">
+              <h4 class="od-title">进口商 (IOR)</h4>
+              <div class="od-grid">
+                <div><label>公司</label><span>{{ detailData.metadata.shipTo.company || '-' }}</span></div>
+                <div><label>联系人</label><span>{{ detailData.metadata.shipTo.name || '-' }}</span></div>
+                <div><label>电话</label><span>{{ detailData.metadata.shipTo.phone || '-' }}</span></div>
+                <div><label>税号</label><span>{{ detailData.metadata.shipTo.vat || '-' }}</span></div>
+                <div class="full-width"><label>地址</label><span>{{ detailData.metadata.shipTo.address || '-' }}</span></div>
+              </div>
+            </section>
+
+            <!-- 6. 申报明细 -->
+            <section class="od-section">
+              <h4 class="od-title">申报明细 ({{ (detailData.declarations || []).length }})</h4>
+              <table class="data-table">
+                <thead><tr><th>运单</th><th>品名</th><th>材质</th><th>HS编码</th><th>数量</th><th>申报价值</th></tr></thead>
+                <tbody>
+                  <tr v-for="(d, i) in (detailData.declarations || [])" :key="'d'+i">
+                    <td>{{ d.shipment_no }}</td><td>{{ d.item_name }}</td><td>{{ d.material || '-' }}</td>
+                    <td>{{ d.hs_code || '-' }}</td><td>{{ d.quantity }}</td>
+                    <td class="money-cell">{{ d.value_amount }}</td>
+                  </tr>
+                  <tr v-if="!(detailData.declarations || []).length"><td colspan="6" class="empty-cell">无申报明细</td></tr>
+                </tbody>
+              </table>
+            </section>
+
+            <!-- 7. 装箱单 -->
+            <section class="od-section">
+              <h4 class="od-title">装箱明细 ({{ (detailData.cartons || []).length }})</h4>
+              <table class="data-table">
+                <thead><tr><th>运单</th><th>箱号</th><th>子单号</th><th>主单号</th><th>实重(kg)</th><th>计费重</th><th>CBM</th><th>尺寸(cm)</th></tr></thead>
+                <tbody>
+                  <tr v-for="(c, i) in (detailData.cartons || [])" :key="'c'+i">
+                    <td>{{ c.shipment_no }}</td><td>{{ c.carton_no }}</td>
+                    <td>{{ c.tracking_no || '-' }}</td>
+                    <td>{{ c.carrier_master_tracking_no || '-' }}</td>
+                    <td>{{ c.actual_weight_kg }}</td>
+                    <td>{{ c.chargeable_weight_kg || '-' }}</td>
+                    <td>{{ c.cbm || '-' }}</td>
+                    <td>{{ c.length_cm }}×{{ c.width_cm }}×{{ c.height_cm }}</td>
+                  </tr>
+                  <tr v-if="!(detailData.cartons || []).length"><td colspan="8" class="empty-cell">无装箱</td></tr>
+                </tbody>
+              </table>
+            </section>
+
+            <!-- 8. 财务: charges + ledger -->
+            <section class="od-section">
+              <h4 class="od-title">财务 — Charges ({{ (detailData.charges || []).length }})</h4>
+              <table class="data-table">
+                <thead><tr><th>方向</th><th>金额</th><th>币种</th><th>状态</th><th>审核</th><th>结算</th><th>已付</th><th>账单号</th></tr></thead>
+                <tbody>
+                  <tr v-for="(c, i) in (detailData.charges || [])" :key="'ch'+i">
+                    <td>{{ c.side }}</td>
+                    <td class="money-cell">{{ c.amount }}</td>
+                    <td>{{ c.currency }}</td>
+                    <td>{{ c.status }}</td>
+                    <td>{{ c.audit_status || '-' }}</td>
+                    <td>{{ c.settlement_status || '-' }}</td>
+                    <td class="money-cell">{{ c.paid_amount || '0' }}</td>
+                    <td>{{ c.invoice_no || '未出账' }}</td>
+                  </tr>
+                  <tr v-if="!(detailData.charges || []).length"><td colspan="8" class="empty-cell">无 charges</td></tr>
+                </tbody>
+              </table>
+              <h4 class="od-title" style="margin-top:12px">客户余额账本 (Ledger {{ (detailData.ledger || []).length }})</h4>
+              <table class="data-table">
+                <thead><tr><th>时间</th><th>类型</th><th>方向</th><th>金额</th><th>变动前</th><th>变动后</th><th>备注</th></tr></thead>
+                <tbody>
+                  <tr v-for="(l, i) in (detailData.ledger || [])" :key="'l'+i">
+                    <td>{{ (l.created_at || '').slice(0,19).replace('T',' ') }}</td>
+                    <td>{{ l.biz_type }}</td>
+                    <td>{{ l.direction }}</td>
+                    <td class="money-cell">{{ l.amount }}</td>
+                    <td class="money-cell">{{ l.balance_before }}</td>
+                    <td class="money-cell">{{ l.balance_after }}</td>
+                    <td>{{ l.remark || '-' }}</td>
+                  </tr>
+                  <tr v-if="!(detailData.ledger || []).length"><td colspan="7" class="empty-cell">无 ledger 记录</td></tr>
+                </tbody>
+              </table>
+            </section>
+
+            <!-- 9. 物流跟踪 -->
+            <section class="od-section">
+              <h4 class="od-title">物流跟踪 ({{ (detailData.trackingEvents || []).length }})</h4>
+              <table class="data-table">
+                <thead><tr><th>时间</th><th>状态</th><th>原始状态</th><th>地点</th><th>跟踪号</th><th>描述</th></tr></thead>
+                <tbody>
+                  <tr v-for="(t, i) in (detailData.trackingEvents || [])" :key="'t'+i">
+                    <td>{{ (t.event_time || '').slice(0,19).replace('T',' ') }}</td>
+                    <td>{{ t.normalized_status }}</td>
+                    <td>{{ t.raw_status }}</td>
+                    <td>{{ t.location || '-' }}</td>
+                    <td>{{ t.tracking_no }}</td>
+                    <td>{{ t.description || '-' }}</td>
+                  </tr>
+                  <tr v-if="!(detailData.trackingEvents || []).length"><td colspan="6" class="empty-cell">无跟踪事件</td></tr>
+                </tbody>
+              </table>
+            </section>
+
+            <!-- 10. 审计日志 -->
+            <section class="od-section">
+              <h4 class="od-title">操作历史 ({{ (detailData.auditHistory || []).length }})</h4>
+              <table class="data-table">
+                <thead><tr><th>时间</th><th>动作</th><th>操作人</th><th>备注</th></tr></thead>
+                <tbody>
+                  <tr v-for="(a, i) in (detailData.auditHistory || [])" :key="'a'+i">
+                    <td>{{ (a.occurred_at || '').slice(0,19).replace('T',' ') }}</td>
+                    <td>{{ a.action }}</td>
+                    <td>{{ a.actor_name || '-' }}</td>
+                    <td>{{ a.remark || '-' }}</td>
+                  </tr>
+                  <tr v-if="!(detailData.auditHistory || []).length"><td colspan="4" class="empty-cell">无审计记录</td></tr>
+                </tbody>
+              </table>
+            </section>
+          </div>
+
           <!-- Raw record -->
           <div v-if="detailType === 'raw' && detailData" class="form-grid">
             <div class="form-field" v-for="(val, key) in detailData" :key="key">
