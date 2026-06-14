@@ -1,0 +1,87 @@
+# Prometheus 告警规则
+# 部署同 prometheus.yml 一起 mount 进 /etc/prometheus/alerts.yml
+
+groups:
+  - name: backend-availability
+    interval: 30s
+    rules:
+      - alert: BackendDown
+        expr: up{job="xqt-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "xqt-backend 进程不可达 (>1min)"
+          description: "Prometheus 抓 {{ $labels.instance }} 超过 1 分钟失败，systemd xqt-backend 可能挂了。"
+
+      - alert: BackendHighErrorRate
+        # 5xx 占比 >5% 持续 5min
+        expr: |
+          (sum(rate(http_server_requests_seconds_count{job="xqt-backend",status=~"5.."}[5m]))
+            / sum(rate(http_server_requests_seconds_count{job="xqt-backend"}[5m]))) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "后端 5xx 错误率 > 5%"
+          description: "过去 5 分钟 5xx 占比 {{ $value | humanizePercentage }}，查看 journalctl -u xqt-backend。"
+
+      - alert: BackendSlowResponse
+        # P95 > 2s 持续 10min
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_server_requests_seconds_bucket{job="xqt-backend"}[5m]))) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "后端 P95 响应 > 2s"
+          description: "P95 延迟 {{ $value }}s。可能 DB 慢查询或 Hikari 连接耗尽。"
+
+  - name: backend-jvm
+    interval: 30s
+    rules:
+      - alert: JvmHighHeapUsage
+        expr: |
+          (jvm_memory_used_bytes{job="xqt-backend",area="heap"}
+            / jvm_memory_max_bytes{job="xqt-backend",area="heap"}) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM 堆使用率 > 85%"
+          description: "{{ $value | humanizePercentage }}。可能内存泄漏，jmap -histo:live 排查。"
+
+      - alert: JvmFullGcFrequent
+        expr: rate(jvm_gc_pause_seconds_count{job="xqt-backend",action="end of major GC"}[5m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM Full GC 频率高 (>0.5/s)"
+          description: "5min 内 Full GC {{ $value }} 次/秒，需要堆调优。"
+
+  - name: backend-business
+    interval: 60s
+    rules:
+      - alert: NoOrderCreatedFor1Hour
+        # 业务时段（北京时间 08:00-22:00）连续 1 小时没新建订单
+        expr: |
+          (hour() >= 0 and hour() <= 14)
+          and increase(http_server_requests_seconds_count{job="xqt-backend",uri="/api/acc/orders",method="POST",status="200"}[1h]) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "业务时段 1 小时无新订单"
+          description: "可能前端/客户 API 都挂了，业务停滞。"
+
+      - alert: HighRateLimitRejects
+        # rate-limit 拒绝 >20/min
+        expr: rate(rate_limit_rejects_total{job="xqt-backend"}[1m]) > 20
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "RateLimit 拒绝率突增"
+          description: "1min 内拒绝 {{ $value }} 次/min，可能爬虫或攻击。"

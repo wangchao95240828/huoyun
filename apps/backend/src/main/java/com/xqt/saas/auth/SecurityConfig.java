@@ -69,6 +69,8 @@ public class SecurityConfig {
                     "/api/device/scale/**",
                     "/api/acc/dws",          // DWS 实物分拣推送，使用自己的 md5 token 校验
                     "/actuator/health/**",
+                    "/actuator/prometheus",   // Prometheus scrape，nginx 仅暴露给 127.0.0.1
+                    "/actuator/metrics/**",
                     "/v3/api-docs/**",
                     "/swagger-ui/**",
                     "/swagger-ui.html"
