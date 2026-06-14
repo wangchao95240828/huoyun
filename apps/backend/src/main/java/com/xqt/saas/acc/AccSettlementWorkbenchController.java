@@ -25,6 +25,10 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.xqt.saas.auth.AuthPrincipal;
+import com.xqt.saas.framework.approval.MultiStageApprovalService;
+import org.springframework.security.core.context.SecurityContextHolder;
+
 /**
  * 核算工作台（AP 侧 + 利润）。结构对应财务工作台（AR 侧），但操作对象是供应商成本。
  *
@@ -40,10 +44,13 @@ public class AccSettlementWorkbenchController {
     private static final String SINGLE_TENANT = "2bda8c16-7b19-4ce6-ab71-9584f5a140ed";
     private final JdbcTemplate jdbc;
     private final JsonSupport json;
+    private final MultiStageApprovalService approvalService;
 
-    public AccSettlementWorkbenchController(JdbcTemplate jdbc, JsonSupport json) {
+    public AccSettlementWorkbenchController(JdbcTemplate jdbc, JsonSupport json,
+                                             MultiStageApprovalService approvalService) {
         this.jdbc = jdbc;
         this.json = json;
+        this.approvalService = approvalService;
     }
 
     /** 三个 bucket 的汇总（AP 侧）。 */
@@ -351,8 +358,40 @@ public class AccSettlementWorkbenchController {
 
         // 大额二次确认（按总金额）
         BigDecimal total = rows.stream().map(r -> (BigDecimal) r.get("amount")).reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (total.compareTo(LARGE_PAYMENT_THRESHOLD) >= 0 && !largeConfirmed) {
-            throw ApiException.badRequest("大额付款 " + total + "，需要 largeConfirmed=true 二次确认");
+        String approvalId = body.get("approvalRequestId") == null ? null : body.get("approvalRequestId").toString();
+        if (total.compareTo(LARGE_PAYMENT_THRESHOLD) >= 0) {
+            if (approvalId != null && !approvalId.isBlank()) {
+                // 已带 approvalRequestId — 检查是否 APPROVED
+                String status;
+                try {
+                    status = jdbc.queryForObject(
+                        "SELECT status FROM approval_requests WHERE id = ?::uuid", String.class, approvalId);
+                } catch (Exception ex) {
+                    throw ApiException.badRequest("找不到该审批请求");
+                }
+                if (!"APPROVED".equals(status)) {
+                    throw ApiException.badRequest("审批请求状态为 " + status + "，未通过不能付款");
+                }
+            } else if (largeConfirmed) {
+                // 旧的 largeConfirmed 二次确认兼容
+            } else {
+                // 自动发起审批请求并阻塞
+                try {
+                    var sec = SecurityContextHolder.getContext().getAuthentication();
+                    AuthPrincipal p = sec == null ? null : (AuthPrincipal) sec.getPrincipal();
+                    String reqId = approvalService.submitRequest(
+                        "partner_payment", "PAY", String.join(",", ids),
+                        total, "CNY", p == null ? SINGLE_TENANT : p.tenantId(),
+                        p == null ? null : p.userId());
+                    int stages = approvalService.requiredStages(total);
+                    throw ApiException.badRequest("大额付款 " + total + " 需要 " + stages
+                        + " 级审批，已自动创建审批请求 " + reqId
+                        + "。审批通过后用 approvalRequestId 重新提交");
+                } catch (ApiException ex) { throw ex; }
+                catch (Exception ex) {
+                    throw ApiException.badRequest("大额付款 " + total + "，需要 largeConfirmed=true 二次确认");
+                }
+            }
         }
 
         // 按 currency 分组
