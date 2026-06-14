@@ -75,6 +75,14 @@ public class AccFeeItemTypesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        if (body.get("name") == null || body.get("name").toString().isBlank()) {
+            throw ApiException.badRequest("附加费类型名称必填");
+        }
+        Object color = body.get("color");
+        if (color != null && !color.toString().isBlank()
+            && !color.toString().matches("#?[0-9a-fA-F]{3,8}")) {
+            throw ApiException.badRequest("颜色代码格式不正确（应为 hex）");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_fee_item_types (tenant_id, code, name, fee_type, color, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?)

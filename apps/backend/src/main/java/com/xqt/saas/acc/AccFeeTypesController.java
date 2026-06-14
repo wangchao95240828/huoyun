@@ -87,9 +87,15 @@ public class AccFeeTypesController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        if (code == null || code.isBlank()) throw ApiException.badRequest("费用类型代码必填");
+        if (!code.matches("[\\x00-\\x7F]+")) throw ApiException.badRequest("费用类型代码不能包含中文");
+        if (name == null || name.isBlank()) throw ApiException.badRequest("费用类型名称必填");
         String category = (String) body.getOrDefault("type", body.getOrDefault("category", "FREIGHT"));
         String side = (String) body.getOrDefault("method", body.getOrDefault("default_side", "AR"));
         String uom = (String) body.getOrDefault("unit", body.getOrDefault("default_uom", "KG"));
+        if (!java.util.List.of("AR","AP","BOTH").contains(side)) {
+            throw ApiException.badRequest("结算方向必须是 AR/AP/BOTH");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO charge_items (tenant_id, code, name, category, default_side, default_uom)
             VALUES (

@@ -75,6 +75,9 @@ public class AccExpenseCategoriesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        if (body.get("name") == null || body.get("name").toString().isBlank()) {
+            throw ApiException.badRequest("费用类别名称必填");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_expense_categories (tenant_id, code, name, expense_type, is_coming, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?)

@@ -81,6 +81,17 @@ public class AccSoldTosController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String contactName = (String) body.get("contactName");
+        if (contactName == null || contactName.isBlank()) {
+            throw ApiException.badRequest("联系人姓名必填");
+        }
+        if (body.get("customerId") == null || body.get("customerId").toString().isBlank()) {
+            throw ApiException.badRequest("请选择客户");
+        }
+        Object country = body.get("country");
+        if (country != null && !country.toString().isBlank()
+            && !country.toString().matches("[A-Z]{2}")) {
+            throw ApiException.badRequest("国家代码必须为 ISO alpha-2 两位大写字母");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_sold_tos (tenant_id, customer_id, contact_name, contact_mobile,
                                       company_name, country, state, city, address, postcode,

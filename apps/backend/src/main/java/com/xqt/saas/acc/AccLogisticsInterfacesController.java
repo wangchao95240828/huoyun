@@ -76,6 +76,18 @@ public class AccLogisticsInterfacesController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String name = (String) body.get("name");
+        if (name == null || name.isBlank()) {
+            throw ApiException.badRequest("接口名称必填");
+        }
+        Object providerCode = body.get("providerCode");
+        if (providerCode == null || providerCode.toString().isBlank()) {
+            throw ApiException.badRequest("服务商代码必填");
+        }
+        Object endpointUrl = body.get("endpointUrl");
+        if (endpointUrl != null && !endpointUrl.toString().isBlank()
+            && !endpointUrl.toString().matches("https?://.+")) {
+            throw ApiException.badRequest("Endpoint URL 必须以 http:// 或 https:// 开头");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_logistics_interfaces (tenant_id, name, provider_code, api_key, api_secret,
                                                   endpoint_url, is_enabled, config_json, remark)

@@ -78,6 +78,18 @@ public class AccProductItemsController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        if (code == null || code.isBlank()) throw ApiException.badRequest("产品编号必填");
+        if (!code.matches("[\\x00-\\x7F]+")) throw ApiException.badRequest("产品编号不能包含中文");
+        if (name == null || name.isBlank()) throw ApiException.badRequest("产品名称必填");
+        Object hsCode = body.get("hsCode");
+        if (hsCode != null && !hsCode.toString().isBlank()
+            && !hsCode.toString().matches("\\d{6,10}")) {
+            throw ApiException.badRequest("HS Code 必须为 6-10 位数字");
+        }
+        Object unitPrice = body.get("unitPrice");
+        if (unitPrice instanceof Number un && un.doubleValue() < 0) {
+            throw ApiException.badRequest("单价不能为负");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_product_items (tenant_id, code, name, name_en, hs_code, category,
                                            unit_price, currency, is_active, remark)

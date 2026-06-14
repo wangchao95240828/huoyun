@@ -76,6 +76,13 @@ public class AccSocialsController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String theMonth = (String) body.get("theMonth");
+        if (theMonth == null || !theMonth.matches("\\d{4}-\\d{2}")) {
+            throw ApiException.badRequest("月份格式错误，应为 YYYY-MM");
+        }
+        Object total = body.get("totalAmount");
+        if (total instanceof Number tn && tn.doubleValue() <= 0) {
+            throw ApiException.badRequest("社保总额必须大于零");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_socials (tenant_id, the_month, total_amount, currency, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?::numeric, ?::text, ?::text)

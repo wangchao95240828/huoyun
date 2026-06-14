@@ -77,6 +77,14 @@ public class AccPotentialsController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String companyName = (String) body.get("companyName");
+        if (companyName == null || companyName.isBlank()) {
+            throw ApiException.badRequest("公司名称必填");
+        }
+        Object mobile = body.get("contactMobile");
+        if (mobile != null && !mobile.toString().isBlank()
+            && !mobile.toString().matches("\\+?[0-9\\-\\s]{6,20}")) {
+            throw ApiException.badRequest("联系电话格式不正确");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_potentials (tenant_id, company_name, contact_name, contact_mobile,
                                         source, status, remark)

@@ -76,6 +76,13 @@ public class AccMessageTemplatesController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String templateName = (String) body.get("templateName");
+        if (templateName == null || templateName.isBlank()) {
+            throw ApiException.badRequest("模板名称必填");
+        }
+        Object content = body.get("content");
+        if (content == null || content.toString().isBlank()) {
+            throw ApiException.badRequest("模板内容必填");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_message_templates (tenant_id, template_name, template_type, title, content,
                                                is_active, remark)

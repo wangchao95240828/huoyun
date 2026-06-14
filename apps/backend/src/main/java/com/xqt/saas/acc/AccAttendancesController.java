@@ -80,6 +80,19 @@ public class AccAttendancesController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String employeeId = (String) body.get("employeeId");
         String theDate = (String) body.get("theDate");
+        if (employeeId == null || employeeId.isBlank()) {
+            throw ApiException.badRequest("请选择员工");
+        }
+        if (theDate == null || !theDate.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            throw ApiException.badRequest("日期格式错误，应为 YYYY-MM-DD");
+        }
+        // 同员工同日不重复
+        Integer dup = jdbc.queryForObject(
+            "SELECT count(*) FROM acc_attendances WHERE employee_id = ?::uuid AND the_date = ?::date",
+            Integer.class, employeeId, theDate);
+        if (dup != null && dup > 0) {
+            throw ApiException.badRequest("该员工 " + theDate + " 已有打卡记录");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_attendances (tenant_id, employee_id, the_date, status, sign_in_time, sign_out_time, remark)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::date, ?::text, ?::time, ?::time, ?::text)

@@ -89,6 +89,14 @@ public class AccTransitsController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String transitNo = (String) body.get("transitNo");
+        if (transitNo == null || transitNo.isBlank()) {
+            throw ApiException.badRequest("中转单号必填");
+        }
+        Object etd = body.get("etd");
+        Object eta = body.get("eta");
+        if (etd != null && eta != null && etd.toString().compareTo(eta.toString()) > 0) {
+            throw ApiException.badRequest("ETA 不能早于 ETD");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_transits (tenant_id, transit_no, from_port_id, to_port_id,
                                       shipping_line, vessel, voyage, etd, eta,

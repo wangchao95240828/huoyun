@@ -80,6 +80,19 @@ public class AccChannelAccountsController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String accountName = (String) body.get("accountName");
+        if (accountName == null || accountName.isBlank()) {
+            throw ApiException.badRequest("账户名称必填");
+        }
+        Object chId = body.get("channel_id");
+        if (chId == null || chId.toString().isBlank()) {
+            throw ApiException.badRequest("请选择渠道");
+        }
+        // ACC ChannelAccount.php L218: 渠道未启用拦截
+        Boolean active = jdbc.queryForObject(
+            "SELECT active FROM channels WHERE id = ?::uuid", Boolean.class, chId.toString());
+        if (Boolean.FALSE.equals(active)) {
+            throw ApiException.badRequest("该渠道暂未启用");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_channel_accounts (tenant_id, channel_id, partner_id, account_no,
                                               account_name, api_key, api_secret, endpoint_url,

@@ -93,6 +93,16 @@ public AccDispatchesController(JdbcTemplate jdbc, JsonSupport json,
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String dispatchNo = (String) body.get("dispatchNo");
+        if (dispatchNo == null || dispatchNo.isBlank()) {
+            throw ApiException.badRequest("派件单号必填");
+        }
+        if (body.get("customerId") == null || body.get("customerId").toString().isBlank()) {
+            throw ApiException.badRequest("请选择客户");
+        }
+        Object pc = body.get("packageCount");
+        if (pc instanceof Number pn && pn.intValue() <= 0) {
+            throw ApiException.badRequest("件数必须大于零");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_dispatches (tenant_id, dispatch_no, customer_id, contact_name,
                                         contact_mobile, pick_address, pick_date, pick_time_range,

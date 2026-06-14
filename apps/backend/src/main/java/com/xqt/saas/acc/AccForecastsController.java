@@ -91,6 +91,20 @@ public AccForecastsController(JdbcTemplate jdbc, JsonSupport json,
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String forecastNo = (String) body.get("forecastNo");
+        if (forecastNo == null || forecastNo.isBlank()) {
+            throw ApiException.badRequest("预报单号必填");
+        }
+        if (body.get("customerId") == null || body.get("customerId").toString().isBlank()) {
+            throw ApiException.badRequest("请选择客户");
+        }
+        Object pc = body.get("packageCount");
+        if (pc instanceof Number pn && pn.intValue() <= 0) {
+            throw ApiException.badRequest("件数必须大于零");
+        }
+        Object w = body.get("weight");
+        if (w instanceof Number wn && wn.doubleValue() <= 0) {
+            throw ApiException.badRequest("重量必须大于零");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_forecasts (tenant_id, forecast_no, customer_id, channel_id,
                                        package_count, weight, volume, origin, destination,

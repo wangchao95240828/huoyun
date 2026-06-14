@@ -77,6 +77,13 @@ public class AccNoticesController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String title = (String) body.get("title");
+        if (title == null || title.isBlank()) {
+            throw ApiException.badRequest("公告标题必填");
+        }
+        Object content = body.get("content");
+        if (content == null || content.toString().isBlank()) {
+            throw ApiException.badRequest("公告内容必填");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_notices (tenant_id, title, content, notice_type, target_type, target_id)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?::text, ?::text, ?::text, ?::uuid)

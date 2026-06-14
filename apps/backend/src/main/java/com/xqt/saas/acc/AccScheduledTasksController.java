@@ -77,6 +77,14 @@ public class AccScheduledTasksController {
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String taskName = (String) body.get("taskName");
+        if (taskName == null || taskName.isBlank()) {
+            throw ApiException.badRequest("任务名称必填");
+        }
+        Object cronExpr = body.get("cronExpr");
+        if (cronExpr != null && !cronExpr.toString().isBlank()
+            && cronExpr.toString().split("\\s+").length < 5) {
+            throw ApiException.badRequest("Cron 表达式至少 5 段");
+        }
         String id = jdbc.queryForObject("""
             INSERT INTO acc_scheduled_tasks (tenant_id, task_name, task_type, cron_expr, is_enabled,
                                              config_json, remark)

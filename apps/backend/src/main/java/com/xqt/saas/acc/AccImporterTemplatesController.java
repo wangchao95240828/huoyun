@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.JsonSupport;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -72,6 +73,14 @@ public class AccImporterTemplatesController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
+        if (body.get("name") == null || body.get("name").toString().isBlank()) {
+            throw ApiException.badRequest("进口商名称必填");
+        }
+        Object country = body.get("country");
+        if (country != null && !country.toString().isBlank()
+            && !country.toString().matches("[A-Z]{2}")) {
+            throw ApiException.badRequest("国家代码必须为 ISO alpha-2");
+        }
         String id = jdbc.queryForObject(
             "INSERT INTO acc_importer_templates ("
             + "  tenant_id, name, country, tax_id, address, contact_name, contact_phone, customer_id"

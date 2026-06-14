@@ -77,6 +77,9 @@ public class AccTracksController {
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
         String code = (String) body.get("code");
         String name = (String) body.get("name");
+        if (code == null || code.isBlank()) throw ApiException.badRequest("轨迹代码必填");
+        if (!code.matches("[\\x00-\\x7F]+")) throw ApiException.badRequest("轨迹代码不能包含中文");
+        if (name == null || name.isBlank()) throw ApiException.badRequest("轨迹名称必填");
         String id = jdbc.queryForObject("""
             INSERT INTO acc_track_items (tenant_id, code, name, name_en, sort_order, is_active)
             VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?::text, ?::int, ?::boolean)
