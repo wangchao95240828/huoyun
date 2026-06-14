@@ -531,6 +531,33 @@ public class AccOrdersController {
     @PostMapping("/{id}/request-void")
     public Map<String, Object> requestVoid(@PathVariable String id, @RequestBody(required = false) Map<String, Object> body) {
         String reason = body == null ? null : strOrNull(body.get("reason"));
+        // ACC OnlineCancel.php 全面对齐
+        Map<String, Object> ord;
+        try {
+            ord = jdbc.queryForMap(
+                "SELECT status::text AS status, audit_status FROM orders WHERE id = ?::uuid", id);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("快件不存在");                  // L426/L578
+        }
+        String status = (String) ord.get("status");
+        // L430/L582: 状态不允许作废
+        if ("CANCELLED".equals(status)) {
+            throw ApiException.badRequest("快件状态为 CANCELLED，无法再作废");
+        }
+        if ("COMPLETED".equals(status)) {
+            throw ApiException.badRequest("快件已签收，无法作废");
+        }
+        if ("DRAFT".equals(status)) {
+            throw ApiException.badRequest("DRAFT 状态请直接删除，无需走作废审批");
+        }
+        // L418: 已经有作废申请，请勿重复
+        String existingReason = jdbc.queryForObject("""
+            SELECT metadata #>> '{acc_compat,void_request_reason}' FROM orders WHERE id = ?::uuid
+            """, String.class, id);
+        if (existingReason != null && !existingReason.isBlank()
+            && "PENDING".equals(ord.get("audit_status"))) {
+            throw ApiException.badRequest("该快件已经有作废申请，请勿重复操作");
+        }
         int n = jdbc.update("""
             UPDATE orders
             SET audit_status = 'PENDING',

@@ -69,7 +69,15 @@ public class AccOrderImportController {
     public Map<String, Object> importExcel(@RequestParam("file") MultipartFile file) {
         if (file == null || file.isEmpty()) throw ApiException.badRequest("导入文件必填");
         String name = file.getOriginalFilename();
+        // ACC Import.php L308: 请上传正规 xls/csv/txt 文件
+        if (name == null || !name.toLowerCase().matches(".*\\.(xls|xlsx|csv|txt)$")) {
+            throw ApiException.badRequest("请上传正规的 xls/xlsx/txt/csv 文件");
+        }
         long size = file.getSize();
+        // 上限 50MB
+        if (size > 50L * 1024 * 1024) {
+            throw ApiException.badRequest("文件大小不能超过 50MB（当前 " + (size / 1024 / 1024) + " MB）");
+        }
         int created = 0, failed = 0;
         java.util.List<String> errors = new java.util.ArrayList<>();
         // ACC ExpressBatch.php L1573: 文件内单号重复检测（CSV 第 2 列 customerNo）
