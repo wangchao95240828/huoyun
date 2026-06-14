@@ -253,7 +253,9 @@ public class CustomerApiService {
                     int sumPiece = 0;
                     for (Object item : packageList) {
                         if (item instanceof Map<?, ?> rm) {
+                            // 前端 packageList 行字段可能叫 piece (ACC 兼容) 或 quantity (web UI)
                             Object p = ((Map<String, Object>) rm).get("piece");
+                            if (p == null) p = ((Map<String, Object>) rm).get("quantity");
                             if (p instanceof Number n) sumPiece += n.intValue();
                             else if (p != null) {
                                 try { sumPiece += Integer.parseInt(p.toString()); } catch (Exception ignored) {}
