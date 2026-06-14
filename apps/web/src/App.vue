@@ -1165,11 +1165,13 @@ Object.assign(accColumns, {
     { key: "shipment_count", label: "运单数" },
   ],
   "gl-income": [
+    { key: "group", label: "分组" },
     { key: "code", label: "科目代码" },
     { key: "name", label: "科目名" },
     { key: "amount", label: "金额", fmt: "money" },
   ],
   "gl-balance": [
+    { key: "group", label: "分组" },
     { key: "code", label: "科目代码" },
     { key: "name", label: "科目名" },
     { key: "balance", label: "余额", fmt: "money" },

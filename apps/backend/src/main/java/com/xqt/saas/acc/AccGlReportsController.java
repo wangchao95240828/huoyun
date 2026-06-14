@@ -62,11 +62,33 @@ public class AccGlReportsController {
             .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalExp = expense.stream().map(r -> (BigDecimal) r.get("amount"))
             .reduce(BigDecimal.ZERO, BigDecimal::add);
+        // flat data for table rendering — 加 group + category 列
+        List<Map<String, Object>> flat = new java.util.ArrayList<>();
+        for (Map<String, Object> r : revenue) {
+            Map<String, Object> row = new LinkedHashMap<>(r);
+            row.put("group", "收入");
+            flat.add(row);
+        }
+        Map<String, Object> sep1 = new LinkedHashMap<>();
+        sep1.put("code", ""); sep1.put("name", "收入合计"); sep1.put("amount", totalRev); sep1.put("group", "—");
+        flat.add(sep1);
+        for (Map<String, Object> e : expense) {
+            Map<String, Object> row = new LinkedHashMap<>(e);
+            row.put("group", "支出");
+            flat.add(row);
+        }
+        Map<String, Object> sep2 = new LinkedHashMap<>();
+        sep2.put("code", ""); sep2.put("name", "支出合计"); sep2.put("amount", totalExp); sep2.put("group", "—");
+        flat.add(sep2);
+        Map<String, Object> sep3 = new LinkedHashMap<>();
+        sep3.put("code", ""); sep3.put("name", "净利"); sep3.put("amount", totalRev.subtract(totalExp)); sep3.put("group", "==");
+        flat.add(sep3);
+
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("data", flat);
+        result.put("total", flat.size());
         result.put("period", Map.of("from", from, "to", to));
-        result.put("revenue", revenue);
         result.put("totalRevenue", totalRev);
-        result.put("expense", expense);
         result.put("totalExpense", totalExp);
         result.put("netIncome", totalRev.subtract(totalExp));
         return result;
@@ -110,17 +132,45 @@ public class AccGlReportsController {
         BigDecimal totalA = sumBalance(assets);
         BigDecimal totalL = sumBalance(liabilities);
         BigDecimal totalE = sumBalance(equity);
+        // flat data
+        List<Map<String, Object>> flat = new java.util.ArrayList<>();
+        for (Map<String, Object> r : assets) {
+            Map<String, Object> row = new LinkedHashMap<>(r);
+            row.put("group", "资产");
+            flat.add(row);
+        }
+        flat.add(summary("资产合计", totalA, "—"));
+        for (Map<String, Object> r : liabilities) {
+            Map<String, Object> row = new LinkedHashMap<>(r);
+            row.put("group", "负债");
+            flat.add(row);
+        }
+        flat.add(summary("负债合计", totalL, "—"));
+        for (Map<String, Object> r : equity) {
+            Map<String, Object> row = new LinkedHashMap<>(r);
+            row.put("group", "所有者权益");
+            flat.add(row);
+        }
+        flat.add(summary("权益合计", totalE, "—"));
+        flat.add(summary("差额", totalA.subtract(totalL.add(totalE)), "=="));
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("data", flat);
+        result.put("total", flat.size());
         result.put("asOf", asOf);
-        result.put("assets", assets);
         result.put("totalAssets", totalA);
-        result.put("liabilities", liabilities);
         result.put("totalLiabilities", totalL);
-        result.put("equity", equity);
         result.put("totalEquity", totalE);
         result.put("balanced", totalA.compareTo(totalL.add(totalE)) == 0);
-        result.put("difference", totalA.subtract(totalL.add(totalE)));
         return result;
+    }
+
+    private Map<String, Object> summary(String name, BigDecimal balance, String group) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("code", "");
+        row.put("name", name);
+        row.put("balance", balance);
+        row.put("group", group);
+        return row;
     }
 
     /** 现金流量表 = 经营/投资/融资三个类别的现金科目流水。 */
