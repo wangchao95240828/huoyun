@@ -287,6 +287,72 @@ async function openStowageDialog() {
   stowageSelectedShipments.value = [];
   await loadStowageShipments();
 }
+
+// 求解按钮 disabled 原因 — 给用户提示
+const stowageSolveBlockedReason = computed(() => {
+  if (bizLoading.value) return '正在求解中，请稍候...';
+  const cnt = stowageSelectedShipments.value.length
+    + stowageData.shipmentIds.split(/[,\s]+/).filter(Boolean).length;
+  if (cnt === 0) return '请先在「选 Shipments」下拉框勾选至少 1 个运单，或在文本框输入 ID';
+  if (stowageData.mode === 'single') {
+    if (!stowageData.length_cm || !stowageData.width_cm || !stowageData.height_cm)
+      return '柜尺寸 (长/宽/高) 必填';
+    if (!stowageData.max_weight_kg) return '柜载重上限必填';
+  }
+  return null;
+});
+
+// 智能分柜 — 按 (客户, 目的国) 分组, 每组 1 个柜
+async function doSmartGroupStowage() {
+  bizLoading.value = true;
+  try {
+    // 拉 SUBMITTED+ shipments
+    const res = await apiFetch(`${API}/api/acc/shipments?pageSize=200`);
+    const j = await res.json();
+    const valid = (j.data || []).filter((s: any) =>
+      ['ORDERED','BOOKED','IN_TRANSIT','IN_WAREHOUSE'].includes(s.status));
+    if (valid.length === 0) {
+      setBizError('没有待配载的 shipments (需要状态为 ORDERED/BOOKED/IN_TRANSIT/IN_WAREHOUSE)');
+      return;
+    }
+    // 按 (customerId, country) 分组
+    const groups = new Map<string, any[]>();
+    for (const s of valid) {
+      const key = `${s.customerId || s.customer_id || '_NOCUST'}__${s.country || s.destination_country || '_NA'}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(s);
+    }
+    if (groups.size === 0) {
+      setBizError('分组为空');
+      return;
+    }
+    if (!confirm(`将按「客户 + 目的国」分组生成 ${groups.size} 个配载方案。是否继续？`)) return;
+    let ok = 0, fail = 0;
+    for (const [key, ships] of groups) {
+      const [custId, country] = key.split('__');
+      try {
+        const r = await apiFetch(`${API}/api/acc/stowage/plan/auto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            container: { code: `AUTO-${country}-${custId.slice(0,4)}`,
+              length_cm: 1200, width_cm: 230, height_cm: 260, max_weight_kg: 26000 },
+            shipmentIds: ships.map((s: any) => s.id),
+            route: [], enableLifo: true,
+          }),
+        });
+        if (r.ok) ok++; else fail++;
+      } catch { fail++; }
+    }
+    setBizOk(`智能分柜完成: 成功 ${ok} / 失败 ${fail}, 列表已刷新`);
+    showStowageDialog.value = false;
+    fetchAccData();
+  } catch (e: any) {
+    setBizError('智能分柜异常: ' + e.message);
+  } finally {
+    bizLoading.value = false;
+  }
+}
 async function downloadStowageSheet(planId: string) {
   // 走 fetch 拿 PDF, 用 Bearer token 鉴权
   try {
@@ -8196,10 +8262,20 @@ async function doReloadBill(id: number) {
             </div>
           </div>
         </div>
+        <!-- 求解前提示行 - 若按钮 disabled 显示原因 -->
+        <div v-if="stowageSolveBlockedReason" class="stowage-block-reason">
+          ⚠ {{ stowageSolveBlockedReason }}
+        </div>
         <div class="modal-footer">
           <button class="secondary" @click="showStowageDialog = false">取消</button>
+          <button class="secondary" @click="doSmartGroupStowage" :disabled="bizLoading"
+                  title="按「客户 + 目的国」自动分组，每组生成 1 个配载方案"
+                  style="background:#fef3c7;color:#854d0e;border-color:#fde68a">
+            ⚡ 智能分柜 (按客户+目的国分组)
+          </button>
           <button class="primary" @click="doStowageSolve"
-                  :disabled="bizLoading || !stowageData.shipmentIds.trim()">
+                  :disabled="!!stowageSolveBlockedReason"
+                  :title="stowageSolveBlockedReason || '求解当前选中的运单'">
             <Boxes :size="14" /> 求解并落库
           </button>
         </div>

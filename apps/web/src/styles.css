@@ -2437,3 +2437,14 @@ tr.missing-cost-row:hover { background: #fee2e2; }
   border-color: #dc2626;
 }
 .add-cost-btn.urgent:hover { background: #b91c1c; }
+
+/* 配载求解阻塞原因提示 */
+.stowage-block-reason {
+  padding: 8px 14px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  border-top: 1px solid #fecaca;
+  border-bottom: 1px solid #fecaca;
+  line-height: 1.5;
+}
