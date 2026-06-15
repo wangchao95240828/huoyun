@@ -478,74 +478,71 @@ public class AccStowagePlanController {
 
     private byte[] buildLoadingSheetPdf(Map<String, Object> plan, List<Map<String, Object>> items) {
         try (org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument()) {
-            // A4 portrait: 595 × 842 pt
+            // 加载嵌入的 NotoSansSC 简体中文字体 (classpath:/fonts/NotoSansSC-Regular.otf)
+            org.apache.pdfbox.pdmodel.font.PDFont cjk;
+            try (java.io.InputStream is = getClass().getResourceAsStream("/fonts/NotoSansSC-Regular.otf")) {
+                if (is == null) throw new RuntimeException("找不到字体资源 /fonts/NotoSansSC-Regular.otf");
+                cjk = org.apache.pdfbox.pdmodel.font.PDType0Font.load(doc, is, true);
+            }
+
             org.apache.pdfbox.pdmodel.PDPage page = new org.apache.pdfbox.pdmodel.PDPage(
                 org.apache.pdfbox.pdmodel.common.PDRectangle.A4);
             doc.addPage(page);
             org.apache.pdfbox.pdmodel.PDPageContentStream cs =
                 new org.apache.pdfbox.pdmodel.PDPageContentStream(doc, page);
-            // 用内嵌 PDF 标准字体 Helvetica + 备用 CourierBold 显示中文需 Type0，
-            // 但 PDFBox 默认 Helvetica 不支持中文。这里给一个简化版，对应中英文混排：
-            // 用 Helvetica + 把客户名/备注的中文字符显示为 ASCII fallback 或省略中文，
-            // 真要支持中文需要嵌入 NotoSansCJK 字体。
-            org.apache.pdfbox.pdmodel.font.PDFont font =
-                new org.apache.pdfbox.pdmodel.font.PDType1Font(
-                    org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName.HELVETICA);
-            org.apache.pdfbox.pdmodel.font.PDFont bold =
-                new org.apache.pdfbox.pdmodel.font.PDType1Font(
-                    org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName.HELVETICA_BOLD);
 
             float y = 800f;
-            cs.setFont(bold, 16);
+            cs.setFont(cjk, 16);
             cs.beginText();
             cs.newLineAtOffset(40, y);
-            cs.showText("Loading Sheet - " + safeAscii(plan.get("plan_no")));
+            cs.showText("装柜单 — " + s(plan.get("plan_no")));
             cs.endText();
             y -= 24;
 
-            cs.setFont(font, 10);
+            cs.setFont(cjk, 10);
             String[] header1 = {
-                "Container: " + safeAscii(plan.get("container_code")),
-                "Size: " + plan.get("container_length_cm") + " x "
-                    + plan.get("container_width_cm") + " x "
+                "柜号: " + s(plan.get("container_code")),
+                "柜内尺寸: " + plan.get("container_length_cm") + " × "
+                    + plan.get("container_width_cm") + " × "
                     + plan.get("container_height_cm") + " cm",
-                "Max weight: " + plan.get("container_max_weight_kg") + " kg",
+                "载重上限: " + plan.get("container_max_weight_kg") + " kg",
             };
-            for (String s : header1) {
-                cs.beginText(); cs.newLineAtOffset(40, y); cs.showText(s); cs.endText();
+            for (String str : header1) {
+                cs.beginText(); cs.newLineAtOffset(40, y); cs.showText(str); cs.endText();
                 y -= 14;
             }
             y -= 4;
             String[] header2 = {
-                "Fitted: " + plan.get("fitted_count")
-                    + " / Unfitted: " + plan.get("unfitted_count")
-                    + " / Utilization: "
+                "装入: " + plan.get("fitted_count")
+                    + " 件 / 未装: " + plan.get("unfitted_count")
+                    + " 件 / 利用率: "
                     + String.format("%.1f%%", ((Number) plan.get("volume_utilization")).doubleValue() * 100),
-                "Weight used: " + plan.get("weight_used_kg") + " kg",
-                "Gravity center (x,y,z): "
+                "使用重量: " + plan.get("weight_used_kg") + " kg",
+                "重心 (x,y,z): "
                     + plan.get("gravity_center_x_cm") + ", "
                     + plan.get("gravity_center_y_cm") + ", "
                     + plan.get("gravity_center_z_cm") + " cm",
             };
-            for (String s : header2) {
-                cs.beginText(); cs.newLineAtOffset(40, y); cs.showText(s); cs.endText();
+            for (String str : header2) {
+                cs.beginText(); cs.newLineAtOffset(40, y); cs.showText(str); cs.endText();
                 y -= 14;
             }
             y -= 14;
 
-            // 表格 header
-            cs.setFont(bold, 9);
-            float[] cols = {40, 105, 180, 250, 310, 380, 440, 510};
-            String[] heads = {"SKU", "Customer", "X (cm)", "Y (cm)", "Z (cm)",
-                              "L x W x H", "Weight (kg)", "Flags"};
-            for (int i = 0; i < heads.length; i++) {
+            // 表格表头
+            cs.setFont(cjk, 9);
+            float[] cols = {40, 110, 175, 215, 255, 295, 380, 450, 510};
+            String[] heads = {"SKU", "客户", "X(cm)", "Y(cm)", "Z(cm)",
+                              "长×宽×高(cm)", "重量(kg)", "旋转", "标记"};
+            for (int i = 0; i < heads.length && i < cols.length; i++) {
                 cs.beginText(); cs.newLineAtOffset(cols[i], y); cs.showText(heads[i]); cs.endText();
             }
             y -= 12;
             cs.setLineWidth(0.5f);
             cs.moveTo(40, y + 6); cs.lineTo(555, y + 6); cs.stroke();
-            cs.setFont(font, 8);
+            cs.setFont(cjk, 8);
 
+            String currentCustomer = null;
             for (Map<String, Object> it : items) {
                 if (y < 40) {
                     cs.close();
@@ -553,24 +550,49 @@ public class AccStowagePlanController {
                         org.apache.pdfbox.pdmodel.common.PDRectangle.A4);
                     doc.addPage(page);
                     cs = new org.apache.pdfbox.pdmodel.PDPageContentStream(doc, page);
-                    cs.setFont(font, 8);
+                    cs.setFont(cjk, 8);
                     y = 800;
                 }
-                String[] row = {
-                    safeAscii(it.get("sku")),
-                    safeAscii(it.get("customer_code")),
-                    fmt(it.get("x_cm")), fmt(it.get("y_cm")), fmt(it.get("z_cm")),
-                    fmt(it.get("placed_length_cm")) + "x" + fmt(it.get("placed_width_cm"))
-                        + "x" + fmt(it.get("placed_height_cm")),
-                    fmt(it.get("input_weight_kg")),
-                    (Boolean.TRUE.equals(it.get("placed")) ? "" : "[X]")
-                    + (Boolean.TRUE.equals(it.get("this_side_up")) ? "[UP]" : "")
-                    + (Boolean.TRUE.equals(it.get("fragile")) ? "[FR]" : ""),
-                };
-                for (int i = 0; i < row.length; i++) {
-                    cs.beginText(); cs.newLineAtOffset(cols[i], y); cs.showText(row[i]); cs.endText();
+                String custLabel = s(it.get("customer_name"));
+                if (custLabel.isEmpty()) custLabel = s(it.get("customer_code"));
+                if (custLabel.isEmpty()) custLabel = "(无客户)";
+                // 客户分组分隔行
+                if (!custLabel.equals(currentCustomer)) {
+                    currentCustomer = custLabel;
+                    cs.setFont(cjk, 9);
+                    cs.beginText(); cs.newLineAtOffset(40, y);
+                    cs.showText("▌ 客户: " + custLabel);
+                    cs.endText();
+                    y -= 12;
+                    cs.setFont(cjk, 8);
                 }
-                y -= 10;
+                String flags = (!Boolean.TRUE.equals(it.get("placed")) ? "✗未装 " : "")
+                    + (Boolean.TRUE.equals(it.get("this_side_up")) ? "↑朝上 " : "")
+                    + (Boolean.TRUE.equals(it.get("fragile")) ? "易碎 " : "");
+                String[] row = {
+                    s(it.get("sku")),
+                    truncate(custLabel, 10),
+                    fmt(it.get("x_cm")), fmt(it.get("y_cm")), fmt(it.get("z_cm")),
+                    fmt(it.get("placed_length_cm")) + "×" + fmt(it.get("placed_width_cm"))
+                        + "×" + fmt(it.get("placed_height_cm")),
+                    fmt(it.get("input_weight_kg")),
+                    it.get("rotation_type") == null ? "-" : it.get("rotation_type").toString(),
+                    flags,
+                };
+                for (int i = 0; i < row.length && i < cols.length; i++) {
+                    cs.beginText(); cs.newLineAtOffset(cols[i], y);
+                    cs.showText(row[i] == null ? "" : row[i]);
+                    cs.endText();
+                }
+                y -= 11;
+            }
+            // 页脚
+            if (y > 30) {
+                y -= 8;
+                cs.setFont(cjk, 7);
+                cs.beginText(); cs.newLineAtOffset(40, y);
+                cs.showText("⚠ 装柜规则: 重物在下, 易碎在上, LIFO 先卸客户在外侧 (靠门). 标记↑朝上不可倒置.");
+                cs.endText();
             }
             cs.close();
 
@@ -582,20 +604,16 @@ public class AccStowagePlanController {
         }
     }
 
-    private static String safeAscii(Object o) {
-        if (o == null) return "";
-        String s = o.toString();
-        // 临时 fallback: 非 ASCII 用 ? 替代（避免 Helvetica 渲染中文挂掉）
-        StringBuilder sb = new StringBuilder(s.length());
-        for (char c : s.toCharArray()) {
-            sb.append(c < 128 ? c : '?');
-        }
-        return sb.toString();
+    private static String s(Object o) { return o == null ? "" : o.toString(); }
+
+    private static String truncate(String str, int max) {
+        if (str == null) return "";
+        return str.length() <= max ? str : str.substring(0, max);
     }
 
     private static String fmt(Object o) {
         if (o == null) return "-";
-        if (o instanceof Number n) return String.format("%.1f", n.doubleValue());
+        if (o instanceof Number n) return String.format("%.0f", n.doubleValue());
         return o.toString();
     }
 
