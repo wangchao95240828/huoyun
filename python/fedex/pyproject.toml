@@ -1,0 +1,14 @@
+[project]
+name = "fedex"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "click>=8.4.1",
+    "fastapi>=0.136.3",
+    "patchright>=1.60.1",
+    "pydantic>=2.13.4",
+    "tzdata>=2026.2",
+    "uvicorn>=0.49.0",
+]
