@@ -2394,3 +2394,13 @@ input, select, textarea { font: inherit; }
   padding: 2px 4px;
 }
 .preset-del:hover { color: #b91c1c; }
+
+.preset-star {
+  cursor: pointer;
+  color: #cbd5e1;
+  font-size: 14px;
+  padding: 0 4px;
+  user-select: none;
+}
+.preset-star.active { color: #f59e0b; }
+.preset-star:hover { color: #f59e0b; }

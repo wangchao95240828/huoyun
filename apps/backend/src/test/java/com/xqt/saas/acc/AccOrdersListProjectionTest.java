@@ -67,7 +67,10 @@ class AccOrdersListProjectionTest {
             null, null, null, null,                                  // chargeWeight + fee (4)
             null, null, null, null,                                  // address/house/remark/deliveryArea (4)
             null, null, null, null, null, null, null,                // submitted/addName/created/updated (7)
-            null, null, null, null, null, null);                     // multi-select: customerIds/channelCodes/countries/statuses/auditStatuses/addNames (6)
+            null, null, null, null, null, null,                      // multi-select 1: customerIds/channelCodes/countries/statuses/auditStatuses/addNames (6)
+            null, null, null, null, null,                            // multi-select 2: branchIds/sellerIds/servicerIds/warehouseCodes/carriers (5)
+            null, null, null, null, null,                            // text: vatNo/poNumber/amazonRef/binLocation/mainItem (5)
+            null, null);                                             // deliveredFrom/deliveredTo (2)
         return (List<Map<String, Object>>) result.get("data");
     }
 

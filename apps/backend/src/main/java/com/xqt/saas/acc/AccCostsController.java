@@ -58,7 +58,17 @@ public class AccCostsController {
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
         @RequestParam(required = false) String dateTo,
-        @RequestParam(required = false) String status
+        @RequestParam(required = false) String status,
+        @RequestParam(required = false) String customerIds,
+        @RequestParam(required = false) String currencies,
+        @RequestParam(required = false) String sides,
+        @RequestParam(required = false) String statuses,
+        @RequestParam(required = false) String auditStatuses,
+        @RequestParam(required = false) String settlementStatuses,
+        @RequestParam(required = false) String createdFrom,
+        @RequestParam(required = false) String createdTo,
+        @RequestParam(required = false) String amountFrom,
+        @RequestParam(required = false) String amountTo
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
@@ -68,15 +78,61 @@ public class AccCostsController {
             // 核算中心 成本子页过滤
             String statusFilter = buildCostsStatusFilter(status);
 
+            // 多条件
+            StringBuilder advFilter = new StringBuilder();
+            java.util.List<Object> advParams = new java.util.ArrayList<>();
+            java.util.List<String> cidList = AccOrdersController.splitCsv(customerIds);
+            java.util.List<String> curList = AccOrdersController.splitCsv(currencies);
+            java.util.List<String> sdList  = AccOrdersController.splitCsv(sides);
+            java.util.List<String> stList  = AccOrdersController.splitCsv(statuses);
+            java.util.List<String> auList  = AccOrdersController.splitCsv(auditStatuses);
+            java.util.List<String> ssList  = AccOrdersController.splitCsv(settlementStatuses);
+            if (!cidList.isEmpty()) {
+                advFilter.append(" AND ch.customer_id::text IN (").append(AccOrdersController.qMarks(cidList.size())).append(")");
+                advParams.addAll(cidList);
+            }
+            if (!curList.isEmpty()) {
+                advFilter.append(" AND ch.currency IN (").append(AccOrdersController.qMarks(curList.size())).append(")");
+                advParams.addAll(curList);
+            }
+            if (!stList.isEmpty()) {
+                advFilter.append(" AND ch.status::text IN (").append(AccOrdersController.qMarks(stList.size())).append(")");
+                advParams.addAll(stList);
+            }
+            if (!auList.isEmpty()) {
+                advFilter.append(" AND ch.audit_status IN (").append(AccOrdersController.qMarks(auList.size())).append(")");
+                advParams.addAll(auList);
+            }
+            if (!ssList.isEmpty()) {
+                advFilter.append(" AND ch.settlement_status IN (").append(AccOrdersController.qMarks(ssList.size())).append(")");
+                advParams.addAll(ssList);
+            }
+            if (createdFrom != null && !createdFrom.isBlank()) { advFilter.append(" AND ch.created_at >= ?::date"); advParams.add(createdFrom); }
+            if (createdTo   != null && !createdTo.isBlank())   { advFilter.append(" AND ch.created_at < (?::date + 1)"); advParams.add(createdTo); }
+            try {
+                if (amountFrom != null && !amountFrom.isBlank()) { advFilter.append(" AND ch.amount >= ?"); advParams.add(new java.math.BigDecimal(amountFrom)); }
+                if (amountTo   != null && !amountTo.isBlank())   { advFilter.append(" AND ch.amount <= ?"); advParams.add(new java.math.BigDecimal(amountTo)); }
+            } catch (NumberFormatException ignored) {}
+            // sides 可选 (AR/AP)；不传时强制 AP (costs tab 默认成本)
+            String sideFilter = sdList.isEmpty() ? " AND ch.side = 'AP'"
+                : " AND ch.side::text IN (" + AccOrdersController.qMarks(sdList.size()) + ")";
+            String advFilterSql = advFilter.toString();
+
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+            if (!sdList.isEmpty()) countParams.addAll(sdList);
+            countParams.addAll(advParams);
             Long total = jdbc.queryForObject(
                 "SELECT count(*) FROM charges ch"
                 + " LEFT JOIN shipments s ON s.id = ch.shipment_id"
-                + " WHERE ch.side = 'AP'"
+                + " WHERE 1=1"
+                + sideFilter
                 + "   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
                 + "   AND (?::date IS NULL OR ch.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
-                + statusFilter,
-                Long.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+                + statusFilter
+                + advFilterSql,
+                Long.class, countParams.toArray());
 
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT
@@ -107,25 +163,33 @@ public class AccCostsController {
                 LEFT JOIN shipments s   ON s.id = ch.shipment_id
                 LEFT JOIN channels cn   ON cn.id = s.channel_id
                 LEFT JOIN charge_items ci ON ci.id = ch.charge_item_id
-                WHERE ch.side = 'AP'
-                  AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)
-                  AND (?::date IS NULL OR ch.created_at >= ?::date)
-                  AND (?::date IS NULL OR ch.created_at < (?::date + 1))
+                WHERE 1=1
                 """
+                + sideFilter
+                + " AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
+                + " AND (?::date IS NULL OR ch.created_at >= ?::date)"
+                + " AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
                 + statusFilter
+                + advFilterSql
                 + " ORDER BY ch.created_at DESC LIMIT ? OFFSET ?",
-                search, search, search, dateFrom, dateFrom, dateTo, dateTo, limit, offset);
+                buildCostsListParamsWithAdv(sdList, search, dateFrom, dateTo, advParams, limit, offset));
 
             // 应付合计
+            java.util.List<Object> sumParams = new java.util.ArrayList<>();
+            if (!sdList.isEmpty()) sumParams.addAll(sdList);
+            sumParams.addAll(java.util.Arrays.asList(search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+            sumParams.addAll(advParams);
             java.math.BigDecimal sumAmount = jdbc.queryForObject(
                 "SELECT coalesce(sum(ch.amount), 0) FROM charges ch"
                 + " LEFT JOIN shipments s ON s.id = ch.shipment_id"
-                + " WHERE ch.side = 'AP'"
+                + " WHERE 1=1"
+                + sideFilter
                 + "   AND (?::text IS NULL OR s.shipment_no ILIKE ? OR s.customer_ref ILIKE ?)"
                 + "   AND (?::date IS NULL OR ch.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR ch.created_at < (?::date + 1))"
-                + statusFilter,
-                java.math.BigDecimal.class, search, search, search, dateFrom, dateFrom, dateTo, dateTo);
+                + statusFilter
+                + advFilterSql,
+                java.math.BigDecimal.class, sumParams.toArray());
             java.util.Map<String, Object> agg = new java.util.LinkedHashMap<>();
             agg.put("amount", sumAmount == null ? java.math.BigDecimal.ZERO : sumAmount);
 
@@ -232,6 +296,19 @@ public class AccCostsController {
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM charges WHERE id = ?::uuid AND side = ?::charge_side", id, SIDE);
         return Map.of("id", id, "deleted", true);
+    }
+
+    private static Object[] buildCostsListParamsWithAdv(java.util.List<String> sdList,
+                                                          String search, String dateFrom, String dateTo,
+                                                          java.util.List<Object> advParams,
+                                                          int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>();
+        if (!sdList.isEmpty()) params.addAll(sdList);
+        params.addAll(java.util.Arrays.asList(search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(advParams);
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {

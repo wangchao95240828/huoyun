@@ -59,22 +59,64 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) Integer pageSize,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
-        @RequestParam(required = false) String dateTo
+        @RequestParam(required = false) String dateTo,
+        // 多条件多选筛选
+        @RequestParam(required = false) String customerIds,
+        @RequestParam(required = false) String currencies,
+        @RequestParam(required = false) String statuses,
+        @RequestParam(required = false) String auditStatuses,
+        @RequestParam(required = false) String createdFrom,
+        @RequestParam(required = false) String createdTo,
+        @RequestParam(required = false) String amountFrom,
+        @RequestParam(required = false) String amountTo
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
 
+            // 多值 adv-filter
+            StringBuilder advFilter = new StringBuilder();
+            java.util.List<Object> advParams = new java.util.ArrayList<>();
+            java.util.List<String> cidList = AccOrdersController.splitCsv(customerIds);
+            java.util.List<String> curList = AccOrdersController.splitCsv(currencies);
+            java.util.List<String> stList  = AccOrdersController.splitCsv(statuses);
+            java.util.List<String> auList  = AccOrdersController.splitCsv(auditStatuses);
+            if (!cidList.isEmpty()) {
+                advFilter.append(" AND i.customer_id::text IN (").append(AccOrdersController.qMarks(cidList.size())).append(")");
+                advParams.addAll(cidList);
+            }
+            if (!curList.isEmpty()) {
+                advFilter.append(" AND i.currency IN (").append(AccOrdersController.qMarks(curList.size())).append(")");
+                advParams.addAll(curList);
+            }
+            if (!stList.isEmpty()) {
+                advFilter.append(" AND i.status IN (").append(AccOrdersController.qMarks(stList.size())).append(")");
+                advParams.addAll(stList);
+            }
+            if (!auList.isEmpty()) {
+                advFilter.append(" AND i.audit_status IN (").append(AccOrdersController.qMarks(auList.size())).append(")");
+                advParams.addAll(auList);
+            }
+            if (createdFrom != null && !createdFrom.isBlank()) { advFilter.append(" AND i.issued_at >= ?::date"); advParams.add(createdFrom); }
+            if (createdTo   != null && !createdTo.isBlank())   { advFilter.append(" AND i.issued_at < (?::date + 1)"); advParams.add(createdTo); }
+            try {
+                if (amountFrom != null && !amountFrom.isBlank()) { advFilter.append(" AND i.total_amount >= ?"); advParams.add(new java.math.BigDecimal(amountFrom)); }
+                if (amountTo   != null && !amountTo.isBlank())   { advFilter.append(" AND i.total_amount <= ?"); advParams.add(new java.math.BigDecimal(amountTo)); }
+            } catch (NumberFormatException ignored) {}
+            String advFilterSql = advFilter.toString();
+
             var access = branchAccess.forCurrent("i");
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
                 search, search, dateFrom, dateFrom, dateTo, dateTo));
+            countParams.addAll(advParams);
             countParams.addAll(access.params());
             Long total = jdbc.queryForObject(
                 "SELECT count(*) FROM customer_invoices i"
                 + " WHERE (?::text IS NULL OR i.invoice_no ILIKE ?)"
                 + "   AND (?::date IS NULL OR i.issued_at >= ?::date)"
                 + "   AND (?::date IS NULL OR i.issued_at < (?::date + 1))"
+                + advFilterSql
                 + access.sql(),
                 Long.class, countParams.toArray());
 
@@ -108,9 +150,10 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
                 + " AND (?::text IS NULL OR i.invoice_no ILIKE ?)"
                 + " AND (?::date IS NULL OR i.issued_at >= ?::date)"
                 + " AND (?::date IS NULL OR i.issued_at < (?::date + 1))"
+                + advFilterSql
                 + access.sql()
                 + " ORDER BY i.issued_at DESC NULLS LAST, i.invoice_no LIMIT ? OFFSET ?",
-                buildBillsListParams(search, dateFrom, dateTo, access, limit, offset));
+                buildBillsListParamsWithAdv(search, dateFrom, dateTo, advParams, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -300,6 +343,19 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
                                                    int limit, int offset) {
         java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
             search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
+    }
+
+    private static Object[] buildBillsListParamsWithAdv(String search, String dateFrom, String dateTo,
+                                                         java.util.List<Object> advParams,
+                                                         BranchAccessFilter.AccessClause access,
+                                                         int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(advParams);
         params.addAll(access.params());
         params.add(limit);
         params.add(offset);

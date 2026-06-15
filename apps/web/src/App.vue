@@ -344,7 +344,7 @@ function activeAdvFilterCount(): number {
 }
 
 // ───────── 筛选预设 (B) — localStorage 持久化 ─────────
-interface FilterPreset { name: string; tab: string; data: any }
+interface FilterPreset { name: string; tab: string; data: any; isDefault?: boolean }
 const filterPresets = ref<FilterPreset[]>([]);
 const showPresetMenu = ref(false);
 function loadPresetsFromStorage() {
@@ -381,7 +381,28 @@ function deletePreset(p: FilterPreset) {
   filterPresets.value = filterPresets.value.filter(x => !(x.name === p.name && x.tab === p.tab));
   savePresetsToStorage();
 }
+function toggleDefaultPreset(p: FilterPreset) {
+  // 同一 tab 内只能 1 个默认。点击 star：当前是默认则取消，否则设为默认（清空同 tab 其他默认）
+  const wasDefault = !!p.isDefault;
+  filterPresets.value.forEach(x => {
+    if (x.tab === p.tab) x.isDefault = false;
+  });
+  if (!wasDefault) {
+    const target = filterPresets.value.find(x => x.name === p.name && x.tab === p.tab);
+    if (target) target.isDefault = true;
+  }
+  savePresetsToStorage();
+}
 const presetsForCurrentTab = computed(() => filterPresets.value.filter(p => p.tab === accTab.value));
+// 切换 tab 时如果该 tab 有默认预设且当前 filter 为空，自动套用
+watch(accTab, (newTab) => {
+  if (activeAdvFilterCount() > 0) return;
+  const def = filterPresets.value.find(p => p.tab === newTab && p.isDefault);
+  if (def) {
+    clearAdvFilters();
+    Object.entries(def.data).forEach(([k,v]) => { (advFilters as any)[k] = Array.isArray(v) ? (v as any[]).slice() : v; });
+  }
+});
 onMounted(() => loadPresetsFromStorage());
 const accDateFrom = ref("");
 const accDateTo = ref("");
@@ -6363,6 +6384,11 @@ async function doReloadBill(id: number) {
               </button>
               <div v-if="showPresetMenu" class="preset-menu" @click.stop>
                 <div v-for="p in presetsForCurrentTab" :key="p.name" class="preset-item">
+                  <span class="preset-star" :class="{ active: p.isDefault }"
+                        @click="toggleDefaultPreset(p)"
+                        :title="p.isDefault ? '取消默认（打开 tab 不再自动套用）' : '设为默认（打开 tab 自动套用）'">
+                    {{ p.isDefault ? '★' : '☆' }}
+                  </span>
                   <span class="preset-name" @click="applyPreset(p)">{{ p.name }}</span>
                   <span class="preset-del" @click="deletePreset(p)" title="删除">✕</span>
                 </div>

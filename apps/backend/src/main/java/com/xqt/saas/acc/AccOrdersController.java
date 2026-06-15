@@ -104,7 +104,19 @@ public class AccOrdersController {
         @RequestParam(required = false) String countries,
         @RequestParam(required = false) String statuses,
         @RequestParam(required = false) String auditStatuses,
-        @RequestParam(required = false) String addNames
+        @RequestParam(required = false) String addNames,
+        @RequestParam(required = false) String branchIds,
+        @RequestParam(required = false) String sellerIds,
+        @RequestParam(required = false) String servicerIds,
+        @RequestParam(required = false) String warehouseCodes,
+        @RequestParam(required = false) String carriers,
+        @RequestParam(required = false) String vatNo,
+        @RequestParam(required = false) String poNumber,
+        @RequestParam(required = false) String amazonRef,
+        @RequestParam(required = false) String binLocation,
+        @RequestParam(required = false) String mainItem,
+        @RequestParam(required = false) String deliveredFrom,
+        @RequestParam(required = false) String deliveredTo
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
@@ -226,6 +238,74 @@ public class AccOrdersController {
                     + " WHERE _uan.id = o.created_by AND _uan.display_name IN ("
                     + qMarks(anList.size()) + "))");
                 advParams.addAll(anList);
+            }
+            // ──── 新增 5 个多选 + 6 个文本 + 1 个时间区间 ────
+            java.util.List<String> brList = splitCsv(branchIds);
+            java.util.List<String> slList = splitCsv(sellerIds);
+            java.util.List<String> svList = splitCsv(servicerIds);
+            java.util.List<String> whList = splitCsv(warehouseCodes);
+            java.util.List<String> caList = splitCsv(carriers);
+            if (!brList.isEmpty()) {
+                advFilter.append(" AND o.branch_id::text IN (").append(qMarks(brList.size())).append(")");
+                advParams.addAll(brList);
+            }
+            if (!slList.isEmpty()) {
+                advFilter.append(" AND o.seller_id::text IN (").append(qMarks(slList.size())).append(")");
+                advParams.addAll(slList);
+            }
+            if (!svList.isEmpty()) {
+                advFilter.append(" AND o.servicer_id::text IN (").append(qMarks(svList.size())).append(")");
+                advParams.addAll(svList);
+            }
+            if (!whList.isEmpty()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _swh WHERE _swh.tenant_id=o.tenant_id"
+                    + " AND _swh.customer_ref=o.customer_ref"
+                    + " AND _swh.destination_warehouse_code IN (").append(qMarks(whList.size())).append("))");
+                advParams.addAll(whList);
+            }
+            if (!caList.isEmpty()) {
+                // 承运快递通过 channel_cost_policies → carriers 表关联
+                advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _sca"
+                    + " JOIN channel_cost_policies _ccp ON _ccp.channel_id=_sca.channel_id"
+                    + " JOIN carriers _car ON _car.id=_ccp.carrier_id"
+                    + " WHERE _sca.tenant_id=o.tenant_id AND _sca.customer_ref=o.customer_ref"
+                    + " AND upper(_car.name) IN (").append(qMarks(caList.size())).append("))");
+                for (String c : caList) advParams.add(c.toUpperCase());
+            }
+            // 文本字段（前端单值；recipientName 由原始上面 recipientNamePat 处理）
+            if (vatNo != null && !vatNo.isBlank()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _svat WHERE _svat.tenant_id=o.tenant_id"
+                    + " AND _svat.customer_ref=o.customer_ref"
+                    + " AND (_svat.recipient_tax_no ILIKE ? OR _svat.shipper_tax_no ILIKE ? OR _svat.sold_to_tax_no ILIKE ?))");
+                String pat = "%" + vatNo + "%";
+                advParams.add(pat); advParams.add(pat); advParams.add(pat);
+            }
+            if (poNumber != null && !poNumber.isBlank()) {
+                advFilter.append(" AND (o.customer_ref ILIKE ? OR o.metadata->'acc_compat'->>'poNumber' ILIKE ?)");
+                advParams.add("%" + poNumber + "%"); advParams.add("%" + poNumber + "%");
+            }
+            if (amazonRef != null && !amazonRef.isBlank()) {
+                advFilter.append(" AND (o.external_id ILIKE ? OR o.metadata->'acc_compat'->>'amazonRef' ILIKE ?)");
+                advParams.add("%" + amazonRef + "%"); advParams.add("%" + amazonRef + "%");
+            }
+            if (binLocation != null && !binLocation.isBlank()) {
+                advFilter.append(" AND o.metadata->'acc_compat'->>'binLocation' ILIKE ?");
+                advParams.add("%" + binLocation + "%");
+            }
+            if (mainItem != null && !mainItem.isBlank()) {
+                advFilter.append(" AND (o.metadata->'acc_compat'->>'materialsEn' ILIKE ?"
+                    + " OR o.metadata->'acc_compat'->>'materialsCn' ILIKE ?)");
+                advParams.add("%" + mainItem + "%"); advParams.add("%" + mainItem + "%");
+            }
+            if (deliveredFrom != null && !deliveredFrom.isBlank()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _sdf WHERE _sdf.tenant_id=o.tenant_id"
+                    + " AND _sdf.customer_ref=o.customer_ref AND _sdf.delivered_at >= ?::date)");
+                advParams.add(deliveredFrom);
+            }
+            if (deliveredTo != null && !deliveredTo.isBlank()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _sdt WHERE _sdt.tenant_id=o.tenant_id"
+                    + " AND _sdt.customer_ref=o.customer_ref AND _sdt.delivered_at < (?::date + 1))");
+                advParams.add(deliveredTo);
             }
 
             String advFilterSql = advFilter.toString();

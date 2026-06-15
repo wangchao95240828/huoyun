@@ -62,16 +62,30 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
         @RequestParam(required = false) String dateTo,
-        @RequestParam(required = false) String status
+        @RequestParam(required = false) String status,
+        @RequestParam(required = false) String customerIds,
+        @RequestParam(required = false) String currencies,
+        @RequestParam(required = false) String statuses,
+        @RequestParam(required = false) String auditStatuses,
+        @RequestParam(required = false) String createdFrom,
+        @RequestParam(required = false) String createdTo,
+        @RequestParam(required = false) String amountFrom,
+        @RequestParam(required = false) String amountTo
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
             String auditStatus = (status == null || status.isBlank()) ? null : status;
+            AccFinanceFilters.Built adv = AccFinanceFilters.build(
+                "p.customer_id", "p.currency", "p.audit_status", "p.audit_status",
+                "p.received_at", "p.amount",
+                customerIds, currencies, statuses, auditStatuses,
+                createdFrom, createdTo, amountFrom, amountTo);
             var access = branchAccess.forCurrentViaCustomer("p");
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
                 search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus));
+            countParams.addAll(adv.params);
             countParams.addAll(access.params());
             Long total = jdbc.queryForObject(
                 "SELECT count(*) FROM payments p"
@@ -79,6 +93,7 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
                 + "   AND (?::date IS NULL OR p.received_at >= ?::date)"
                 + "   AND (?::date IS NULL OR p.received_at < (?::date + 1))"
                 + "   AND (?::text IS NULL OR p.audit_status = ?)"
+                + adv.sql
                 + access.sql(),
                 Long.class, countParams.toArray());
 
@@ -104,10 +119,11 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
                 + "   AND (?::date IS NULL OR p.received_at >= ?::date)"
                 + "   AND (?::date IS NULL OR p.received_at < (?::date + 1))"
                 + "   AND (?::text IS NULL OR p.audit_status = ?)"
+                + adv.sql
                 + access.sql()
                 + " ORDER BY p.received_at DESC"
                 + " LIMIT ? OFFSET ?",
-                buildReceivedsListParams(search, dateFrom, dateTo, auditStatus, access, limit, offset));
+                buildReceivedsListParamsWithAdv(search, dateFrom, dateTo, auditStatus, adv.params, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -264,6 +280,20 @@ public AccReceivedsController(JdbcTemplate jdbc, JsonSupport json,
                                                        int limit, int offset) {
         java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
             search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
+    }
+
+    private static Object[] buildReceivedsListParamsWithAdv(String search, String dateFrom, String dateTo,
+                                                              String auditStatus,
+                                                              java.util.List<Object> advParams,
+                                                              BranchAccessFilter.AccessClause access,
+                                                              int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus));
+        params.addAll(advParams);
         params.addAll(access.params());
         params.add(limit);
         params.add(offset);

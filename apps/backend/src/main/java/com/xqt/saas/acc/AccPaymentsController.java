@@ -59,20 +59,37 @@ public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
         @RequestParam(required = false) String dateTo,
-        @RequestParam(required = false) String status
+        @RequestParam(required = false) String status,
+        @RequestParam(required = false) String currencies,
+        @RequestParam(required = false) String statuses,
+        @RequestParam(required = false) String auditStatuses,
+        @RequestParam(required = false) String createdFrom,
+        @RequestParam(required = false) String createdTo,
+        @RequestParam(required = false) String amountFrom,
+        @RequestParam(required = false) String amountTo
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
             int offset = AccPaging.offset(page, pageSize);
             String search = keyword == null || keyword.isBlank() ? null : "%" + keyword + "%";
             String auditStatus = (status == null || status.isBlank()) ? null : status;
+            // partner_payments 是 AP 给供应商，没有 customer_id；用 partner_id 占位（filter 不传也无副作用）
+            AccFinanceFilters.Built adv = AccFinanceFilters.build(
+                "p.partner_id", "p.currency", "p.status", "p.audit_status",
+                "p.created_at", "p.amount",
+                null, currencies, statuses, auditStatuses,
+                createdFrom, createdTo, amountFrom, amountTo);
+            java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
+                search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus));
+            countParams.addAll(adv.params);
             Long total = jdbc.queryForObject(
                 "SELECT count(*) FROM partner_payments p"
                 + " WHERE (?::text IS NULL OR p.payment_no ILIKE ?)"
                 + "   AND (?::date IS NULL OR p.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR p.created_at < (?::date + 1))"
-                + "   AND (?::text IS NULL OR p.audit_status = ?)",
-                Long.class, search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus);
+                + "   AND (?::text IS NULL OR p.audit_status = ?)"
+                + adv.sql,
+                Long.class, countParams.toArray());
 
             List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT"
@@ -100,9 +117,10 @@ public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
                 + "   AND (?::date IS NULL OR p.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR p.created_at < (?::date + 1))"
                 + "   AND (?::text IS NULL OR p.audit_status = ?)"
+                + adv.sql
                 + " ORDER BY p.created_at DESC"
                 + " LIMIT ? OFFSET ?",
-                search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus, limit, offset);
+                buildPaymentsListParams(search, dateFrom, dateTo, auditStatus, adv.params, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -195,6 +213,18 @@ public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
         cascadeChecker.checkBeforeDelete(TABLE, id);
         jdbc.update("DELETE FROM partner_payments WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    private static Object[] buildPaymentsListParams(String search, String dateFrom, String dateTo,
+                                                      String auditStatus,
+                                                      java.util.List<Object> advParams,
+                                                      int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, dateFrom, dateFrom, dateTo, dateTo, auditStatus, auditStatus));
+        params.addAll(advParams);
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
     }
 
     private Map<String, Object> project(Map<String, Object> row) {
