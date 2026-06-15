@@ -81,6 +81,7 @@ import {
 
 const API = import.meta.env.VITE_API_URL ?? "";
 const GlobalTrackingMap = defineAsyncComponent(() => import("./components/GlobalTrackingMap.vue"));
+import MultiSelect from "./components/MultiSelect.vue";
 
 // ═══════════════ Types ═══════════════
 
@@ -243,6 +244,51 @@ const accPage = ref(1);
 const accPageSize = ref(50);
 const accLoading = ref(false);
 const accKeyword = ref("");
+const showAdvancedFilter = ref(false);
+const advFilters = reactive<{
+  customers: string[]; channels: string[]; countries: string[];
+  statuses: string[]; auditStatuses: string[]; addNames: string[];
+  postcode: string; trackingNo: string;
+  createdFrom: string; createdTo: string;
+  submittedFrom: string; submittedTo: string;
+}>({
+  customers: [], channels: [], countries: [],
+  statuses: [], auditStatuses: [], addNames: [],
+  postcode: '', trackingNo: '',
+  createdFrom: '', createdTo: '',
+  submittedFrom: '', submittedTo: '',
+});
+// 切到 orders tab 或展开高级筛选时，自动 preload 客户/渠道/国家选项
+watch([accTab, showAdvancedFilter], async () => {
+  if (showAdvancedFilter.value && ordersTabSet.has(accTab.value)) {
+    await loadSelectOptions([
+      { type: 'select', ref: 'customers' } as any,
+      { type: 'select', ref: 'channels' } as any,
+      { type: 'select', ref: 'countries' } as any,
+    ]);
+  }
+});
+function clearAdvFilters() {
+  advFilters.customers = []; advFilters.channels = []; advFilters.countries = [];
+  advFilters.statuses = []; advFilters.auditStatuses = []; advFilters.addNames = [];
+  advFilters.postcode = ''; advFilters.trackingNo = '';
+  advFilters.createdFrom = ''; advFilters.createdTo = '';
+  advFilters.submittedFrom = ''; advFilters.submittedTo = '';
+}
+function activeAdvFilterCount(): number {
+  let n = 0;
+  if (advFilters.customers.length) n++;
+  if (advFilters.channels.length) n++;
+  if (advFilters.countries.length) n++;
+  if (advFilters.statuses.length) n++;
+  if (advFilters.auditStatuses.length) n++;
+  if (advFilters.addNames.length) n++;
+  if (advFilters.postcode) n++;
+  if (advFilters.trackingNo) n++;
+  if (advFilters.createdFrom || advFilters.createdTo) n++;
+  if (advFilters.submittedFrom || advFilters.submittedTo) n++;
+  return n;
+}
 const accDateFrom = ref("");
 const accDateTo = ref("");
 const accStats = ref<any>(null);
@@ -3268,6 +3314,21 @@ async function fetchAccData() {
   }
   if (accDateFrom.value && !noDateTabs.has(accTab.value)) params.set("dateFrom", accDateFrom.value);
   if (accDateTo.value && !noDateTabs.has(accTab.value)) params.set("dateTo", accDateTo.value);
+  // 高级多条件筛选（orders tab 用，多选用逗号拼接）
+  if (ordersTabSet.has(accTab.value) || tab.api === 'shipments') {
+    if (advFilters.customers.length)     params.set('customerIds', advFilters.customers.join(','));
+    if (advFilters.channels.length)      params.set('channelCodes', advFilters.channels.join(','));
+    if (advFilters.countries.length)     params.set('countries', advFilters.countries.join(','));
+    if (advFilters.statuses.length)      params.set('statuses', advFilters.statuses.join(','));
+    if (advFilters.auditStatuses.length) params.set('auditStatuses', advFilters.auditStatuses.join(','));
+    if (advFilters.addNames.length)      params.set('addNames', advFilters.addNames.join(','));
+    if (advFilters.postcode)             params.set('postcode', advFilters.postcode);
+    if (advFilters.trackingNo)           params.set('trackingNo', advFilters.trackingNo);
+    if (advFilters.createdFrom)          params.set('createdFrom', advFilters.createdFrom);
+    if (advFilters.createdTo)            params.set('createdTo', advFilters.createdTo);
+    if (advFilters.submittedFrom)        params.set('submittedFrom', advFilters.submittedFrom);
+    if (advFilters.submittedTo)          params.set('submittedTo', advFilters.submittedTo);
+  }
   // 状态 sub-tab → status 参数；profits-* sub-tab → mode 参数（后端不同）
   if ((tab as any).statusFilter) {
     const paramName = (tab.api === "profits") ? "mode" : "status";
@@ -5762,8 +5823,13 @@ async function doReloadBill(id: number) {
           <button class="primary sm" @click="accSearch" :disabled="accLoading">
             <Search :size="13" /> 查询
           </button>
-          <button class="secondary sm" @click="accKeyword = ''; accDateFrom = ''; accDateTo = ''; accSearch()">
+          <button class="secondary sm" @click="accKeyword = ''; accDateFrom = ''; accDateTo = ''; clearAdvFilters(); accSearch()">
             重置
+          </button>
+          <button v-if="ordersTabSet.has(accTab)" class="secondary sm"
+                  @click="showAdvancedFilter = !showAdvancedFilter"
+                  :title="showAdvancedFilter ? '收起多条件筛选' : '展开多条件筛选'">
+            {{ showAdvancedFilter ? '收起筛选 ▴' : '多条件筛选 ▾' }}<span v-if="activeAdvFilterCount()" class="adv-filter-badge">{{ activeAdvFilterCount() }}</span>
           </button>
           <button class="primary sm" v-if="canCrud" @click="openAdd">
             <Plus :size="13" /> 新增
@@ -5986,6 +6052,86 @@ async function doReloadBill(id: number) {
             {{ bizMessage }}
             <span v-if="bizMessageType === 'error'" style="margin-left:8px; opacity:0.7;">✕</span>
           </span>
+        </div>
+
+        <!-- 多条件筛选面板（对齐 ACC 大货运单页：grid 多 filter 同时生效 + 每个下拉多选） -->
+        <div v-if="showAdvancedFilter && ordersTabSet.has(accTab) && !batchPagePanel && !isBatchPrintPage && !isApiDocsPage"
+             class="adv-filter-panel">
+          <div class="adv-filter-grid">
+            <div class="ff">
+              <label>客户（多选）</label>
+              <MultiSelect v-model="advFilters.customers"
+                           :options="(selectOptions['customers'] ?? []).map((c: any) => ({ value: c.id, label: c.name }))"
+                           placeholder="选择客户" />
+            </div>
+            <div class="ff">
+              <label>产品/渠道（多选）</label>
+              <MultiSelect v-model="advFilters.channels"
+                           :options="(selectOptions['channels'] ?? []).map((c: any) => ({ value: c.code || c.name, label: c.name }))"
+                           placeholder="选择渠道" />
+            </div>
+            <div class="ff">
+              <label>目的国（多选）</label>
+              <MultiSelect v-model="advFilters.countries"
+                           :options="(selectOptions['countries'] ?? []).map((c: any) => ({ value: c.code || c.name, label: c.name }))"
+                           placeholder="选择国家" />
+            </div>
+            <div class="ff">
+              <label>订单状态（多选）</label>
+              <MultiSelect v-model="advFilters.statuses"
+                           :options="[
+                             { value: 'DRAFT', label: '草稿' },
+                             { value: 'SUBMITTED', label: '已提交' },
+                             { value: 'ACCEPTED', label: '已受理' },
+                             { value: 'FULFILLING', label: '履约中' },
+                             { value: 'COMPLETED', label: '已完成' },
+                             { value: 'CANCELLED', label: '已取消' },
+                             { value: 'EXCEPTION', label: '异常' },
+                           ]" placeholder="选择状态" />
+            </div>
+            <div class="ff">
+              <label>审核状态（多选）</label>
+              <MultiSelect v-model="advFilters.auditStatuses"
+                           :options="[
+                             { value: 'PENDING', label: '待审核' },
+                             { value: 'AUDITED', label: '已审核' },
+                             { value: 'UNAUDITED', label: '未审核' },
+                           ]" placeholder="选择审核状态" />
+            </div>
+            <div class="ff">
+              <label>邮编</label>
+              <input type="text" v-model="advFilters.postcode" placeholder="收件邮编" />
+            </div>
+            <div class="ff">
+              <label>跟踪号</label>
+              <input type="text" v-model="advFilters.trackingNo" placeholder="UPS/FedEx 单号" />
+            </div>
+            <div class="ff">
+              <label>创建时间</label>
+              <div style="display:flex;gap:4px;align-items:center">
+                <input type="date" v-model="advFilters.createdFrom" />
+                <span style="font-size:11px">至</span>
+                <input type="date" v-model="advFilters.createdTo" />
+              </div>
+            </div>
+            <div class="ff">
+              <label>提交时间</label>
+              <div style="display:flex;gap:4px;align-items:center">
+                <input type="date" v-model="advFilters.submittedFrom" />
+                <span style="font-size:11px">至</span>
+                <input type="date" v-model="advFilters.submittedTo" />
+              </div>
+            </div>
+          </div>
+          <div class="adv-filter-actions">
+            <button class="primary sm" @click="accSearch" :disabled="accLoading">
+              <Search :size="13" /> 应用筛选
+            </button>
+            <button class="secondary sm" @click="clearAdvFilters(); accSearch()">
+              清空所有条件
+            </button>
+            <span class="adv-filter-hint">当前生效 {{ activeAdvFilterCount() }} 个条件 · 多选下拉支持搜索 + chip 显示</span>
+          </div>
         </div>
 
         <!-- ACC 5 个批量操作页面的专用面板（在表格上方） -->

@@ -97,7 +97,14 @@ public class AccOrdersController {
         @RequestParam(required = false) String createdFrom,
         @RequestParam(required = false) String createdTo,
         @RequestParam(required = false) String updatedFrom,
-        @RequestParam(required = false) String updatedTo
+        @RequestParam(required = false) String updatedTo,
+        // 高级多条件筛选（多值用 comma 分隔。对齐 ACC 大货运单页多选）
+        @RequestParam(required = false) String customerIds,
+        @RequestParam(required = false) String channelCodes,
+        @RequestParam(required = false) String countries,
+        @RequestParam(required = false) String statuses,
+        @RequestParam(required = false) String auditStatuses,
+        @RequestParam(required = false) String addNames
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
@@ -181,6 +188,45 @@ public class AccOrdersController {
             if (createdTo != null && !createdTo.isBlank())     { advFilter.append(" AND o.created_at < (?::date + 1)"); advParams.add(createdTo); }
             if (updatedFrom != null && !updatedFrom.isBlank()) { advFilter.append(" AND o.updated_at >= ?::date"); advParams.add(updatedFrom); }
             if (updatedTo != null && !updatedTo.isBlank())     { advFilter.append(" AND o.updated_at < (?::date + 1)"); advParams.add(updatedTo); }
+
+            // ───── 多选筛选（comma 分隔）─────
+            java.util.List<String> cidList   = splitCsv(customerIds);
+            java.util.List<String> chList    = splitCsv(channelCodes);
+            java.util.List<String> ctList    = splitCsv(countries);
+            java.util.List<String> stList    = splitCsv(statuses);
+            java.util.List<String> auList    = splitCsv(auditStatuses);
+            java.util.List<String> anList    = splitCsv(addNames);
+            if (!cidList.isEmpty()) {
+                advFilter.append(" AND o.customer_id::text IN (").append(qMarks(cidList.size())).append(")");
+                advParams.addAll(cidList);
+            }
+            if (!chList.isEmpty()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _scc"
+                    + " JOIN channels _cnc ON _cnc.id = _scc.channel_id"
+                    + " WHERE _scc.tenant_id = o.tenant_id AND _scc.customer_ref = o.customer_ref"
+                    + " AND _cnc.code IN (").append(qMarks(chList.size())).append("))");
+                advParams.addAll(chList);
+            }
+            if (!ctList.isEmpty()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _sct"
+                    + " WHERE _sct.tenant_id = o.tenant_id AND _sct.customer_ref = o.customer_ref"
+                    + " AND _sct.destination_country IN (").append(qMarks(ctList.size())).append("))");
+                advParams.addAll(ctList);
+            }
+            if (!stList.isEmpty()) {
+                advFilter.append(" AND o.status IN (").append(qMarks(stList.size())).append(")");
+                advParams.addAll(stList);
+            }
+            if (!auList.isEmpty()) {
+                advFilter.append(" AND o.audit_status IN (").append(qMarks(auList.size())).append(")");
+                advParams.addAll(auList);
+            }
+            if (!anList.isEmpty()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM users _uan"
+                    + " WHERE _uan.id = o.created_by AND _uan.display_name IN ("
+                    + qMarks(anList.size()) + "))");
+                advParams.addAll(anList);
+            }
 
             String advFilterSql = advFilter.toString();
 
@@ -631,6 +677,27 @@ public class AccOrdersController {
 
     private static String strOrNull(Object o) {
         return o == null || o.toString().isBlank() ? null : o.toString();
+    }
+
+    /** "a,b,c" → [a,b,c]，空/null 返回空表。trim 每个 item 并丢空。 */
+    private static java.util.List<String> splitCsv(String s) {
+        if (s == null || s.isBlank()) return java.util.List.of();
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String it : s.split(",")) {
+            String t = it.trim();
+            if (!t.isEmpty()) out.add(t);
+        }
+        return out;
+    }
+
+    /** n=3 → "?,?,?"。给 IN 子句用。 */
+    private static String qMarks(int n) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            if (i > 0) sb.append(",");
+            sb.append("?");
+        }
+        return sb.toString();
     }
 
     /**

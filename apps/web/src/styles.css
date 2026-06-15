@@ -2295,3 +2295,64 @@ input, select, textarea { font: inherit; }
   color: #0f172a;
   word-break: break-word;
 }
+
+/* ============ 多条件高级筛选面板（对齐 ACC 大货运单页） ============ */
+.adv-filter-panel {
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  border-radius: 4px;
+  padding: 12px 14px;
+  margin-top: 8px;
+}
+.adv-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 14px;
+}
+.adv-filter-grid .ff { display: flex; flex-direction: column; }
+.adv-filter-grid .ff > label {
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 3px;
+  font-weight: 500;
+}
+.adv-filter-grid .ff > input {
+  padding: 5px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  font-size: 12px;
+  background: #fff;
+}
+.adv-filter-grid .ff > input:focus {
+  border-color: #3b82f6;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+.adv-filter-actions {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+.adv-filter-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.adv-filter-badge {
+  margin-left: 6px;
+  display: inline-flex;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: #3b82f6;
+  color: #fff;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
