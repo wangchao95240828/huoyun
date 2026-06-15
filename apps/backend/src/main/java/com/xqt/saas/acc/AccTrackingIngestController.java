@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -60,7 +59,6 @@ public class AccTrackingIngestController {
     }
 
     @PostMapping("/ingest")
-    @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> ingest(
         @RequestHeader(value = "X-Ingest-Token", required = false) String token,
         @RequestBody Map<String, Object> body
@@ -90,7 +88,7 @@ public class AccTrackingIngestController {
                 SELECT c.shipment_id::text FROM cartons c
                  WHERE c.tenant_id = ?::uuid
                    AND (c.tracking_no = ? OR c.carrier_master_tracking_no = ?)
-                 ORDER BY c.created_at DESC LIMIT 1
+                 ORDER BY c.carton_no LIMIT 1
                 """, String.class, defaultTenantId, trackingNo, trackingNo);
         } catch (DataAccessException ignored) {
             // 找不到也可写 tracking_events，shipment_id=NULL 留待后续匹配

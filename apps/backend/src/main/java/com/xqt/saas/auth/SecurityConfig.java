@@ -67,6 +67,8 @@ public class SecurityConfig {
                     "/api/health",
                     "/api/public/**",
                     "/api/acc/tracking/ingest",  // 外部爬虫推送，走 X-Ingest-Token 鉴权
+                    "/api/acc/tracking/poll-ups",
+                    "/api/acc/tracking/poll-ups-batch",
                     "/api/device/scale/**",
                     "/api/acc/dws",          // DWS 实物分拣推送，使用自己的 md5 token 校验
                     "/actuator/health/**",

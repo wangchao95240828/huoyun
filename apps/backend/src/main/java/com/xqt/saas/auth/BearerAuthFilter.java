@@ -47,6 +47,7 @@ public class BearerAuthFilter extends OncePerRequestFilter {
             || path.startsWith("/api/customer-api/")
             || path.startsWith("/api/public/")     // 公开物流跟踪 /api/public/tracking/query 等
             || "/api/acc/tracking/ingest".equals(path)  // 爬虫推送 tracking_events 走 X-Ingest-Token
+            || path.startsWith("/api/acc/tracking/poll-ups")  // UPS 轮询走 X-Ingest-Token
             || path.startsWith("/api/device/scale/")
             || "/api/acc/dws".equals(path)        // DWS 用自己的 md5 token 校验
             || path.startsWith("/actuator/health")
