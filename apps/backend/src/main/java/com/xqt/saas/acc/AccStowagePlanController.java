@@ -377,7 +377,52 @@ public class AccStowagePlanController {
         List<String> route = body.get("route") instanceof List<?> r ? (List<String>) r : List.of();
         boolean enableLifo = !Boolean.FALSE.equals(body.get("enableLifo"));
 
-        // 拉 cartons + customer_id
+        List<Map<String, Object>> cartons = fetchCartonsForShipments(shipmentIds);
+        Map<String, Object> wrap = new LinkedHashMap<>();
+        wrap.put("container", container);
+        wrap.put("items", cartons);
+        wrap.put("route", route);
+        wrap.put("enableLifo", enableLifo);
+        return create(wrap);
+    }
+
+    /**
+     * 多柜模式 + shipmentIds 展开 — 拉 cartons → /pack/multi 求解 → 落多个 plan
+     * body: { containers: [...], container_max_count?, shipmentIds, route?,
+     *         enableLifo?, packingFactor?, customerCohesionWeight? }
+     */
+    @PostMapping("/multi/auto")
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> multiAutoFromShipments(@RequestBody Map<String, Object> body) {
+        if (!(body.get("containers") instanceof List<?>)) {
+            throw ApiException.badRequest("containers 必须为数组");
+        }
+        List<String> shipmentIds = body.get("shipmentIds") instanceof List<?> l
+            ? (List<String>) l : List.of();
+        if (shipmentIds.isEmpty()) throw ApiException.badRequest("shipmentIds 必填");
+
+        List<Map<String, Object>> cartons = fetchCartonsForShipments(shipmentIds);
+        Map<String, Object> wrap = new LinkedHashMap<>(body);
+        wrap.put("items", cartons);
+        wrap.remove("shipmentIds");
+        // 默认 packing_factor 0.65 (保守，避免 3D 校验后大量 unfit)
+        if (!wrap.containsKey("packing_factor")) {
+            Object pf = wrap.remove("packingFactor");
+            wrap.put("packing_factor", pf != null ? pf : 0.65);
+        }
+        if (!wrap.containsKey("enable_lifo")) {
+            Object el = wrap.remove("enableLifo");
+            wrap.put("enable_lifo", el != null ? el : true);
+        }
+        if (!wrap.containsKey("customer_cohesion_weight")) {
+            Object cw = wrap.remove("customerCohesionWeight");
+            wrap.put("customer_cohesion_weight", cw != null ? cw : 1.0);
+        }
+        return multiPack(wrap);
+    }
+
+    /** 拉 cartons + 缺失尺寸兜底。 */
+    private List<Map<String, Object>> fetchCartonsForShipments(List<String> shipmentIds) {
         String inClause = String.join(",", shipmentIds.stream().map(s -> "?").toList());
         List<Map<String, Object>> cartons = jdbc.queryForList(
             "SELECT c.carton_no AS sku, c.actual_weight_kg AS weight_kg,"
@@ -388,20 +433,170 @@ public class AccStowagePlanController {
             + " ORDER BY s.customer_id, c.carton_no",
             join(defaultTenantId, shipmentIds));
         if (cartons.isEmpty()) throw ApiException.badRequest("没找到 cartons 数据");
-        // 缺失尺寸的兜底（默认 30×30×30 cm, 10kg），生产应在前端校验
         for (Map<String, Object> ct : cartons) {
             if (ct.get("length_cm") == null) ct.put("length_cm", 30);
             if (ct.get("width_cm") == null)  ct.put("width_cm", 30);
             if (ct.get("height_cm") == null) ct.put("height_cm", 30);
             if (ct.get("weight_kg") == null) ct.put("weight_kg", 10);
         }
+        return cartons;
+    }
 
-        Map<String, Object> wrap = new LinkedHashMap<>();
-        wrap.put("container", container);
-        wrap.put("items", cartons);
-        wrap.put("route", route);
-        wrap.put("enableLifo", enableLifo);
-        return create(wrap);
+    /**
+     * 装柜单 PDF — 含柜号、客户分组、卸货顺序、每件 sku 坐标。
+     * 仓库装柜员照单摆放。
+     */
+    @GetMapping("/{id}/loading-sheet")
+    public org.springframework.http.ResponseEntity<byte[]> loadingSheet(@PathVariable String id) {
+        Map<String, Object> plan;
+        try {
+            plan = jdbc.queryForMap(
+                "SELECT * FROM stowage_plans WHERE id=?::uuid AND tenant_id=?::uuid",
+                id, defaultTenantId);
+        } catch (DataAccessException ex) {
+            throw ApiException.notFound("配载方案不存在");
+        }
+        List<Map<String, Object>> items = jdbc.queryForList(
+            "SELECT spi.sku, c.code AS customer_code, c.name AS customer_name,"
+            + " spi.x_cm, spi.y_cm, spi.z_cm,"
+            + " spi.placed_length_cm, spi.placed_width_cm, spi.placed_height_cm,"
+            + " spi.input_weight_kg, spi.placed, spi.this_side_up, spi.fragile,"
+            + " spi.rotation_type"
+            + " FROM stowage_plan_items spi"
+            + " LEFT JOIN customers c ON c.id = spi.customer_id"
+            + " WHERE spi.plan_id = ?::uuid"
+            + " ORDER BY spi.placed DESC, c.code, spi.z_cm, spi.x_cm, spi.y_cm",
+            id);
+
+        byte[] pdf = buildLoadingSheetPdf(plan, items);
+        return org.springframework.http.ResponseEntity.ok()
+            .header("Content-Type", "application/pdf")
+            .header("Content-Disposition",
+                "inline; filename=\"loading-" + plan.get("plan_no") + ".pdf\"")
+            .body(pdf);
+    }
+
+    private byte[] buildLoadingSheetPdf(Map<String, Object> plan, List<Map<String, Object>> items) {
+        try (org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument()) {
+            // A4 portrait: 595 × 842 pt
+            org.apache.pdfbox.pdmodel.PDPage page = new org.apache.pdfbox.pdmodel.PDPage(
+                org.apache.pdfbox.pdmodel.common.PDRectangle.A4);
+            doc.addPage(page);
+            org.apache.pdfbox.pdmodel.PDPageContentStream cs =
+                new org.apache.pdfbox.pdmodel.PDPageContentStream(doc, page);
+            // 用内嵌 PDF 标准字体 Helvetica + 备用 CourierBold 显示中文需 Type0，
+            // 但 PDFBox 默认 Helvetica 不支持中文。这里给一个简化版，对应中英文混排：
+            // 用 Helvetica + 把客户名/备注的中文字符显示为 ASCII fallback 或省略中文，
+            // 真要支持中文需要嵌入 NotoSansCJK 字体。
+            org.apache.pdfbox.pdmodel.font.PDFont font =
+                new org.apache.pdfbox.pdmodel.font.PDType1Font(
+                    org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName.HELVETICA);
+            org.apache.pdfbox.pdmodel.font.PDFont bold =
+                new org.apache.pdfbox.pdmodel.font.PDType1Font(
+                    org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName.HELVETICA_BOLD);
+
+            float y = 800f;
+            cs.setFont(bold, 16);
+            cs.beginText();
+            cs.newLineAtOffset(40, y);
+            cs.showText("Loading Sheet - " + safeAscii(plan.get("plan_no")));
+            cs.endText();
+            y -= 24;
+
+            cs.setFont(font, 10);
+            String[] header1 = {
+                "Container: " + safeAscii(plan.get("container_code")),
+                "Size: " + plan.get("container_length_cm") + " x "
+                    + plan.get("container_width_cm") + " x "
+                    + plan.get("container_height_cm") + " cm",
+                "Max weight: " + plan.get("container_max_weight_kg") + " kg",
+            };
+            for (String s : header1) {
+                cs.beginText(); cs.newLineAtOffset(40, y); cs.showText(s); cs.endText();
+                y -= 14;
+            }
+            y -= 4;
+            String[] header2 = {
+                "Fitted: " + plan.get("fitted_count")
+                    + " / Unfitted: " + plan.get("unfitted_count")
+                    + " / Utilization: "
+                    + String.format("%.1f%%", ((Number) plan.get("volume_utilization")).doubleValue() * 100),
+                "Weight used: " + plan.get("weight_used_kg") + " kg",
+                "Gravity center (x,y,z): "
+                    + plan.get("gravity_center_x_cm") + ", "
+                    + plan.get("gravity_center_y_cm") + ", "
+                    + plan.get("gravity_center_z_cm") + " cm",
+            };
+            for (String s : header2) {
+                cs.beginText(); cs.newLineAtOffset(40, y); cs.showText(s); cs.endText();
+                y -= 14;
+            }
+            y -= 14;
+
+            // 表格 header
+            cs.setFont(bold, 9);
+            float[] cols = {40, 105, 180, 250, 310, 380, 440, 510};
+            String[] heads = {"SKU", "Customer", "X (cm)", "Y (cm)", "Z (cm)",
+                              "L x W x H", "Weight (kg)", "Flags"};
+            for (int i = 0; i < heads.length; i++) {
+                cs.beginText(); cs.newLineAtOffset(cols[i], y); cs.showText(heads[i]); cs.endText();
+            }
+            y -= 12;
+            cs.setLineWidth(0.5f);
+            cs.moveTo(40, y + 6); cs.lineTo(555, y + 6); cs.stroke();
+            cs.setFont(font, 8);
+
+            for (Map<String, Object> it : items) {
+                if (y < 40) {
+                    cs.close();
+                    page = new org.apache.pdfbox.pdmodel.PDPage(
+                        org.apache.pdfbox.pdmodel.common.PDRectangle.A4);
+                    doc.addPage(page);
+                    cs = new org.apache.pdfbox.pdmodel.PDPageContentStream(doc, page);
+                    cs.setFont(font, 8);
+                    y = 800;
+                }
+                String[] row = {
+                    safeAscii(it.get("sku")),
+                    safeAscii(it.get("customer_code")),
+                    fmt(it.get("x_cm")), fmt(it.get("y_cm")), fmt(it.get("z_cm")),
+                    fmt(it.get("placed_length_cm")) + "x" + fmt(it.get("placed_width_cm"))
+                        + "x" + fmt(it.get("placed_height_cm")),
+                    fmt(it.get("input_weight_kg")),
+                    (Boolean.TRUE.equals(it.get("placed")) ? "" : "[X]")
+                    + (Boolean.TRUE.equals(it.get("this_side_up")) ? "[UP]" : "")
+                    + (Boolean.TRUE.equals(it.get("fragile")) ? "[FR]" : ""),
+                };
+                for (int i = 0; i < row.length; i++) {
+                    cs.beginText(); cs.newLineAtOffset(cols[i], y); cs.showText(row[i]); cs.endText();
+                }
+                y -= 10;
+            }
+            cs.close();
+
+            java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+            doc.save(baos);
+            return baos.toByteArray();
+        } catch (Exception ex) {
+            throw ApiException.badRequest("生成 PDF 失败: " + ex.getMessage());
+        }
+    }
+
+    private static String safeAscii(Object o) {
+        if (o == null) return "";
+        String s = o.toString();
+        // 临时 fallback: 非 ASCII 用 ? 替代（避免 Helvetica 渲染中文挂掉）
+        StringBuilder sb = new StringBuilder(s.length());
+        for (char c : s.toCharArray()) {
+            sb.append(c < 128 ? c : '?');
+        }
+        return sb.toString();
+    }
+
+    private static String fmt(Object o) {
+        if (o == null) return "-";
+        if (o instanceof Number n) return String.format("%.1f", n.doubleValue());
+        return o.toString();
     }
 
     @PostMapping("/{id}/approve")

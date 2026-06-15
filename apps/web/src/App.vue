@@ -271,6 +271,23 @@ function openStowageDialog() {
   stowageData.shipmentIds = '';
   stowageData.route = '';
 }
+async function downloadStowageSheet(planId: string) {
+  // 走 fetch 拿 PDF, 用 Bearer token 鉴权
+  try {
+    const res = await apiFetch(`${API}/api/acc/stowage/plan/${planId}/loading-sheet`);
+    if (!res.ok) { setBizError('下载失败: ' + res.status); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e: any) {
+    setBizError('下载异常: ' + e.message);
+  }
+}
+
 async function doStowageSolve() {
   if (stowageData.mode === 'single' && !stowageData.shipmentIds.trim()) {
     setBizError('请输入至少 1 个 shipmentId');
@@ -305,11 +322,35 @@ async function doStowageSolve() {
         setBizError('求解失败: ' + (j.error ?? res.status));
       }
     } else {
-      // 多柜模式：先从 shipmentIds 拉 items（让后端 /multi 自己拉？目前我们 /multi 接口直接接 items，
-      // 这里走简化路径：直接调 /multi 假设客户已经填好 items；
-      // 真实生产应该加 /multi/auto，类似 /auto。
-      // MVP 先弹一个提示让用户用 API 调用，UI 先支持 single）
-      setBizError('多柜模式需要从 API 直接调用 /api/acc/stowage/plan/multi 端点 (含 items 数组)。下版本会支持直接从 shipmentIds 自动展开。');
+      // 多柜模式 — /multi/auto 自动从 shipmentIds 展开 cartons
+      const body = {
+        containers: [
+          { code: '40HC', length_cm: 1200, width_cm: 230, height_cm: 260, max_weight_kg: 26000 },
+          { code: '20GP', length_cm: 590, width_cm: 230, height_cm: 240, max_weight_kg: 21500 },
+        ],
+        container_max_count: {
+          '40HC': Number(stowageData.multi40hcCount) || 3,
+          '20GP': Number(stowageData.multi20gpCount) || 3,
+        },
+        shipmentIds: stowageData.shipmentIds.split(/[,\s]+/).filter(Boolean),
+        route: stowageData.route ? stowageData.route.split(/[,\s]+/).filter(Boolean) : [],
+        enableLifo: stowageData.enableLifo,
+        packingFactor: Number(stowageData.packingFactor) || 0.65,
+      };
+      const res = await apiFetch(`${API}/api/acc/stowage/plan/multi/auto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await res.json();
+      if (res.ok) {
+        setBizOk(`多柜求解完成: 用 ${j.totalContainersUsed} 个柜 (${j.assignmentStatus}), `
+          + `${(j.unfittedOverall || []).length === 0 ? '全部装入' : (j.unfittedOverall.length + ' 件未装')}`);
+        showStowageDialog.value = false;
+        fetchAccData();
+      } else {
+        setBizError('多柜求解失败: ' + (j.error ?? res.status));
+      }
     }
   } catch (e: any) {
     setBizError('求解异常: ' + e.message);
@@ -6976,6 +7017,13 @@ async function doReloadBill(id: number) {
                           @click="openAuditHistory(row)" title="审核流转" :disabled="bizLoading">
                     <Clock :size="12" />
                   </button>
+                  <!-- 3D 配载方案行内: 装柜单 PDF 下载 -->
+                  <button class="action-btn fwb fwb-label"
+                          v-if="accTab === 'stowage-plans' && row.id"
+                          @click="downloadStowageSheet(row.id)"
+                          title="下载装柜单 PDF">
+                    <FileText :size="13" /> 装柜单
+                  </button>
                   <button class="action-btn" v-if="accTab === 'stowages'" @click="doSyncStowage(row.id)" title="同步" :disabled="bizLoading">
                     <RefreshCw :size="12" />
                   </button>
@@ -8097,6 +8145,20 @@ async function doReloadBill(id: number) {
                 <option :value="false">否</option>
               </select>
             </div>
+            <template v-if="stowageData.mode === 'multi'">
+              <div class="form-field">
+                <label>40HC 最多用几个</label>
+                <input type="number" v-model.number="stowageData.multi40hcCount" min="0" max="20" />
+              </div>
+              <div class="form-field">
+                <label>20GP 最多用几个</label>
+                <input type="number" v-model.number="stowageData.multi20gpCount" min="0" max="20" />
+              </div>
+              <div class="form-field">
+                <label>装柜余量系数 (0.5-1.0)</label>
+                <input type="number" v-model.number="stowageData.packingFactor" min="0.5" max="1.0" step="0.05" />
+              </div>
+            </template>
             <div class="form-field full-width">
               <label>Shipment IDs <span class="required">*</span></label>
               <textarea v-model="stowageData.shipmentIds" rows="3" placeholder="多个 UUID，逗号/换行/空格分隔" />
