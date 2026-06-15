@@ -77,6 +77,10 @@ springdoc:
     tags-sorter: alpha
 
 xqt:
+  stowage:
+    # Python 3D 配载求解微服务地址
+    solver-url:   ${XQT_STOWAGE_SOLVER_URL:http://127.0.0.1:8100}
+    solver-token: ${XQT_STOWAGE_TOKEN:}
   tracking:
     # 外部爬虫 (FedEx/UPS) 推送 tracking_events 时校验 X-Ingest-Token
     # 生产: 用 openssl rand -hex 32 生成随机串，部署到 /opt/xqt-saas/.env

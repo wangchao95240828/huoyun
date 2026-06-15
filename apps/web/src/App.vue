@@ -19,6 +19,7 @@ import {
   Landmark,
   Globe,
   Plane,
+  Boxes,
   FileText,
   DollarSign,
   CreditCard,
@@ -247,6 +248,62 @@ const accKeyword = ref("");
 const showAdvancedFilter = ref(false);
 // 财务对账：仅看缺成本订单（有 AR 无 AP）
 const missingCostOnly = ref(false);
+// 3D 配载方案 — 新建求解对话框
+const showStowageDialog = ref(false);
+const stowageData = reactive({
+  containerCode: '40HC-001',
+  length_cm: 1200,
+  width_cm: 230,
+  height_cm: 260,
+  max_weight_kg: 26000,
+  shipmentIds: '',
+  route: '',
+  enableLifo: true,
+});
+function openStowageDialog() {
+  showStowageDialog.value = true;
+  stowageData.shipmentIds = '';
+  stowageData.route = '';
+}
+async function doStowageSolve() {
+  if (!stowageData.shipmentIds.trim()) {
+    setBizError('请输入至少 1 个 shipmentId');
+    return;
+  }
+  bizLoading.value = true;
+  try {
+    const body = {
+      container: {
+        code: stowageData.containerCode,
+        length_cm: Number(stowageData.length_cm),
+        width_cm: Number(stowageData.width_cm),
+        height_cm: Number(stowageData.height_cm),
+        max_weight_kg: Number(stowageData.max_weight_kg),
+      },
+      shipmentIds: stowageData.shipmentIds.split(/[,\s]+/).filter(Boolean),
+      route: stowageData.route ? stowageData.route.split(/[,\s]+/).filter(Boolean) : [],
+      enableLifo: stowageData.enableLifo,
+    };
+    const res = await apiFetch(`${API}/api/acc/stowage/plan/auto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json();
+    if (res.ok) {
+      setBizOk(`配载方案 ${j.planNo} 求解完成: 装入 ${j.result.fitted_count} 件, 利用率 ${(j.result.volume_utilization * 100).toFixed(1)}%`);
+      showStowageDialog.value = false;
+      fetchAccData();
+    } else {
+      setBizError('求解失败: ' + (j.error ?? res.status));
+    }
+  } catch (e: any) {
+    setBizError('求解异常: ' + e.message);
+  } finally {
+    bizLoading.value = false;
+  }
+}
+
 // 财务中心 "新增成本" — 哪些 tab 显示按钮
 const costAddTabSet = new Set([
   'costs', 'costs-pending', 'costs-history', 'costs-import',
@@ -781,6 +838,7 @@ const accTabs = [
   { key: "shipments-exception", label: "异常订单", icon: AlertTriangle, api: "shipments", statusFilter: "EXCEPTION" },
   { key: "shipments-delivered-today", label: "今日签收", icon: CheckCircle, api: "shipments", statusFilter: "DELIVERED_TODAY" },
   { key: "stowages", label: "配载管理", icon: Plane, api: "stowages" },
+  { key: "stowage-plans", label: "3D 配载方案", icon: Boxes, api: "stowage/plan" },
   { key: "packages", label: "装箱单", icon: PackageOpen, api: "packages" },
   { key: "transits", label: "转运管理", icon: Ship, api: "transits" },
   { key: "ports", label: "港口管理", icon: Anchor, api: "ports" },
@@ -997,6 +1055,7 @@ const accGroupStowage = [
   T("shipments-query"),                     // ACC 配载中心「快件查询」
   T("shipments-today"),                     // ACC 配载中心「今日快件」
   T("stowages"),
+  T("stowage-plans"),                       // 3D 配载方案 (新)
   T("stowages-exception"),                  // 异常提单
   T("packages"),
   T("transits"),
@@ -1258,6 +1317,19 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
 });
 
 Object.assign(accColumns, {
+  'stowage-plans': [
+    { key: 'plan_no',            label: '方案号' },
+    { key: 'container_code',     label: '柜号' },
+    { key: 'status',             label: '状态' },
+    { key: 'fitted_count',       label: '装入件数' },
+    { key: 'unfitted_count',     label: '未装件数' },
+    { key: 'volume_utilization', label: '利用率', fmt: 'percent' },
+    { key: 'weight_used_kg',     label: '总重(kg)', fmt: 'money' },
+    { key: 'weight_max_kg',      label: '载重上限(kg)', fmt: 'money' },
+    { key: 'created_at',         label: '创建时间', fmt: 'date' },
+    { key: 'solved_at',          label: '求解时间', fmt: 'date' },
+    { key: 'approved_at',        label: '审定时间', fmt: 'date' },
+  ],
   orders: [
     { key: "orderNo", label: "客户单号" },
     { key: "trackNo", label: "服务商单号" },
@@ -6181,6 +6253,12 @@ async function doReloadBill(id: number) {
             </button>
           </template>
           <!-- 财务工作台 - 待审核 tab 工具栏（一审 / 出账 / 合并 三选一）-->
+          <!-- 配载中心 → 3D 配载方案 -->
+          <button v-if="accTab === 'stowage-plans'" class="primary sm"
+                  @click="openStowageDialog" :disabled="bizLoading"
+                  title="自动求解配载方案（指定 shipmentIds + 柜规格）">
+            <Boxes :size="13" /> 自动求解配载方案
+          </button>
           <!-- 财务/核算中心通用：新增成本（独立入口，自选订单） -->
           <button v-if="showCostAddButton" class="primary sm"
                   @click="openAddCostStandalone" :disabled="bizLoading"
@@ -7943,6 +8021,67 @@ async function doReloadBill(id: number) {
         </div>
         <div class="modal-footer">
           <button class="secondary" @click="showAuditHistory = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3D 配载方案对话框 -->
+    <div class="modal-backdrop" v-if="showStowageDialog" @click.self="showStowageDialog = false">
+      <div class="modal-dialog" style="max-width:560px">
+        <div class="modal-header">
+          <h3>自动求解配载方案</h3>
+          <button class="modal-close" @click="showStowageDialog = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#dbeafe;color:#1e3a8a;padding:8px 12px;border-radius:4px;margin-bottom:12px;font-size:12px;line-height:1.6">
+            💡 输入要装柜的 shipment IDs（系统会自动拉每个 shipment 下的 cartons），
+            按柜规格用 3D Bin Packing + LIFO 求解，落 stowage_plans 表。
+            <br/>客户路线写"A,B,C"表示 A 先卸 (LIFO 自动反向排进柜)。
+          </div>
+          <div class="form-grid">
+            <div class="form-field">
+              <label>柜号</label>
+              <input type="text" v-model="stowageData.containerCode" />
+            </div>
+            <div class="form-field">
+              <label>柜长(cm) <span class="required">*</span></label>
+              <input type="number" v-model.number="stowageData.length_cm" />
+            </div>
+            <div class="form-field">
+              <label>柜宽(cm) <span class="required">*</span></label>
+              <input type="number" v-model.number="stowageData.width_cm" />
+            </div>
+            <div class="form-field">
+              <label>柜高(cm) <span class="required">*</span></label>
+              <input type="number" v-model.number="stowageData.height_cm" />
+            </div>
+            <div class="form-field">
+              <label>载重上限(kg) <span class="required">*</span></label>
+              <input type="number" v-model.number="stowageData.max_weight_kg" />
+            </div>
+            <div class="form-field">
+              <label>启用 LIFO</label>
+              <select v-model="stowageData.enableLifo">
+                <option :value="true">是 (按 route 倒序装)</option>
+                <option :value="false">否</option>
+              </select>
+            </div>
+            <div class="form-field full-width">
+              <label>Shipment IDs <span class="required">*</span></label>
+              <textarea v-model="stowageData.shipmentIds" rows="3" placeholder="多个 UUID，逗号/换行/空格分隔" />
+            </div>
+            <div class="form-field full-width">
+              <label>客户路线 (customer_id 数组,逗号分隔；可选)</label>
+              <input type="text" v-model="stowageData.route" placeholder="A,B,C — A 最先卸" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showStowageDialog = false">取消</button>
+          <button class="primary" @click="doStowageSolve"
+                  :disabled="bizLoading || !stowageData.shipmentIds.trim()">
+            <Boxes :size="14" /> 求解并落库
+          </button>
         </div>
       </div>
     </div>
