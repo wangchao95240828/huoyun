@@ -478,10 +478,10 @@ public class AccStowagePlanController {
 
     private byte[] buildLoadingSheetPdf(Map<String, Object> plan, List<Map<String, Object>> items) {
         try (org.apache.pdfbox.pdmodel.PDDocument doc = new org.apache.pdfbox.pdmodel.PDDocument()) {
-            // 加载嵌入的 NotoSansSC 简体中文字体 (classpath:/fonts/NotoSansSC-Regular.otf)
+            // 加载嵌入的 NotoSansSC 简体中文字体 (TrueType outline, PDFBox 支持)
             org.apache.pdfbox.pdmodel.font.PDFont cjk;
-            try (java.io.InputStream is = getClass().getResourceAsStream("/fonts/NotoSansSC-Regular.otf")) {
-                if (is == null) throw new RuntimeException("找不到字体资源 /fonts/NotoSansSC-Regular.otf");
+            try (java.io.InputStream is = getClass().getResourceAsStream("/fonts/NotoSansSC-Regular.ttf")) {
+                if (is == null) throw new RuntimeException("找不到字体资源 /fonts/NotoSansSC-Regular.ttf");
                 cjk = org.apache.pdfbox.pdmodel.font.PDType0Font.load(doc, is, true);
             }
 
