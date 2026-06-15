@@ -1,6 +1,12 @@
 import datetime as dt
 import re
+import sys
 import typing as tp
+
+if sys.version_info < (3, 11):
+    # Python 3.10 没有 typing.Self；用 typing_extensions 兼容
+    from typing_extensions import Self as _Self
+    tp.Self = _Self  # type: ignore[attr-defined]
 
 import pydantic as pd
 

@@ -16,25 +16,28 @@ import schemas
 expect_response_re: re.Pattern[str] = re.compile(r'api.fedex.com/track/v2/shipments')
 
 
-async def scrape(context: pr.BrowserContext, id: str, timeout: dt.timedelta) -> schemas.Response:
+async def _scrape_inner(context: pr.BrowserContext, id: str) -> schemas.Response:
     page = await context.new_page()
     try:
-        async with asyncio.timeout(timeout.seconds):
-            async with page.expect_response(expect_response_re, timeout=0) as info:
-                response: pr.Response | None = await page.goto(
-                    f'https://www.fedex.com/wtrk/track/?action=track&tracknumbers={id}&locale=en_US&cntry_code=us',
-                    timeout=0,
-                )
-                if response is None:
-                    raise Exception('none response')
-                if not response.ok:
-                    raise Exception(f'status: {response.status}')
+        async with page.expect_response(expect_response_re, timeout=0) as info:
+            response: pr.Response | None = await page.goto(
+                f'https://www.fedex.com/wtrk/track/?action=track&tracknumbers={id}&locale=en_US&cntry_code=us',
+                timeout=0,
+            )
+            if response is None:
+                raise Exception('none response')
+            if not response.ok:
+                raise Exception(f'status: {response.status}')
 
-                response = await info.value
-                return schemas.Response.model_validate_json(await response.body(), extra='ignore')
-
+            response = await info.value
+            return schemas.Response.model_validate_json(await response.body(), extra='ignore')
     finally:
         await page.close()
+
+
+async def scrape(context: pr.BrowserContext, id: str, timeout: dt.timedelta) -> schemas.Response:
+    # py3.10 没有 asyncio.timeout(); 用 wait_for 等价替代
+    return await asyncio.wait_for(_scrape_inner(context, id), timeout=timeout.total_seconds())
 
 
 headless: bool = False
@@ -79,7 +82,7 @@ async def get(id: schemas.DigitalStr, timeout: pd.NonNegativeFloat = 30) -> fa.R
 def main(port: int, headless_: bool):
     global headless
     headless = headless_
-    uvicorn.run(app, host='127.0.0.1', port=port, timeout_graceful_shutdown=30)
+    uvicorn.run(app, host='0.0.0.0', port=port, timeout_graceful_shutdown=30)
 
 
 if __name__ == '__main__':

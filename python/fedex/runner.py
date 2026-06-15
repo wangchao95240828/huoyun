@@ -28,7 +28,7 @@ CRAWLER_URL  = os.environ.get("FEDEX_CRAWLER_URL", "http://127.0.0.1:8080").rstr
 TIMEOUT      = int(os.environ.get("FEDEX_TIMEOUT", "60"))
 
 
-def classify(tn: str) -> str | None:
+def classify(tn: str) -> "str | None":
     """按运单号格式判断承运商。"""
     t = tn.strip().upper()
     if t.startswith("1Z") and len(t) == 18:
@@ -38,7 +38,7 @@ def classify(tn: str) -> str | None:
     return None
 
 
-def fetch_pending() -> list[dict]:
+def fetch_pending():  # -> List[dict]
     """拉待跟踪运单。优先 admin token；没有就从 stdin \\n 分隔读。"""
     if not ADMIN_TOKEN:
         if not sys.stdin.isatty():
@@ -62,7 +62,7 @@ def fetch_pending() -> list[dict]:
 
 
 # ─── FedEx: 调爬虫 + POST ingest ───
-def crawl_fedex(tn: str) -> dict | None:
+def crawl_fedex(tn: str):  # -> Optional[dict]
     url = f"{CRAWLER_URL}/{tn}?timeout={TIMEOUT}"
     try:
         with urlreq.urlopen(url, timeout=TIMEOUT + 10) as resp:
