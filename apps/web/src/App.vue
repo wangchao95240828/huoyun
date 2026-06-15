@@ -247,6 +247,14 @@ const accKeyword = ref("");
 const showAdvancedFilter = ref(false);
 // 财务对账：仅看缺成本订单（有 AR 无 AP）
 const missingCostOnly = ref(false);
+// 财务中心 "新增成本" — 哪些 tab 显示按钮
+const costAddTabSet = new Set([
+  'costs', 'costs-pending', 'costs-history', 'costs-import',
+  'fwb-pending', 'fwb-prepay', 'fwb-invoiced',
+  'charges', 'charges-pending',
+]);
+const showCostAddButton = computed(() => costAddTabSet.has(accTab.value));
+
 // 添加成本对话框
 const showAddCostDialog = ref(false);
 const addCostOrderId = ref('');
@@ -258,6 +266,7 @@ const addCostData = reactive({
   remark: '',
 });
 function openAddCostDialog(row: any) {
+  addCostStandalone.value = false;
   addCostOrderId.value = row.id;
   addCostOrderNo.value = row.orderNo || row.order_no || '';
   addCostData.amount = '';
@@ -265,6 +274,48 @@ function openAddCostDialog(row: any) {
   addCostData.chargeItemCode = '';
   addCostData.remark = '';
   showAddCostDialog.value = true;
+}
+
+// 财务中心独立入口：先 preload 客户+订单选项，再开 dialog 让用户选订单
+const addCostStandalone = ref(false);
+const addCostCustomerId = ref('');
+const addCostOrderOptions = ref<{id: string; orderNo: string; status: string}[]>([]);
+async function openAddCostStandalone() {
+  addCostStandalone.value = true;
+  addCostOrderId.value = '';
+  addCostOrderNo.value = '';
+  addCostCustomerId.value = '';
+  addCostOrderOptions.value = [];
+  addCostData.amount = '';
+  addCostData.currency = 'CNY';
+  addCostData.chargeItemCode = '';
+  addCostData.remark = '';
+  showAddCostDialog.value = true;
+  // preload 客户下拉
+  await loadSelectOptions([{ type: 'select', ref: 'customers' } as any]);
+}
+// 选定客户后加载该客户已 SUBMITTED+ 订单
+async function loadOrdersForCustomer() {
+  addCostOrderOptions.value = [];
+  addCostOrderId.value = '';
+  addCostOrderNo.value = '';
+  if (!addCostCustomerId.value) return;
+  try {
+    const res = await apiFetch(
+      `${API}/api/acc/orders?customerIds=${addCostCustomerId.value}&pageSize=100&statuses=SUBMITTED,ACCEPTED,FULFILLING,COMPLETED`
+    );
+    const j = await res.json();
+    addCostOrderOptions.value = (j.data || []).map((o: any) => ({
+      id: o.id, orderNo: o.orderNo || o.order_no, status: o.status,
+    }));
+  } catch (e: any) {
+    setBizError('加载订单失败: ' + e.message);
+  }
+}
+function pickAddCostOrder(orderId: string) {
+  addCostOrderId.value = orderId;
+  const opt = addCostOrderOptions.value.find(o => o.id === orderId);
+  addCostOrderNo.value = opt?.orderNo || '';
 }
 async function doAddCost() {
   if (!addCostOrderId.value || !addCostData.amount) {
@@ -6130,6 +6181,13 @@ async function doReloadBill(id: number) {
             </button>
           </template>
           <!-- 财务工作台 - 待审核 tab 工具栏（一审 / 出账 / 合并 三选一）-->
+          <!-- 财务/核算中心通用：新增成本（独立入口，自选订单） -->
+          <button v-if="showCostAddButton" class="primary sm"
+                  @click="openAddCostStandalone" :disabled="bizLoading"
+                  title="给指定订单补录应付成本（落到「待核成本」一审通过即可付供应商）"
+                  style="background:#dc2626;border-color:#dc2626">
+            <CreditCard :size="13" /> ⊕ 新增成本
+          </button>
           <template v-if="accTab === 'fwb-pending'">
             <button class="secondary sm" @click="doAuditCharges" :disabled="bizLoading || selectedIds.size === 0">
               <CheckCircle :size="13" /> 一审通过({{ selectedIds.size }})
@@ -7891,9 +7949,9 @@ async function doReloadBill(id: number) {
 
     <!-- 添加成本对话框 (AP 应付) -->
     <div class="modal-backdrop" v-if="showAddCostDialog" @click.self="showAddCostDialog = false">
-      <div class="modal-dialog" style="max-width:520px">
+      <div class="modal-dialog" style="max-width:560px">
         <div class="modal-header">
-          <h3>添加应付成本 — {{ addCostOrderNo }}</h3>
+          <h3>{{ addCostStandalone ? '新增成本（自选订单）' : '添加应付成本 — ' + addCostOrderNo }}</h3>
           <button class="modal-close" @click="showAddCostDialog = false"><X :size="18" /></button>
         </div>
         <div class="modal-body">
@@ -7902,6 +7960,28 @@ async function doReloadBill(id: number) {
             <br/>常用费用类型: FREIGHT (运费) / FUEL (燃油) / REMOTE (偏远) / TAX (关税) / OTHER (其他)
           </div>
           <div class="form-grid">
+            <!-- 财务中心独立入口：先选客户 → 选订单 -->
+            <template v-if="addCostStandalone">
+              <div class="form-field">
+                <label>客户 <span class="required">*</span></label>
+                <select v-model="addCostCustomerId" @change="loadOrdersForCustomer">
+                  <option value="">请选择客户</option>
+                  <option v-for="opt in (selectOptions['customers'] ?? [])"
+                          :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label>订单 <span class="required">*</span></label>
+                <select v-model="addCostOrderId" @change="pickAddCostOrder(addCostOrderId)"
+                        :disabled="!addCostCustomerId || !addCostOrderOptions.length">
+                  <option value="">{{ addCostCustomerId ? (addCostOrderOptions.length ? '请选择订单' : '该客户无可补成本的订单') : '请先选客户' }}</option>
+                  <option v-for="o in addCostOrderOptions" :key="o.id" :value="o.id">
+                    {{ o.orderNo }} ({{ o.status }})
+                  </option>
+                </select>
+              </div>
+            </template>
+
             <div class="form-field">
               <label>成本金额 <span class="required">*</span></label>
               <input type="number" step="0.01" v-model="addCostData.amount" placeholder="如 35.50" />
@@ -7928,7 +8008,8 @@ async function doReloadBill(id: number) {
         </div>
         <div class="modal-footer">
           <button class="secondary" @click="showAddCostDialog = false">取消</button>
-          <button class="primary" @click="doAddCost" :disabled="bizLoading || !addCostData.amount">
+          <button class="primary" @click="doAddCost"
+                  :disabled="bizLoading || !addCostData.amount || (addCostStandalone && !addCostOrderId)">
             <CreditCard :size="14" /> 落到「待核成本」
           </button>
         </div>
