@@ -76,6 +76,14 @@ springdoc:
     operations-sorter: method
     tags-sorter: alpha
 
+xqt:
+  tracking:
+    # 外部爬虫 (FedEx/UPS) 推送 tracking_events 时校验 X-Ingest-Token
+    # 生产: 用 openssl rand -hex 32 生成随机串，部署到 /opt/xqt-saas/.env
+    # 留空 = 禁用鉴权 (仅 dev/demo)
+    ingest-token: ${XQT_TRACKING_INGEST_TOKEN:}
+    tenant-id:    ${XQT_TENANT_ID:2bda8c16-7b19-4ce6-ab71-9584f5a140ed}
+
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: com.xqt.saas.finance.entity

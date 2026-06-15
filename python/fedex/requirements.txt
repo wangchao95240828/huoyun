@@ -1,0 +1,2 @@
+# pusher.py 和 runner.py 都用标准库，无需 pip 安装
+# 你的 crawler.py 如果用 requests/playwright 在这加
