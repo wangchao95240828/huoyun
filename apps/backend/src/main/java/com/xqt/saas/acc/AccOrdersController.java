@@ -680,7 +680,7 @@ public class AccOrdersController {
     }
 
     /** "a,b,c" → [a,b,c]，空/null 返回空表。trim 每个 item 并丢空。 */
-    private static java.util.List<String> splitCsv(String s) {
+    static java.util.List<String> splitCsv(String s) {
         if (s == null || s.isBlank()) return java.util.List.of();
         java.util.List<String> out = new java.util.ArrayList<>();
         for (String it : s.split(",")) {
@@ -691,7 +691,7 @@ public class AccOrdersController {
     }
 
     /** n=3 → "?,?,?"。给 IN 子句用。 */
-    private static String qMarks(int n) {
+    static String qMarks(int n) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < n; i++) {
             if (i > 0) sb.append(",");

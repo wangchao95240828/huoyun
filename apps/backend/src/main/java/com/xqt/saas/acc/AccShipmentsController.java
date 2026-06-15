@@ -59,7 +59,22 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String dateFrom,
         @RequestParam(required = false) String dateTo,
-        @RequestParam(required = false) String status
+        @RequestParam(required = false) String status,
+        // 多条件多选筛选（comma-separated 多值）
+        @RequestParam(required = false) String customerIds,
+        @RequestParam(required = false) String channelCodes,
+        @RequestParam(required = false) String countries,
+        @RequestParam(required = false) String statuses,
+        @RequestParam(required = false) String auditStatuses,
+        @RequestParam(required = false) String branchIds,
+        @RequestParam(required = false) String postcode,
+        @RequestParam(required = false) String trackingNo,
+        @RequestParam(required = false) String createdFrom,
+        @RequestParam(required = false) String createdTo,
+        @RequestParam(required = false) String submittedFrom,
+        @RequestParam(required = false) String submittedTo,
+        @RequestParam(required = false) String deliveredFrom,
+        @RequestParam(required = false) String deliveredTo
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
@@ -69,9 +84,54 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
             // ACC 配载中心子页过滤：把高层语义 status 转 SQL where 片段
             String statusFilter = buildShipmentsStatusFilter(status);
 
+            // 多条件 ad-hoc filter
+            StringBuilder advFilter = new StringBuilder();
+            java.util.List<Object> advParams = new java.util.ArrayList<>();
+            java.util.List<String> cidList = AccOrdersController.splitCsv(customerIds);
+            java.util.List<String> chList  = AccOrdersController.splitCsv(channelCodes);
+            java.util.List<String> ctList  = AccOrdersController.splitCsv(countries);
+            java.util.List<String> stList  = AccOrdersController.splitCsv(statuses);
+            java.util.List<String> auList  = AccOrdersController.splitCsv(auditStatuses);
+            java.util.List<String> brList  = AccOrdersController.splitCsv(branchIds);
+            if (!cidList.isEmpty()) {
+                advFilter.append(" AND s.customer_id::text IN (").append(AccOrdersController.qMarks(cidList.size())).append(")");
+                advParams.addAll(cidList);
+            }
+            if (!chList.isEmpty()) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM channels _ch WHERE _ch.id = s.channel_id"
+                    + " AND _ch.code IN (").append(AccOrdersController.qMarks(chList.size())).append("))");
+                advParams.addAll(chList);
+            }
+            if (!ctList.isEmpty()) {
+                advFilter.append(" AND s.destination_country IN (").append(AccOrdersController.qMarks(ctList.size())).append(")");
+                advParams.addAll(ctList);
+            }
+            if (!stList.isEmpty()) {
+                advFilter.append(" AND s.status::text IN (").append(AccOrdersController.qMarks(stList.size())).append(")");
+                advParams.addAll(stList);
+            }
+            if (!auList.isEmpty()) {
+                advFilter.append(" AND s.audit_status IN (").append(AccOrdersController.qMarks(auList.size())).append(")");
+                advParams.addAll(auList);
+            }
+            if (!brList.isEmpty()) {
+                advFilter.append(" AND s.branch_id::text IN (").append(AccOrdersController.qMarks(brList.size())).append(")");
+                advParams.addAll(brList);
+            }
+            if (postcode != null && !postcode.isBlank())   { advFilter.append(" AND s.destination_postal_code ILIKE ?"); advParams.add("%" + postcode + "%"); }
+            if (trackingNo != null && !trackingNo.isBlank()){ advFilter.append(" AND EXISTS (SELECT 1 FROM cartons _ct WHERE _ct.shipment_id=s.id AND _ct.tracking_no ILIKE ?)"); advParams.add("%" + trackingNo + "%"); }
+            if (createdFrom != null && !createdFrom.isBlank()) { advFilter.append(" AND s.created_at >= ?::date"); advParams.add(createdFrom); }
+            if (createdTo   != null && !createdTo.isBlank())   { advFilter.append(" AND s.created_at < (?::date + 1)"); advParams.add(createdTo); }
+            if (submittedFrom != null && !submittedFrom.isBlank()) { advFilter.append(" AND s.ordered_at >= ?::date"); advParams.add(submittedFrom); }
+            if (submittedTo   != null && !submittedTo.isBlank())   { advFilter.append(" AND s.ordered_at < (?::date + 1)"); advParams.add(submittedTo); }
+            if (deliveredFrom != null && !deliveredFrom.isBlank()) { advFilter.append(" AND s.delivered_at >= ?::date"); advParams.add(deliveredFrom); }
+            if (deliveredTo   != null && !deliveredTo.isBlank())   { advFilter.append(" AND s.delivered_at < (?::date + 1)"); advParams.add(deliveredTo); }
+            String advFilterSql = advFilter.toString();
+
             var access = branchAccess.forCurrent("s");
             java.util.List<Object> countParams = new java.util.ArrayList<>(java.util.Arrays.asList(
                 search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+            countParams.addAll(advParams);
             countParams.addAll(access.params());
             Long total = jdbc.queryForObject(
                 "SELECT count(*) FROM shipments s"
@@ -79,6 +139,7 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
                 + "   AND (?::date IS NULL OR s.created_at >= ?::date)"
                 + "   AND (?::date IS NULL OR s.created_at < (?::date + 1))"
                 + statusFilter
+                + advFilterSql
                 + access.sql(),
                 Long.class, countParams.toArray());
 
@@ -137,10 +198,11 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
                 + " AND (?::date IS NULL OR s.created_at >= ?::date)"
                 + " AND (?::date IS NULL OR s.created_at < (?::date + 1))"
                 + statusFilter
+                + advFilterSql
                 + access.sql()
                 + " ORDER BY s.created_at DESC"
                 + " LIMIT ? OFFSET ?",
-                buildListParams(search, dateFrom, dateTo, access, limit, offset));
+                buildListParamsWithAdv(search, dateFrom, dateTo, advParams, access, limit, offset));
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
@@ -335,6 +397,20 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
                                              int limit, int offset) {
         java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
             search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(access.params());
+        params.add(limit);
+        params.add(offset);
+        return params.toArray();
+    }
+
+    /** 同 buildListParams 但在 access 之前插入 adv-filter 参数（顺序必须与 SQL 占位符一致）。 */
+    private static Object[] buildListParamsWithAdv(String search, String dateFrom, String dateTo,
+                                                    java.util.List<Object> advParams,
+                                                    BranchAccessFilter.AccessClause access,
+                                                    int limit, int offset) {
+        java.util.List<Object> params = new java.util.ArrayList<>(java.util.Arrays.asList(
+            search, search, search, dateFrom, dateFrom, dateTo, dateTo));
+        params.addAll(advParams);
         params.addAll(access.params());
         params.add(limit);
         params.add(offset);

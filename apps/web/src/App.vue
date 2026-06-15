@@ -245,50 +245,144 @@ const accPageSize = ref(50);
 const accLoading = ref(false);
 const accKeyword = ref("");
 const showAdvancedFilter = ref(false);
+
+// 多条件筛选 — 30+ 字段覆盖 ACC 大货运单页全部条件
 const advFilters = reactive<{
+  // 多选 chip
   customers: string[]; channels: string[]; countries: string[];
   statuses: string[]; auditStatuses: string[]; addNames: string[];
-  postcode: string; trackingNo: string;
+  branches: string[]; sellers: string[]; servicers: string[];
+  warehouses: string[]; carriers: string[];
+  currencies: string[]; sides: string[]; settlementStatuses: string[];
+  // 单值文本
+  postcode: string; trackingNo: string; recipientName: string;
+  vatNo: string; poNumber: string; amazonRef: string;
+  binLocation: string; mainItem: string;
+  // 时间区间
   createdFrom: string; createdTo: string;
   submittedFrom: string; submittedTo: string;
+  deliveredFrom: string; deliveredTo: string;
+  // 金额区间
+  amountFrom: string; amountTo: string;
 }>({
   customers: [], channels: [], countries: [],
   statuses: [], auditStatuses: [], addNames: [],
-  postcode: '', trackingNo: '',
+  branches: [], sellers: [], servicers: [],
+  warehouses: [], carriers: [],
+  currencies: [], sides: [], settlementStatuses: [],
+  postcode: '', trackingNo: '', recipientName: '',
+  vatNo: '', poNumber: '', amazonRef: '',
+  binLocation: '', mainItem: '',
   createdFrom: '', createdTo: '',
   submittedFrom: '', submittedTo: '',
+  deliveredFrom: '', deliveredTo: '',
+  amountFrom: '', amountTo: '',
 });
-// 切到 orders tab 或展开高级筛选时，自动 preload 客户/渠道/国家选项
+
+// 每个 tab 显示哪些 filter（按业务相关性裁剪）
+type FilterKey = keyof typeof advFilters;
+const tabFilterSpec: Record<string, FilterKey[]> = {
+  orders: ['customers','channels','countries','statuses','auditStatuses',
+           'branches','sellers','servicers','warehouses','carriers',
+           'postcode','trackingNo','recipientName','vatNo','poNumber','amazonRef','binLocation','mainItem',
+           'createdFrom','submittedFrom','deliveredFrom','addNames'],
+  shipments: ['customers','channels','countries','statuses','auditStatuses','branches',
+              'postcode','trackingNo','createdFrom','submittedFrom','deliveredFrom'],
+  charges:   ['customers','currencies','sides','statuses','auditStatuses','settlementStatuses',
+              'createdFrom','amountFrom'],
+  costs:     ['customers','currencies','sides','statuses','auditStatuses','settlementStatuses',
+              'createdFrom','amountFrom'],
+  bills:     ['customers','currencies','statuses','auditStatuses','createdFrom','amountFrom'],
+  receiveds: ['customers','currencies','statuses','auditStatuses','createdFrom','amountFrom'],
+  payments:  ['customers','currencies','statuses','auditStatuses','createdFrom','amountFrom'],
+};
+const advFilterFieldsForTab = computed<Set<FilterKey>>(() => {
+  const apiKey = (() => {
+    if (ordersTabSet.has(accTab.value)) return 'orders';
+    const t = accTabs.find(t => t.key === accTab.value);
+    return t?.api ?? accTab.value;
+  })();
+  return new Set((tabFilterSpec[apiKey] ?? []) as FilterKey[]);
+});
+const showAdvFilterButton = computed(() => advFilterFieldsForTab.value.size > 0);
+
+// preload select options 当展开高级筛选时
 watch([accTab, showAdvancedFilter], async () => {
-  if (showAdvancedFilter.value && ordersTabSet.has(accTab.value)) {
-    await loadSelectOptions([
-      { type: 'select', ref: 'customers' } as any,
-      { type: 'select', ref: 'channels' } as any,
-      { type: 'select', ref: 'countries' } as any,
-    ]);
+  if (!showAdvancedFilter.value) return;
+  const fields = advFilterFieldsForTab.value;
+  const refs: string[] = [];
+  if (fields.has('customers'))  refs.push('customers');
+  if (fields.has('channels'))   refs.push('channels');
+  if (fields.has('countries'))  refs.push('countries');
+  if (fields.has('branches'))   refs.push('branches');
+  if (fields.has('sellers') || fields.has('servicers')) refs.push('employees');
+  if (fields.has('warehouses')) refs.push('warehouses');
+  if (fields.has('currencies')) refs.push('currencies');
+  if (refs.length) {
+    await loadSelectOptions(refs.map(r => ({ type: 'select', ref: r } as any)));
   }
 });
+
 function clearAdvFilters() {
-  advFilters.customers = []; advFilters.channels = []; advFilters.countries = [];
-  advFilters.statuses = []; advFilters.auditStatuses = []; advFilters.addNames = [];
-  advFilters.postcode = ''; advFilters.trackingNo = '';
-  advFilters.createdFrom = ''; advFilters.createdTo = '';
-  advFilters.submittedFrom = ''; advFilters.submittedTo = '';
+  Object.keys(advFilters).forEach(k => {
+    const v = (advFilters as any)[k];
+    (advFilters as any)[k] = Array.isArray(v) ? [] : '';
+  });
 }
 function activeAdvFilterCount(): number {
   let n = 0;
-  if (advFilters.customers.length) n++;
-  if (advFilters.channels.length) n++;
-  if (advFilters.countries.length) n++;
-  if (advFilters.statuses.length) n++;
-  if (advFilters.auditStatuses.length) n++;
-  if (advFilters.addNames.length) n++;
-  if (advFilters.postcode) n++;
-  if (advFilters.trackingNo) n++;
-  if (advFilters.createdFrom || advFilters.createdTo) n++;
-  if (advFilters.submittedFrom || advFilters.submittedTo) n++;
-  return n;
+  Object.values(advFilters).forEach(v => {
+    if (Array.isArray(v)) { if (v.length) n++; }
+    else if (typeof v === 'string' && v.trim()) n++;
+  });
+  // 区间字段 from-to 视为 1 个条件
+  if (advFilters.createdFrom && advFilters.createdTo) n--;
+  if (advFilters.submittedFrom && advFilters.submittedTo) n--;
+  if (advFilters.deliveredFrom && advFilters.deliveredTo) n--;
+  if (advFilters.amountFrom && advFilters.amountTo) n--;
+  return Math.max(0, n);
 }
+
+// ───────── 筛选预设 (B) — localStorage 持久化 ─────────
+interface FilterPreset { name: string; tab: string; data: any }
+const filterPresets = ref<FilterPreset[]>([]);
+const showPresetMenu = ref(false);
+function loadPresetsFromStorage() {
+  try {
+    const raw = localStorage.getItem('xqt.filter.presets');
+    filterPresets.value = raw ? JSON.parse(raw) : [];
+  } catch { filterPresets.value = []; }
+}
+function savePresetsToStorage() {
+  try { localStorage.setItem('xqt.filter.presets', JSON.stringify(filterPresets.value)); }
+  catch { /* quota exceeded */ }
+}
+function saveCurrentAsPreset() {
+  const name = prompt('保存为预设方案，输入方案名称:')?.trim();
+  if (!name) return;
+  const data: any = {};
+  Object.entries(advFilters).forEach(([k,v]) => {
+    if (Array.isArray(v) ? v.length : (typeof v === 'string' && v.trim()))
+      data[k] = Array.isArray(v) ? v.slice() : v;
+  });
+  filterPresets.value = filterPresets.value.filter(p => !(p.name === name && p.tab === accTab.value));
+  filterPresets.value.push({ name, tab: accTab.value, data });
+  savePresetsToStorage();
+  setBizOk(`已保存预设: ${name}`);
+}
+function applyPreset(p: FilterPreset) {
+  clearAdvFilters();
+  Object.entries(p.data).forEach(([k,v]) => { (advFilters as any)[k] = Array.isArray(v) ? (v as any[]).slice() : v; });
+  showPresetMenu.value = false;
+  accSearch();
+}
+function deletePreset(p: FilterPreset) {
+  if (!confirm(`删除预设方案 "${p.name}"?`)) return;
+  filterPresets.value = filterPresets.value.filter(x => !(x.name === p.name && x.tab === p.tab));
+  savePresetsToStorage();
+}
+const presetsForCurrentTab = computed(() => filterPresets.value.filter(p => p.tab === accTab.value));
+onMounted(() => loadPresetsFromStorage());
 const accDateFrom = ref("");
 const accDateTo = ref("");
 const accStats = ref<any>(null);
@@ -3314,20 +3408,40 @@ async function fetchAccData() {
   }
   if (accDateFrom.value && !noDateTabs.has(accTab.value)) params.set("dateFrom", accDateFrom.value);
   if (accDateTo.value && !noDateTabs.has(accTab.value)) params.set("dateTo", accDateTo.value);
-  // 高级多条件筛选（orders tab 用，多选用逗号拼接）
-  if (ordersTabSet.has(accTab.value) || tab.api === 'shipments') {
-    if (advFilters.customers.length)     params.set('customerIds', advFilters.customers.join(','));
-    if (advFilters.channels.length)      params.set('channelCodes', advFilters.channels.join(','));
-    if (advFilters.countries.length)     params.set('countries', advFilters.countries.join(','));
-    if (advFilters.statuses.length)      params.set('statuses', advFilters.statuses.join(','));
-    if (advFilters.auditStatuses.length) params.set('auditStatuses', advFilters.auditStatuses.join(','));
-    if (advFilters.addNames.length)      params.set('addNames', advFilters.addNames.join(','));
-    if (advFilters.postcode)             params.set('postcode', advFilters.postcode);
-    if (advFilters.trackingNo)           params.set('trackingNo', advFilters.trackingNo);
-    if (advFilters.createdFrom)          params.set('createdFrom', advFilters.createdFrom);
-    if (advFilters.createdTo)            params.set('createdTo', advFilters.createdTo);
-    if (advFilters.submittedFrom)        params.set('submittedFrom', advFilters.submittedFrom);
-    if (advFilters.submittedTo)          params.set('submittedTo', advFilters.submittedTo);
+  // 高级多条件筛选 — 全部 tab 都注入相应参数；后端各 list endpoint 选择性支持
+  {
+    const setIfArr = (k: string, arr: string[]) => { if (arr.length) params.set(k, arr.join(',')); };
+    const setIfStr = (k: string, v: string) => { if (v && v.trim()) params.set(k, v.trim()); };
+    setIfArr('customerIds',        advFilters.customers);
+    setIfArr('channelCodes',       advFilters.channels);
+    setIfArr('countries',          advFilters.countries);
+    setIfArr('statuses',           advFilters.statuses);
+    setIfArr('auditStatuses',      advFilters.auditStatuses);
+    setIfArr('addNames',           advFilters.addNames);
+    setIfArr('branchIds',          advFilters.branches);
+    setIfArr('sellerIds',          advFilters.sellers);
+    setIfArr('servicerIds',        advFilters.servicers);
+    setIfArr('warehouseCodes',     advFilters.warehouses);
+    setIfArr('carriers',           advFilters.carriers);
+    setIfArr('currencies',         advFilters.currencies);
+    setIfArr('sides',              advFilters.sides);
+    setIfArr('settlementStatuses', advFilters.settlementStatuses);
+    setIfStr('postcode',           advFilters.postcode);
+    setIfStr('trackingNo',         advFilters.trackingNo);
+    setIfStr('recipientName',      advFilters.recipientName);
+    setIfStr('vatNo',              advFilters.vatNo);
+    setIfStr('poNumber',           advFilters.poNumber);
+    setIfStr('amazonRef',          advFilters.amazonRef);
+    setIfStr('binLocation',        advFilters.binLocation);
+    setIfStr('mainItem',           advFilters.mainItem);
+    setIfStr('createdFrom',        advFilters.createdFrom);
+    setIfStr('createdTo',          advFilters.createdTo);
+    setIfStr('submittedFrom',      advFilters.submittedFrom);
+    setIfStr('submittedTo',        advFilters.submittedTo);
+    setIfStr('deliveredFrom',      advFilters.deliveredFrom);
+    setIfStr('deliveredTo',        advFilters.deliveredTo);
+    setIfStr('amountFrom',         advFilters.amountFrom);
+    setIfStr('amountTo',           advFilters.amountTo);
   }
   // 状态 sub-tab → status 参数；profits-* sub-tab → mode 参数（后端不同）
   if ((tab as any).statusFilter) {
@@ -5826,7 +5940,7 @@ async function doReloadBill(id: number) {
           <button class="secondary sm" @click="accKeyword = ''; accDateFrom = ''; accDateTo = ''; clearAdvFilters(); accSearch()">
             重置
           </button>
-          <button v-if="ordersTabSet.has(accTab)" class="secondary sm"
+          <button v-if="showAdvFilterButton" class="secondary sm"
                   @click="showAdvancedFilter = !showAdvancedFilter"
                   :title="showAdvancedFilter ? '收起多条件筛选' : '展开多条件筛选'">
             {{ showAdvancedFilter ? '收起筛选 ▴' : '多条件筛选 ▾' }}<span v-if="activeAdvFilterCount()" class="adv-filter-badge">{{ activeAdvFilterCount() }}</span>
@@ -6055,28 +6169,29 @@ async function doReloadBill(id: number) {
         </div>
 
         <!-- 多条件筛选面板（对齐 ACC 大货运单页：grid 多 filter 同时生效 + 每个下拉多选） -->
-        <div v-if="showAdvancedFilter && ordersTabSet.has(accTab) && !batchPagePanel && !isBatchPrintPage && !isApiDocsPage"
+        <div v-if="showAdvancedFilter && showAdvFilterButton && !batchPagePanel && !isBatchPrintPage && !isApiDocsPage"
              class="adv-filter-panel">
           <div class="adv-filter-grid">
-            <div class="ff">
+            <!-- ▼ 多选 ▼ -->
+            <div v-if="advFilterFieldsForTab.has('customers')" class="ff">
               <label>客户（多选）</label>
               <MultiSelect v-model="advFilters.customers"
                            :options="(selectOptions['customers'] ?? []).map((c: any) => ({ value: c.id, label: c.name }))"
                            placeholder="选择客户" />
             </div>
-            <div class="ff">
+            <div v-if="advFilterFieldsForTab.has('channels')" class="ff">
               <label>产品/渠道（多选）</label>
               <MultiSelect v-model="advFilters.channels"
                            :options="(selectOptions['channels'] ?? []).map((c: any) => ({ value: c.code || c.name, label: c.name }))"
                            placeholder="选择渠道" />
             </div>
-            <div class="ff">
+            <div v-if="advFilterFieldsForTab.has('countries')" class="ff">
               <label>目的国（多选）</label>
               <MultiSelect v-model="advFilters.countries"
                            :options="(selectOptions['countries'] ?? []).map((c: any) => ({ value: c.code || c.name, label: c.name }))"
                            placeholder="选择国家" />
             </div>
-            <div class="ff">
+            <div v-if="advFilterFieldsForTab.has('statuses')" class="ff">
               <label>订单状态（多选）</label>
               <MultiSelect v-model="advFilters.statuses"
                            :options="[
@@ -6089,7 +6204,7 @@ async function doReloadBill(id: number) {
                              { value: 'EXCEPTION', label: '异常' },
                            ]" placeholder="选择状态" />
             </div>
-            <div class="ff">
+            <div v-if="advFilterFieldsForTab.has('auditStatuses')" class="ff">
               <label>审核状态（多选）</label>
               <MultiSelect v-model="advFilters.auditStatuses"
                            :options="[
@@ -6098,15 +6213,106 @@ async function doReloadBill(id: number) {
                              { value: 'UNAUDITED', label: '未审核' },
                            ]" placeholder="选择审核状态" />
             </div>
-            <div class="ff">
+            <div v-if="advFilterFieldsForTab.has('settlementStatuses')" class="ff">
+              <label>结算状态（多选）</label>
+              <MultiSelect v-model="advFilters.settlementStatuses"
+                           :options="[
+                             { value: 'UNSETTLED', label: '未结算' },
+                             { value: 'SETTLED', label: '已结算' },
+                             { value: 'PARTIAL', label: '部分结算' },
+                             { value: 'VOID', label: '已作废' },
+                           ]" placeholder="选择结算状态" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('sides')" class="ff">
+              <label>方向（多选）</label>
+              <MultiSelect v-model="advFilters.sides"
+                           :options="[{ value: 'AR', label: '应收 AR' }, { value: 'AP', label: '应付 AP' }]"
+                           placeholder="选择方向" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('currencies')" class="ff">
+              <label>币种（多选）</label>
+              <MultiSelect v-model="advFilters.currencies"
+                           :options="(selectOptions['currencies'] ?? []).map((c: any) => ({ value: c.code || c.name, label: c.code || c.name }))"
+                           placeholder="选择币种" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('branches')" class="ff">
+              <label>分公司/分支（多选）</label>
+              <MultiSelect v-model="advFilters.branches"
+                           :options="(selectOptions['branches'] ?? []).map((c: any) => ({ value: c.id, label: c.name }))"
+                           placeholder="选择分公司" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('sellers')" class="ff">
+              <label>销售代表（多选）</label>
+              <MultiSelect v-model="advFilters.sellers"
+                           :options="(selectOptions['employees'] ?? []).map((c: any) => ({ value: c.id, label: c.name }))"
+                           placeholder="选择销售代表" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('servicers')" class="ff">
+              <label>客服代表（多选）</label>
+              <MultiSelect v-model="advFilters.servicers"
+                           :options="(selectOptions['employees'] ?? []).map((c: any) => ({ value: c.id, label: c.name }))"
+                           placeholder="选择客服代表" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('warehouses')" class="ff">
+              <label>仓库/站点（多选）</label>
+              <MultiSelect v-model="advFilters.warehouses"
+                           :options="(selectOptions['warehouses'] ?? []).map((c: any) => ({ value: c.code || c.id, label: c.name }))"
+                           placeholder="选择仓库" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('carriers')" class="ff">
+              <label>承运快递（多选）</label>
+              <MultiSelect v-model="advFilters.carriers"
+                           :options="[
+                             { value: 'UPS', label: 'UPS' },
+                             { value: 'FEDEX', label: 'FedEx' },
+                             { value: 'DHL', label: 'DHL' },
+                             { value: 'USPS', label: 'USPS' },
+                             { value: 'TNT', label: 'TNT' },
+                           ]" placeholder="选择承运" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('addNames')" class="ff">
+              <label>添加人（多选）</label>
+              <MultiSelect v-model="advFilters.addNames"
+                           :options="(selectOptions['employees'] ?? []).map((c: any) => ({ value: c.name, label: c.name }))"
+                           placeholder="选择添加人" />
+            </div>
+
+            <!-- ▼ 文本单值 ▼ -->
+            <div v-if="advFilterFieldsForTab.has('postcode')" class="ff">
               <label>邮编</label>
               <input type="text" v-model="advFilters.postcode" placeholder="收件邮编" />
             </div>
-            <div class="ff">
+            <div v-if="advFilterFieldsForTab.has('trackingNo')" class="ff">
               <label>跟踪号</label>
               <input type="text" v-model="advFilters.trackingNo" placeholder="UPS/FedEx 单号" />
             </div>
-            <div class="ff">
+            <div v-if="advFilterFieldsForTab.has('recipientName')" class="ff">
+              <label>收件人</label>
+              <input type="text" v-model="advFilters.recipientName" placeholder="收件人姓名" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('vatNo')" class="ff">
+              <label>VAT 号</label>
+              <input type="text" v-model="advFilters.vatNo" placeholder="增值税号" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('poNumber')" class="ff">
+              <label>PO 编号</label>
+              <input type="text" v-model="advFilters.poNumber" placeholder="客户订单号" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('amazonRef')" class="ff">
+              <label>亚马逊虚拟单号</label>
+              <input type="text" v-model="advFilters.amazonRef" placeholder="Amazon Reference" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('binLocation')" class="ff">
+              <label>库位</label>
+              <input type="text" v-model="advFilters.binLocation" placeholder="货架/库位" />
+            </div>
+            <div v-if="advFilterFieldsForTab.has('mainItem')" class="ff">
+              <label>主品名</label>
+              <input type="text" v-model="advFilters.mainItem" placeholder="货物主品名关键字" />
+            </div>
+
+            <!-- ▼ 时间/金额区间 ▼ -->
+            <div v-if="advFilterFieldsForTab.has('createdFrom')" class="ff">
               <label>创建时间</label>
               <div style="display:flex;gap:4px;align-items:center">
                 <input type="date" v-model="advFilters.createdFrom" />
@@ -6114,12 +6320,28 @@ async function doReloadBill(id: number) {
                 <input type="date" v-model="advFilters.createdTo" />
               </div>
             </div>
-            <div class="ff">
+            <div v-if="advFilterFieldsForTab.has('submittedFrom')" class="ff">
               <label>提交时间</label>
               <div style="display:flex;gap:4px;align-items:center">
                 <input type="date" v-model="advFilters.submittedFrom" />
                 <span style="font-size:11px">至</span>
                 <input type="date" v-model="advFilters.submittedTo" />
+              </div>
+            </div>
+            <div v-if="advFilterFieldsForTab.has('deliveredFrom')" class="ff">
+              <label>签收时间</label>
+              <div style="display:flex;gap:4px;align-items:center">
+                <input type="date" v-model="advFilters.deliveredFrom" />
+                <span style="font-size:11px">至</span>
+                <input type="date" v-model="advFilters.deliveredTo" />
+              </div>
+            </div>
+            <div v-if="advFilterFieldsForTab.has('amountFrom')" class="ff">
+              <label>金额区间</label>
+              <div style="display:flex;gap:4px;align-items:center">
+                <input type="number" step="0.01" v-model="advFilters.amountFrom" placeholder="最小" />
+                <span style="font-size:11px">~</span>
+                <input type="number" step="0.01" v-model="advFilters.amountTo" placeholder="最大" />
               </div>
             </div>
           </div>
@@ -6128,9 +6350,25 @@ async function doReloadBill(id: number) {
               <Search :size="13" /> 应用筛选
             </button>
             <button class="secondary sm" @click="clearAdvFilters(); accSearch()">
-              清空所有条件
+              清空所有
             </button>
-            <span class="adv-filter-hint">当前生效 {{ activeAdvFilterCount() }} 个条件 · 多选下拉支持搜索 + chip 显示</span>
+            <button class="secondary sm" @click="saveCurrentAsPreset"
+                    :disabled="activeAdvFilterCount() === 0"
+                    title="把当前筛选条件保存为预设方案，下次一键加载">
+              💾 保存为方案
+            </button>
+            <span style="position:relative" v-if="presetsForCurrentTab.length">
+              <button class="secondary sm" @click="showPresetMenu = !showPresetMenu">
+                📂 加载方案 ({{ presetsForCurrentTab.length }}) ▾
+              </button>
+              <div v-if="showPresetMenu" class="preset-menu" @click.stop>
+                <div v-for="p in presetsForCurrentTab" :key="p.name" class="preset-item">
+                  <span class="preset-name" @click="applyPreset(p)">{{ p.name }}</span>
+                  <span class="preset-del" @click="deletePreset(p)" title="删除">✕</span>
+                </div>
+              </div>
+            </span>
+            <span class="adv-filter-hint">当前生效 {{ activeAdvFilterCount() }} 个条件</span>
           </div>
         </div>
 
