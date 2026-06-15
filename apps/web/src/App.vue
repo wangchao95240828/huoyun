@@ -644,30 +644,30 @@ const sysTabs = [
 
 const sysColumns: Record<string, Array<{ key: string; label: string }>> = {
   users: [
-    { key: "id", label: "ID" }, { key: "username", label: "用户名" }, { key: "realName", label: "姓名" },
+    { key: "id", label: "编号" }, { key: "username", label: "用户名" }, { key: "realName", label: "姓名" },
     { key: "roleName", label: "角色" }, { key: "email", label: "邮箱" }, { key: "phone", label: "电话" },
     { key: "status", label: "状态" }, { key: "lastLogin", label: "最后登录" },
   ],
   roles: [
-    { key: "id", label: "ID" }, { key: "name", label: "角色名" }, { key: "description", label: "描述" },
+    { key: "id", label: "编号" }, { key: "name", label: "角色名" }, { key: "description", label: "描述" },
     { key: "permissions", label: "权限" }, { key: "createdAt", label: "创建时间" },
   ],
   menus: [
-    { key: "id", label: "ID" }, { key: "parentId", label: "父级" }, { key: "name", label: "菜单名" },
+    { key: "id", label: "编号" }, { key: "parentId", label: "父级" }, { key: "name", label: "菜单名" },
     { key: "path", label: "路径" }, { key: "icon", label: "图标" }, { key: "sort", label: "排序" },
     { key: "permission", label: "权限码" }, { key: "visible", label: "可见" },
   ],
   "op-logs": [
-    { key: "id", label: "ID" }, { key: "username", label: "用户" }, { key: "module", label: "模块" },
+    { key: "id", label: "编号" }, { key: "username", label: "用户" }, { key: "module", label: "模块" },
     { key: "action", label: "操作" }, { key: "target", label: "目标" },
-    { key: "ip", label: "IP" }, { key: "createdAt", label: "时间" },
+    { key: "ip", label: "IP 地址" }, { key: "createdAt", label: "时间" },
   ],
   "error-logs": [
-    { key: "id", label: "ID" }, { key: "level", label: "级别" }, { key: "module", label: "模块" },
+    { key: "id", label: "编号" }, { key: "level", label: "级别" }, { key: "module", label: "模块" },
     { key: "message", label: "消息" }, { key: "created_at", label: "时间" },
   ],
   "sms-logs": [
-    { key: "id", label: "ID" }, { key: "phone", label: "手机号" }, { key: "content", label: "内容" },
+    { key: "id", label: "编号" }, { key: "phone", label: "手机号" }, { key: "content", label: "内容" },
     { key: "template", label: "模板" }, { key: "status", label: "状态" }, { key: "created_at", label: "时间" },
   ],
   configs: [
@@ -678,15 +678,15 @@ const sysColumns: Record<string, Array<{ key: string; label: string }>> = {
     { key: "table_name", label: "表名" }, { key: "row_count", label: "行数" },
   ],
   "cust-accounts": [
-    { key: "id", label: "ID" }, { key: "customerId", label: "客户ID" }, { key: "username", label: "用户名" },
+    { key: "id", label: "编号" }, { key: "customerId", label: "客户ID" }, { key: "username", label: "用户名" },
     { key: "status", label: "状态" }, { key: "lastLogin", label: "最后登录" },
   ],
   "service-msg": [
-    { key: "id", label: "ID" }, { key: "customerId", label: "客户ID" }, { key: "direction", label: "方向" },
+    { key: "id", label: "编号" }, { key: "customerId", label: "客户ID" }, { key: "direction", label: "方向" },
     { key: "content", label: "内容" }, { key: "createdAt", label: "时间" },
   ],
   hardware: [
-    { key: "id", label: "ID" }, { key: "type", label: "类型" }, { key: "name", label: "名称" },
+    { key: "id", label: "编号" }, { key: "type", label: "类型" }, { key: "name", label: "名称" },
     { key: "status", label: "状态" }, { key: "last_heartbeat", label: "最后心跳" },
   ],
 };
@@ -2041,7 +2041,7 @@ Object.assign(accColumns, {
     { key: "address", label: "地址" },
     { key: "product", label: "主营产品" },
     { key: "status", label: "状态" },
-    { key: "qq", label: "QQ" },
+    { key: "qq", label: "QQ 号" },
     { key: "weixin", label: "微信" },
     { key: "addTime", label: "添加时间", fmt: "date" },
   ],
@@ -6439,7 +6439,7 @@ async function doReloadBill(id: number) {
             </div>
             <div v-if="advFilterFieldsForTab.has('amazonRef')" class="ff">
               <label>亚马逊虚拟单号</label>
-              <input type="text" v-model="advFilters.amazonRef" placeholder="Amazon Reference" />
+              <input type="text" v-model="advFilters.amazonRef" placeholder="亚马逊参考号" />
             </div>
             <div v-if="advFilterFieldsForTab.has('binLocation')" class="ff">
               <label>库位</label>
