@@ -16,6 +16,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 
 import schemas
 import solver
+import multi_solver
 
 app = FastAPI(
     title="xqt-saas 3D 配载求解",
@@ -43,6 +44,16 @@ def pack(req: schemas.PackRequest, x_ingest_token: str | None = None):
         return solver.solve(req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"求解失败: {type(e).__name__}: {e}")
+
+
+@app.post("/pack/multi", response_model=multi_solver.MultiPackResult)
+def pack_multi(req: multi_solver.MultiPackRequest, x_ingest_token: str | None = None):
+    """多柜分配: OR-Tools CP-SAT 决定每件去哪个柜 + 每柜 3D 求解。"""
+    _check_token(x_ingest_token)
+    try:
+        return multi_solver.solve_multi(req)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"多柜求解失败: {type(e).__name__}: {e}")
 
 
 @app.post("/pack/ascii", response_class=PlainTextResponse)

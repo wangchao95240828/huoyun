@@ -252,6 +252,7 @@ const missingCostOnly = ref(false);
 // 3D 配载方案 — 新建求解对话框
 const showStowageDialog = ref(false);
 const stowageData = reactive({
+  mode: 'single' as 'single' | 'multi',
   containerCode: '40HC-001',
   length_cm: 1200,
   width_cm: 230,
@@ -260,6 +261,10 @@ const stowageData = reactive({
   shipmentIds: '',
   route: '',
   enableLifo: true,
+  // 多柜模式
+  multi40hcCount: 3,
+  multi20gpCount: 3,
+  packingFactor: 0.85,
 });
 function openStowageDialog() {
   showStowageDialog.value = true;
@@ -267,36 +272,44 @@ function openStowageDialog() {
   stowageData.route = '';
 }
 async function doStowageSolve() {
-  if (!stowageData.shipmentIds.trim()) {
+  if (stowageData.mode === 'single' && !stowageData.shipmentIds.trim()) {
     setBizError('请输入至少 1 个 shipmentId');
     return;
   }
   bizLoading.value = true;
   try {
-    const body = {
-      container: {
-        code: stowageData.containerCode,
-        length_cm: Number(stowageData.length_cm),
-        width_cm: Number(stowageData.width_cm),
-        height_cm: Number(stowageData.height_cm),
-        max_weight_kg: Number(stowageData.max_weight_kg),
-      },
-      shipmentIds: stowageData.shipmentIds.split(/[,\s]+/).filter(Boolean),
-      route: stowageData.route ? stowageData.route.split(/[,\s]+/).filter(Boolean) : [],
-      enableLifo: stowageData.enableLifo,
-    };
-    const res = await apiFetch(`${API}/api/acc/stowage/plan/auto`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    const j = await res.json();
-    if (res.ok) {
-      setBizOk(`配载方案 ${j.planNo} 求解完成: 装入 ${j.result.fitted_count} 件, 利用率 ${(j.result.volume_utilization * 100).toFixed(1)}%`);
-      showStowageDialog.value = false;
-      fetchAccData();
+    if (stowageData.mode === 'single') {
+      const body = {
+        container: {
+          code: stowageData.containerCode,
+          length_cm: Number(stowageData.length_cm),
+          width_cm: Number(stowageData.width_cm),
+          height_cm: Number(stowageData.height_cm),
+          max_weight_kg: Number(stowageData.max_weight_kg),
+        },
+        shipmentIds: stowageData.shipmentIds.split(/[,\s]+/).filter(Boolean),
+        route: stowageData.route ? stowageData.route.split(/[,\s]+/).filter(Boolean) : [],
+        enableLifo: stowageData.enableLifo,
+      };
+      const res = await apiFetch(`${API}/api/acc/stowage/plan/auto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const j = await res.json();
+      if (res.ok) {
+        setBizOk(`配载方案 ${j.planNo} 求解完成: 装入 ${j.result.fitted_count} 件, 利用率 ${(j.result.volume_utilization * 100).toFixed(1)}%`);
+        showStowageDialog.value = false;
+        fetchAccData();
+      } else {
+        setBizError('求解失败: ' + (j.error ?? res.status));
+      }
     } else {
-      setBizError('求解失败: ' + (j.error ?? res.status));
+      // 多柜模式：先从 shipmentIds 拉 items（让后端 /multi 自己拉？目前我们 /multi 接口直接接 items，
+      // 这里走简化路径：直接调 /multi 假设客户已经填好 items；
+      // 真实生产应该加 /multi/auto，类似 /auto。
+      // MVP 先弹一个提示让用户用 API 调用，UI 先支持 single）
+      setBizError('多柜模式需要从 API 直接调用 /api/acc/stowage/plan/multi 端点 (含 items 数组)。下版本会支持直接从 shipmentIds 自动展开。');
     }
   } catch (e: any) {
     setBizError('求解异常: ' + e.message);
@@ -8050,7 +8063,14 @@ async function doReloadBill(id: number) {
             <br/>客户路线写"A,B,C"表示 A 先卸 (LIFO 自动反向排进柜)。
           </div>
           <div class="form-grid">
-            <div class="form-field">
+            <div class="form-field full-width">
+              <label>求解模式</label>
+              <div class="radio-row">
+                <label><input type="radio" value="single" v-model="stowageData.mode" /> 单柜 (一票货装一柜)</label>
+                <label><input type="radio" value="multi" v-model="stowageData.mode" /> 多柜分配 (自动决定用几个柜)</label>
+              </div>
+            </div>
+            <div class="form-field" v-if="stowageData.mode === 'single'">
               <label>柜号</label>
               <input type="text" v-model="stowageData.containerCode" />
             </div>

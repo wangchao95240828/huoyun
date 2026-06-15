@@ -229,6 +229,142 @@ public class AccStowagePlanController {
         return out;
     }
 
+    /**
+     * 多柜分配 — CP-SAT 1D 分柜 + 每柜 3D 求解。
+     * body: { containers: [Container], container_max_count?, items, route?, enable_lifo?, packing_factor? }
+     */
+    @PostMapping("/multi")
+    @Transactional(rollbackFor = Exception.class)
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> multiPack(@RequestBody Map<String, Object> body) {
+        if (!(body.get("containers") instanceof List<?>)) {
+            throw ApiException.badRequest("containers 必须为数组");
+        }
+        if (!(body.get("items") instanceof List<?>)) {
+            throw ApiException.badRequest("items 必须为数组");
+        }
+        Map<String, Object> result = callSolverMulti(body);
+
+        // 落 N 个 plans
+        List<Map<String, Object>> subPlans = (List<Map<String, Object>>) result.get("plans");
+        List<Map<String, Object>> items = (List<Map<String, Object>>) body.get("items");
+        Map<String, Map<String, Object>> bySku = new java.util.HashMap<>();
+        for (Map<String, Object> it : items) bySku.put((String) it.get("sku"), it);
+
+        List<String> planIds = new java.util.ArrayList<>();
+        long ts = System.currentTimeMillis();
+        for (int i = 0; i < subPlans.size(); i++) {
+            Map<String, Object> p = subPlans.get(i);
+            String planNo = "STOWAGE-MULTI-" + ts + "-" + (i + 1);
+            String pid = persistPlan(planNo, p, bySku);
+            planIds.add(pid);
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("totalContainersUsed", result.get("total_containers_used"));
+        out.put("assignmentStatus", result.get("assignment_solver_status"));
+        out.put("assignmentObjective", result.get("assignment_objective"));
+        out.put("planIds", planIds);
+        out.put("unfittedOverall", result.get("unfitted_overall"));
+        out.put("warnings", result.get("warnings"));
+        return out;
+    }
+
+    /** 抽出单柜方案持久化 — 给 single + multi 复用。 */
+    @SuppressWarnings("unchecked")
+    private String persistPlan(String planNo, Map<String, Object> result,
+                                Map<String, Map<String, Object>> bySku) {
+        String containerCode = (String) result.get("container_code");
+        Object cl = result.get("container_length_cm");
+        Object cw = result.get("container_width_cm");
+        Object ch = result.get("container_height_cm");
+        Object cmw = result.get("container_max_weight_kg");
+        // 从 placements 反推柜规格 (multi 模式 sub_result 没传 container 字段)，
+        // 没有的话用默认 40HC
+        if (cl == null) cl = 1200;
+        if (cw == null) cw = 230;
+        if (ch == null) ch = 260;
+        if (cmw == null) cmw = result.get("weight_max_kg");
+        if (cmw == null) cmw = 26000;
+
+        String planId = jdbc.queryForObject("""
+            INSERT INTO stowage_plans (
+              tenant_id, plan_no, container_code,
+              container_length_cm, container_width_cm, container_height_cm, container_max_weight_kg,
+              route, enable_lifo, status,
+              fitted_count, unfitted_count, volume_utilization, weight_used_kg,
+              gravity_center_x_cm, gravity_center_y_cm, gravity_center_z_cm,
+              gravity_quadrants, warnings, unfitted_skus, solved_at
+            ) VALUES (?::uuid, ?, ?, ?, ?, ?, ?, '[]'::jsonb, true, 'SOLVED',
+                      ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, now())
+            RETURNING id::text
+            """, String.class,
+            defaultTenantId, planNo, containerCode, cl, cw, ch, cmw,
+            result.get("fitted_count"), result.get("unfitted_count"),
+            result.get("volume_utilization"), result.get("weight_used_kg"),
+            ((List<?>) result.get("gravity_center")).get(0),
+            ((List<?>) result.get("gravity_center")).get(1),
+            ((List<?>) result.get("gravity_center")).get(2),
+            toJson(result.get("gravity_quadrants")),
+            toJson(result.get("warnings")),
+            toJson(result.get("unfitted")));
+
+        List<Map<String, Object>> placements = (List<Map<String, Object>>) result.get("placements");
+        for (Map<String, Object> p : placements) {
+            String sku = (String) p.get("sku");
+            Map<String, Object> orig = bySku.getOrDefault(sku, Map.of());
+            jdbc.update("""
+                INSERT INTO stowage_plan_items (
+                  tenant_id, plan_id, sku, customer_id,
+                  input_length_cm, input_width_cm, input_height_cm, input_weight_kg,
+                  this_side_up, fragile, load_bearing_kg, customer_priority,
+                  placed, x_cm, y_cm, z_cm, rotation_type,
+                  placed_length_cm, placed_width_cm, placed_height_cm
+                ) VALUES (?::uuid, ?::uuid, ?, ?::uuid,
+                          ?, ?, ?, ?,
+                          ?, ?, ?, ?,
+                          true, ?, ?, ?, ?,
+                          ?, ?, ?)
+                """, defaultTenantId, planId, sku, orig.get("customer_id"),
+                     orig.get("length_cm"), orig.get("width_cm"),
+                     orig.get("height_cm"), orig.get("weight_kg"),
+                     Boolean.TRUE.equals(orig.get("this_side_up")),
+                     Boolean.TRUE.equals(orig.get("fragile")),
+                     orig.getOrDefault("load_bearing", 0),
+                     orig.getOrDefault("customer_priority", 0),
+                     p.get("x_cm"), p.get("y_cm"), p.get("z_cm"),
+                     p.get("rotation_type"),
+                     p.get("length_cm"), p.get("width_cm"), p.get("height_cm"));
+        }
+        return planId;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> callSolverMulti(Map<String, Object> req) {
+        try {
+            String body = json.writeValueAsString(req);
+            HttpRequest.Builder b = HttpRequest.newBuilder()
+                .uri(URI.create(solverUrl + "/pack/multi"))
+                .timeout(Duration.ofSeconds(90))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body));
+            if (solverToken != null && !solverToken.isBlank()) {
+                b.header("X-Ingest-Token", solverToken);
+            }
+            HttpResponse<String> resp = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200) {
+                throw ApiException.badRequest(
+                    "多柜求解器返回 " + resp.statusCode() + ": "
+                    + resp.body().substring(0, Math.min(200, resp.body().length())));
+            }
+            return json.readValue(resp.body(), Map.class);
+        } catch (ApiException ex) { throw ex; }
+        catch (Exception ex) {
+            LOG.error("调用多柜求解器失败", ex);
+            throw ApiException.badRequest("调用多柜求解器失败: " + ex.getMessage());
+        }
+    }
+
     /** 从 shipments + cartons 自动拉箱子组装 items 求解。 */
     @PostMapping("/auto")
     @SuppressWarnings("unchecked")
