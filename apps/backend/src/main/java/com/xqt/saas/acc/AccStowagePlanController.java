@@ -531,6 +531,67 @@ public class AccStowagePlanController {
         return null;
     }
 
+    /** 3D 预览 PNG (服务端 matplotlib 渲染, 支持中文, 可直接嵌邮件/微信). */
+    @GetMapping("/{id}/preview.png")
+    public org.springframework.http.ResponseEntity<byte[]> preview(@PathVariable String id) {
+        Map<String, Object> plan;
+        try {
+            plan = jdbc.queryForMap(
+                "SELECT * FROM stowage_plans WHERE id=?::uuid AND tenant_id=?::uuid",
+                id, defaultTenantId);
+        } catch (DataAccessException ex) { throw ApiException.notFound("配载方案不存在"); }
+        List<Map<String, Object>> items = jdbc.queryForList(
+            "SELECT spi.sku, coalesce(c.code, c.name, spi.customer_id::text) AS customer_id,"
+            + " spi.x_cm, spi.y_cm, spi.z_cm, spi.placed,"
+            + " spi.placed_length_cm, spi.placed_width_cm, spi.placed_height_cm"
+            + " FROM stowage_plan_items spi"
+            + " LEFT JOIN customers c ON c.id = spi.customer_id"
+            + " WHERE spi.plan_id = ?::uuid AND spi.placed = true",
+            id);
+        // 把数字字段转 number 给 Python 用
+        Map<String, Object> planClean = new LinkedHashMap<>();
+        for (String k : new String[]{"container_code", "container_length_cm",
+                "container_width_cm", "container_height_cm", "container_max_weight_kg",
+                "fitted_count", "volume_utilization", "weight_used_kg"}) {
+            planClean.put(k, plan.get(k));
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("plan", planClean);
+        body.put("items", items);
+
+        byte[] png = callSolverRender(body);
+        return org.springframework.http.ResponseEntity.ok()
+            .header("Content-Type", "image/png")
+            .header("Cache-Control", "private, max-age=60")
+            .body(png);
+    }
+
+    private byte[] callSolverRender(Map<String, Object> body) {
+        try {
+            String reqBody = json.writeValueAsString(body);
+            HttpRequest.Builder b = HttpRequest.newBuilder()
+                .uri(URI.create(solverUrl + "/render"))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(reqBody));
+            if (solverToken != null && !solverToken.isBlank()) {
+                b.header("X-Ingest-Token", solverToken);
+            }
+            HttpResponse<byte[]> resp = http.send(b.build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+            if (resp.statusCode() != 200) {
+                throw ApiException.badRequest(
+                    "渲染服务返回 " + resp.statusCode() + ": "
+                    + new String(resp.body(), java.nio.charset.StandardCharsets.UTF_8)
+                        .substring(0, Math.min(200, resp.body().length)));
+            }
+            return resp.body();
+        } catch (ApiException ex) { throw ex; }
+        catch (Exception ex) {
+            throw ApiException.badRequest("渲染失败: " + ex.getMessage());
+        }
+    }
+
     /**
      * 装柜单 PDF — 含柜号、客户分组、卸货顺序、每件 sku 坐标。
      * 仓库装柜员照单摆放。

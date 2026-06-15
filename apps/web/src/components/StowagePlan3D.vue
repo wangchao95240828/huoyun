@@ -179,6 +179,12 @@ onBeforeUnmount(() => {
   if (renderer) renderer.dispose();
 });
 
+function previewUrl(): string {
+  if (!props.plan?.id) return '';
+  const base = (import.meta as any).env?.VITE_API_BASE || '';
+  return `${base}/api/acc/stowage/plan/${props.plan.id}/preview.png`;
+}
+
 function legendList() {
   return Array.from(customerColors.value.entries()).map(([cid, color]) => {
     const cnt = (props.plan?.items || []).filter((it: any) =>
@@ -233,6 +239,17 @@ function legendList() {
       <div class="plan3d-section" style="font-size:11px;color:#64748b">
         💡 鼠标拖拽旋转 / 滚轮缩放<br/>
         🟢 绿色面 = 门（卸货方向）
+      </div>
+      <div class="plan3d-section" v-if="plan?.id">
+        <strong>服务端预览图</strong>
+        <a :href="previewUrl()" target="_blank" rel="noopener" style="display:block;margin-top:6px">
+          <img :src="previewUrl()" alt="3D 配载预览"
+               style="width:100%;border:1px solid #e2e8f0;border-radius:4px;cursor:zoom-in"
+               loading="lazy" />
+        </a>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px">
+          点图放大新窗口打开 (可右键下载 / 嵌入邮件)
+        </div>
       </div>
     </div>
   </div>

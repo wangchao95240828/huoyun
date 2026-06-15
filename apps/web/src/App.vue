@@ -344,7 +344,7 @@ async function doSmartGroupStowage() {
         if (r.ok) ok++; else fail++;
       } catch { fail++; }
     }
-    setBizOk(`智能分柜完成: 成功 ${ok} / 失败 ${fail}, 列表已刷新`);
+    setBizOk(`智能分柜: 新建 ${ok} 个方案 (${fail} 失败). 列表中可能含历史方案行, 看时间排序最新的 ${ok} 条即本次结果.`);
     showStowageDialog.value = false;
     fetchAccData();
   } catch (e: any) {
@@ -1466,9 +1466,7 @@ Object.assign(accColumns, {
     { key: 'unfitted_count',     label: '未装件数' },
     { key: 'volume_utilization', label: '利用率', fmt: 'percent' },
     { key: 'weight_used_kg',     label: '总重(kg)', fmt: 'money' },
-    { key: 'weight_max_kg',      label: '载重上限(kg)', fmt: 'money' },
     { key: 'created_at',         label: '创建时间', fmt: 'date' },
-    { key: 'solved_at',          label: '求解时间', fmt: 'date' },
     { key: 'approved_at',        label: '审定时间', fmt: 'date' },
   ],
   orders: [

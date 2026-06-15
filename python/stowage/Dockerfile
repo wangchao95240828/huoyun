@@ -5,7 +5,7 @@ WORKDIR /app
 # 清华 PyPI 镜像
 ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-RUN pip install --no-cache-dir fastapi uvicorn pydantic numpy
+RUN pip install --no-cache-dir fastapi uvicorn pydantic numpy ortools matplotlib
 
 COPY . /app
 

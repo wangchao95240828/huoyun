@@ -17,6 +17,7 @@ from fastapi.responses import PlainTextResponse, JSONResponse
 import schemas
 import solver
 import multi_solver
+import render as render_mod
 
 app = FastAPI(
     title="xqt-saas 3D 配载求解",
@@ -54,6 +55,22 @@ def pack_multi(req: multi_solver.MultiPackRequest, x_ingest_token: str | None = 
         return multi_solver.solve_multi(req)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"多柜求解失败: {type(e).__name__}: {e}")
+
+
+@app.post("/render")
+def render_endpoint(body: dict, x_ingest_token: str | None = None):
+    """渲染已存在的配载方案为 PNG. body: { plan: {...}, items: [...] }"""
+    _check_token(x_ingest_token)
+    plan = body.get("plan", {})
+    items = body.get("items", [])
+    if not plan or not items:
+        raise HTTPException(status_code=400, detail="plan + items 必填")
+    try:
+        png = render_mod.render_plan(plan, items)
+        from fastapi.responses import Response
+        return Response(content=png, media_type="image/png")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"渲染失败: {type(e).__name__}: {e}")
 
 
 @app.post("/pack/ascii", response_class=PlainTextResponse)
