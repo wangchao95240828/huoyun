@@ -245,6 +245,58 @@ const accPageSize = ref(50);
 const accLoading = ref(false);
 const accKeyword = ref("");
 const showAdvancedFilter = ref(false);
+// 财务对账：仅看缺成本订单（有 AR 无 AP）
+const missingCostOnly = ref(false);
+// 添加成本对话框
+const showAddCostDialog = ref(false);
+const addCostOrderId = ref('');
+const addCostOrderNo = ref('');
+const addCostData = reactive({
+  amount: '' as string | number,
+  currency: 'CNY',
+  chargeItemCode: '',
+  remark: '',
+});
+function openAddCostDialog(row: any) {
+  addCostOrderId.value = row.id;
+  addCostOrderNo.value = row.orderNo || row.order_no || '';
+  addCostData.amount = '';
+  addCostData.currency = 'CNY';
+  addCostData.chargeItemCode = '';
+  addCostData.remark = '';
+  showAddCostDialog.value = true;
+}
+async function doAddCost() {
+  if (!addCostOrderId.value || !addCostData.amount) {
+    setBizError('请输入成本金额');
+    return;
+  }
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/${addCostOrderId.value}/add-cost`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount: Number(addCostData.amount),
+        currency: addCostData.currency,
+        chargeItemCode: addCostData.chargeItemCode || null,
+        remark: addCostData.remark || null,
+      }),
+    });
+    const j = await res.json();
+    if (res.ok) {
+      setBizOk(`成本添加成功: ${j.amount} ${j.currency}，已落到「核算中心 → 待核成本」，等待一审`);
+      showAddCostDialog.value = false;
+      fetchAccData();
+    } else {
+      setBizError('添加失败：' + (j.error ?? res.status));
+    }
+  } catch (e: any) {
+    setBizError('添加异常：' + e.message);
+  } finally {
+    bizLoading.value = false;
+  }
+}
 
 // 多条件筛选 — 30+ 字段覆盖 ACC 大货运单页全部条件
 const advFilters = reactive<{
@@ -3463,6 +3515,7 @@ async function fetchAccData() {
     setIfStr('deliveredTo',        advFilters.deliveredTo);
     setIfStr('amountFrom',         advFilters.amountFrom);
     setIfStr('amountTo',           advFilters.amountTo);
+    if (missingCostOnly.value && ordersTabSet.has(accTab.value)) params.set('missingCost', 'true');
   }
   // 状态 sub-tab → status 参数；profits-* sub-tab → mode 参数（后端不同）
   if ((tab as any).statusFilter) {
@@ -5966,6 +6019,13 @@ async function doReloadBill(id: number) {
                   :title="showAdvancedFilter ? '收起多条件筛选' : '展开多条件筛选'">
             {{ showAdvancedFilter ? '收起筛选 ▴' : '多条件筛选 ▾' }}<span v-if="activeAdvFilterCount()" class="adv-filter-badge">{{ activeAdvFilterCount() }}</span>
           </button>
+          <button v-if="ordersTabSet.has(accTab)" class="sm"
+                  :class="missingCostOnly ? 'primary' : 'secondary'"
+                  @click="missingCostOnly = !missingCostOnly; accSearch()"
+                  :title="'只看缺成本订单（有应收无应付）'"
+                  :style="missingCostOnly ? 'background:#dc2626;border-color:#dc2626' : ''">
+            ⚠️ {{ missingCostOnly ? '✓ 只看缺成本' : '只看缺成本' }}
+          </button>
           <button class="primary sm" v-if="canCrud" @click="openAdd">
             <Plus :size="13" /> 新增
           </button>
@@ -6713,14 +6773,21 @@ async function doReloadBill(id: number) {
                 <td :colspan="accColumns[accTab].length + 2 + (canSelect ? 1 : 0)" class="empty-cell">暂无数据</td>
               </tr>
               <tr v-for="row in accData" :key="row.id ?? row.code ?? row.no"
-                  :class="{ 'audited-row': row.auditStatus === 'AUDITED' }" v-else>
+                  :class="{
+                    'audited-row': row.auditStatus === 'AUDITED',
+                    'missing-cost-row': ordersTabSet.has(accTab) && Number(row.sellCharge||0) > 0 && Number(row.costCharge||0) === 0,
+                  }" v-else>
                 <td v-if="canSelect" class="check-col">
                   <input type="checkbox" :checked="selectedIds.has(row.id)" @change="toggleSelect(row.id)" />
                 </td>
                 <td v-for="col in accColumns[accTab]" :key="col.key"
                     :class="{ 'money-cell': col.fmt === 'money' || col.key === 'amount' }">
+                  <!-- 应付 (costCharge) 列：缺成本时显示红色 ⚠ -->
+                  <template v-if="col.key === 'costCharge' && Number(row.sellCharge||0) > 0 && Number(row.costCharge||0) === 0">
+                    <span class="missing-cost-badge" title="此单有应收但无应付，请点击右侧「添加成本」">⚠ 缺成本</span>
+                  </template>
                   <!-- amount 列：如有汇率快照，渲染 ¥X -> €Y 双币种 -->
-                  <template v-if="col.key === 'amount' && row.targetCurrency && row.targetAmount != null">
+                  <template v-else-if="col.key === 'amount' && row.targetCurrency && row.targetAmount != null">
                     {{ fmtMoney(row.amount, row.currency) }}
                     <span class="dual-currency"> → {{ fmtMoney(row.targetAmount, row.targetCurrency) }}</span>
                   </template>
@@ -6771,6 +6838,14 @@ async function doReloadBill(id: number) {
                           v-if="(accTab === 'orders' || accTab === 'orders-history' || accTab === 'orders-cancelled') && row.id"
                           @click="doViewOrderFinance(row)" :disabled="bizLoading">
                     <Wallet :size="13" /> 看财务
+                  </button>
+                  <!-- 添加成本（缺 AP 时醒目；任何 SUBMITTED 后的订单都可补） -->
+                  <button class="action-btn add-cost-btn"
+                          v-if="ordersTabSet.has(accTab) && row.id && row.status !== 'DRAFT'"
+                          :class="{ 'urgent': Number(row.sellCharge||0) > 0 && Number(row.costCharge||0) === 0 }"
+                          @click="openAddCostDialog(row)" :disabled="bizLoading"
+                          :title="Number(row.sellCharge||0) > 0 && Number(row.costCharge||0) === 0 ? '⚠ 此单缺应付成本，立即补录' : '为此单添加应付成本'">
+                    <CreditCard :size="13" /> {{ Number(row.sellCharge||0) > 0 && Number(row.costCharge||0) === 0 ? '⚠ 添加成本' : '添加成本' }}
                   </button>
                   <!-- 财务工作台 预扣明细：调整金额 -->
                   <button class="action-btn fwb fwb-adjust"
@@ -7810,6 +7885,52 @@ async function doReloadBill(id: number) {
         </div>
         <div class="modal-footer">
           <button class="secondary" @click="showAuditHistory = false">关闭</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加成本对话框 (AP 应付) -->
+    <div class="modal-backdrop" v-if="showAddCostDialog" @click.self="showAddCostDialog = false">
+      <div class="modal-dialog" style="max-width:520px">
+        <div class="modal-header">
+          <h3>添加应付成本 — {{ addCostOrderNo }}</h3>
+          <button class="modal-close" @click="showAddCostDialog = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#fef3c7;color:#854d0e;padding:8px 12px;border-radius:4px;margin-bottom:12px;font-size:12px;line-height:1.6">
+            💡 添加的成本会落到「核算中心 → 待核成本」, 由财务一审通过后再走付款流程。
+            <br/>常用费用类型: FREIGHT (运费) / FUEL (燃油) / REMOTE (偏远) / TAX (关税) / OTHER (其他)
+          </div>
+          <div class="form-grid">
+            <div class="form-field">
+              <label>成本金额 <span class="required">*</span></label>
+              <input type="number" step="0.01" v-model="addCostData.amount" placeholder="如 35.50" />
+            </div>
+            <div class="form-field">
+              <label>币种</label>
+              <select v-model="addCostData.currency">
+                <option value="CNY">CNY 人民币</option>
+                <option value="USD">USD 美元</option>
+                <option value="EUR">EUR 欧元</option>
+                <option value="HKD">HKD 港币</option>
+                <option value="GBP">GBP 英镑</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>费用类型代码（可选）</label>
+              <input type="text" v-model="addCostData.chargeItemCode" placeholder="FREIGHT / FUEL / REMOTE / TAX..." />
+            </div>
+            <div class="form-field full-width">
+              <label>备注（可选）</label>
+              <textarea v-model="addCostData.remark" rows="2" placeholder="对账说明，如「补录 UPS 7 月账单」" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showAddCostDialog = false">取消</button>
+          <button class="primary" @click="doAddCost" :disabled="bizLoading || !addCostData.amount">
+            <CreditCard :size="14" /> 落到「待核成本」
+          </button>
         </div>
       </div>
     </div>

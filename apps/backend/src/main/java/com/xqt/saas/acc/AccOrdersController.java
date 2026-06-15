@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * /api/acc/orders — 前端列：orderNo / trackNo / customerName / product / country
@@ -116,7 +117,9 @@ public class AccOrdersController {
         @RequestParam(required = false) String binLocation,
         @RequestParam(required = false) String mainItem,
         @RequestParam(required = false) String deliveredFrom,
-        @RequestParam(required = false) String deliveredTo
+        @RequestParam(required = false) String deliveredTo,
+        // 财务对账：missingCost=true 仅看 AR > 0 但 AP = 0 的订单（缺成本）
+        @RequestParam(required = false) Boolean missingCost
     ) {
         try {
             int limit = AccPaging.pageSize(pageSize);
@@ -306,6 +309,17 @@ public class AccOrdersController {
                 advFilter.append(" AND EXISTS (SELECT 1 FROM shipments _sdt WHERE _sdt.tenant_id=o.tenant_id"
                     + " AND _sdt.customer_ref=o.customer_ref AND _sdt.delivered_at < (?::date + 1))");
                 advParams.add(deliveredTo);
+            }
+            // 缺成本筛选：有 AR 但没有 AP（NOT VOID）
+            if (Boolean.TRUE.equals(missingCost)) {
+                advFilter.append(" AND EXISTS (SELECT 1 FROM charges _ar"
+                    + " JOIN shipments _sar ON _sar.id = _ar.shipment_id"
+                    + " WHERE _sar.tenant_id=o.tenant_id AND _sar.customer_ref=o.customer_ref"
+                    + " AND _ar.side='AR' AND _ar.settlement_status <> 'VOID')");
+                advFilter.append(" AND NOT EXISTS (SELECT 1 FROM charges _ap"
+                    + " JOIN shipments _sap ON _sap.id = _ap.shipment_id"
+                    + " WHERE _sap.tenant_id=o.tenant_id AND _sap.customer_ref=o.customer_ref"
+                    + " AND _ap.side='AP' AND _ap.settlement_status <> 'VOID')");
             }
 
             String advFilterSql = advFilter.toString();
@@ -907,6 +921,77 @@ public class AccOrdersController {
      * 走 CustomerApiService.submitOrder：DRAFT→SUBMITTED + RateEngine 算费 + CarrierGateway 取号 + 写 shipments/charges。
      * 管理员调用：从订单本身拿 tenant/customer 凑出 Principal，跳过 HMAC。
      */
+    /**
+     * 给订单手动添加 AP 成本费用行（对应"添加成本"按钮）。
+     * body: { amount, currency, chargeItemCode?, remark? }
+     * 落 charges 表 side=AP status=ESTIMATED，待核成本 tab 可见，可一审通过。
+     */
+    @PostMapping("/{id}/add-cost")
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> addCost(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        java.math.BigDecimal amount;
+        try {
+            amount = new java.math.BigDecimal(body.get("amount").toString());
+        } catch (Exception ex) {
+            throw ApiException.badRequest("amount 必填且必须为数字");
+        }
+        if (amount.signum() <= 0) throw ApiException.badRequest("成本金额必须大于零");
+        String currency = strOrNull(body.get("currency"));
+        if (currency == null) currency = "CNY";
+        String chargeItemCode = strOrNull(body.get("chargeItemCode"));
+        String remark = strOrNull(body.get("remark"));
+
+        // 找该订单的 shipment（取号已落 shipment）；没有的话拒绝（订单需先 submit）
+        String shipmentId;
+        try {
+            shipmentId = jdbc.queryForObject(
+                "SELECT s.id::text FROM shipments s"
+                + " JOIN shipment_order_links sol ON sol.shipment_id = s.id"
+                + " WHERE sol.order_id = ?::uuid LIMIT 1",
+                String.class, id);
+        } catch (DataAccessException ex) {
+            throw ApiException.badRequest("订单尚未生成 shipment，请先提交订单（DRAFT→SUBMITTED）");
+        }
+        String tenantId = jdbc.queryForObject("SELECT tenant_id::text FROM orders WHERE id=?::uuid",
+            String.class, id);
+        String customerId = jdbc.queryForObject("SELECT customer_id::text FROM orders WHERE id=?::uuid",
+            String.class, id);
+        // charge_item_id: 按 code 找，找不到走 default FREIGHT
+        String chargeItemId = null;
+        if (chargeItemCode != null) {
+            try {
+                chargeItemId = jdbc.queryForObject(
+                    "SELECT id::text FROM charge_items WHERE tenant_id=?::uuid AND code=? LIMIT 1",
+                    String.class, tenantId, chargeItemCode);
+            } catch (DataAccessException ignored) {}
+        }
+        if (chargeItemId == null) {
+            try {
+                chargeItemId = jdbc.queryForObject(
+                    "SELECT id::text FROM charge_items WHERE tenant_id=?::uuid"
+                    + " ORDER BY (category='FREIGHT') DESC, code LIMIT 1",
+                    String.class, tenantId);
+            } catch (DataAccessException ignored) {}
+        }
+        if (chargeItemId == null) throw ApiException.badRequest("租户未配置任何 charge_item，请先在数据管理添加");
+
+        String chargeId = jdbc.queryForObject("""
+            INSERT INTO charges (
+              tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
+              evidence, customer_id, order_id
+            ) VALUES (
+              ?::uuid, ?::uuid, ?::uuid, 'AP', 'ESTIMATED', ?, ?,
+              jsonb_build_object('manual', true, 'addedBy', 'admin', 'remark', ?::text),
+              ?::uuid, ?::uuid
+            )
+            RETURNING id::text
+            """, String.class, tenantId, shipmentId, chargeItemId,
+                 currency, amount, remark, customerId, id);
+        return Map.of("id", chargeId, "amount", amount, "currency", currency,
+                       "side", "AP", "status", "ESTIMATED",
+                       "msg", "成本已添加 — 在「核算中心 → 待核成本」一审通过后即可付供应商");
+    }
+
     @PostMapping("/{id}/submit")
     public Map<String, Object> submit(@PathVariable String id) {
         Map<String, Object> ctx;
