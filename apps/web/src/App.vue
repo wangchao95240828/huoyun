@@ -82,6 +82,7 @@ import {
 
 const API = import.meta.env.VITE_API_URL ?? "";
 const GlobalTrackingMap = defineAsyncComponent(() => import("./components/GlobalTrackingMap.vue"));
+const StowagePlan3D = defineAsyncComponent(() => import("./components/StowagePlan3D.vue"));
 import MultiSelect from "./components/MultiSelect.vue";
 
 // ═══════════════ Types ═══════════════
@@ -5683,6 +5684,11 @@ async function viewDetail(row: any) {
     const res = await apiFetch(`${API}/api/acc/orders/${row.id}/detail`);
     detailData.value = await res.json();
     detailType.value = 'order-detail';
+  } else if (accTab.value === 'stowage-plans') {
+    // 3D 配载方案
+    const res = await apiFetch(`${API}/api/acc/stowage/plan/${row.id}`);
+    detailData.value = await res.json();
+    detailType.value = 'stowage-3d';
   } else {
     const res = await apiFetch(`${API}/api/acc/${tab.api}/${row.id}/raw`);
     detailData.value = await res.json();
@@ -7634,9 +7640,9 @@ async function doReloadBill(id: number) {
 
     <!-- ════════ Detail / Report Modal ════════ -->
     <div class="modal-backdrop" v-if="showDetail" @click.self="showDetail = false">
-      <div class="modal-dialog" :style="detailType === 'order-detail' ? 'max-width: 1200px;' : 'max-width: 900px;'">
+      <div class="modal-dialog" :style="detailType === 'order-detail' ? 'max-width: 1200px;' : detailType === 'stowage-3d' ? 'max-width: 1400px;' : 'max-width: 900px;'">
         <div class="modal-header">
-          <h3>{{ detailType === 'shipment-items' ? '出货明细' : detailType === 'bill-items' ? '账单明细' : detailType === 'stowage-packages' ? '配载包裹' : detailType === 'commission-result' ? '提成计算结果' : detailType === 'profit-summary' ? '利润汇总报表' : detailType === 'order-detail' ? '订单详情' : '记录详情' }}</h3>
+          <h3>{{ detailType === 'shipment-items' ? '出货明细' : detailType === 'bill-items' ? '账单明细' : detailType === 'stowage-packages' ? '配载包裹' : detailType === 'commission-result' ? '提成计算结果' : detailType === 'profit-summary' ? '利润汇总报表' : detailType === 'order-detail' ? '订单详情' : detailType === 'stowage-3d' ? '3D 配载方案立体视图' : '记录详情' }}</h3>
           <button class="modal-close" @click="showDetail = false"><X :size="18" /></button>
         </div>
         <div class="modal-body">
@@ -7969,6 +7975,11 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- Raw record -->
+          <!-- 3D 配载立体视图 -->
+          <StowagePlan3D
+            v-if="detailType === 'stowage-3d' && detailData"
+            :plan="detailData" />
+
           <div v-if="detailType === 'raw' && detailData" class="form-grid">
             <div class="form-field" v-for="(val, key) in detailData" :key="key">
               <label>{{ key }}</label>
