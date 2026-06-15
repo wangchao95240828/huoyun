@@ -266,10 +266,26 @@ const stowageData = reactive({
   multi20gpCount: 3,
   packingFactor: 0.85,
 });
-function openStowageDialog() {
+const stowageShipmentOptions = ref<{value: string; label: string}[]>([]);
+const stowageSelectedShipments = ref<string[]>([]);
+async function loadStowageShipments() {
+  try {
+    const res = await apiFetch(`${API}/api/acc/shipments?pageSize=200`);
+    const j = await res.json();
+    stowageShipmentOptions.value = (j.data || []).map((s: any) => ({
+      value: s.id,
+      label: `${s.no || s.shipment_no || s.id.slice(0,8)} (${s.totalPiece || 0}件/${s.totalWeight || 0}kg) ${s.status || ''}`,
+    }));
+  } catch (e: any) {
+    setBizError('加载 shipments 失败: ' + e.message);
+  }
+}
+async function openStowageDialog() {
   showStowageDialog.value = true;
   stowageData.shipmentIds = '';
   stowageData.route = '';
+  stowageSelectedShipments.value = [];
+  await loadStowageShipments();
 }
 async function downloadStowageSheet(planId: string) {
   // 走 fetch 拿 PDF, 用 Bearer token 鉴权
@@ -289,8 +305,12 @@ async function downloadStowageSheet(planId: string) {
 }
 
 async function doStowageSolve() {
-  if (stowageData.mode === 'single' && !stowageData.shipmentIds.trim()) {
-    setBizError('请输入至少 1 个 shipmentId');
+  // 同步选中的 shipmentIds (优先 dropdown 选的, 兼容旧 textarea)
+  const fromPicker = stowageSelectedShipments.value;
+  const fromText = stowageData.shipmentIds.split(/[,\s]+/).filter(Boolean);
+  const allShipmentIds = fromPicker.length > 0 ? fromPicker : fromText;
+  if (allShipmentIds.length === 0) {
+    setBizError('请至少选 1 个 shipment 或在文本框输入 ID');
     return;
   }
   bizLoading.value = true;
@@ -304,7 +324,7 @@ async function doStowageSolve() {
           height_cm: Number(stowageData.height_cm),
           max_weight_kg: Number(stowageData.max_weight_kg),
         },
-        shipmentIds: stowageData.shipmentIds.split(/[,\s]+/).filter(Boolean),
+        shipmentIds: allShipmentIds,
         route: stowageData.route ? stowageData.route.split(/[,\s]+/).filter(Boolean) : [],
         enableLifo: stowageData.enableLifo,
       };
@@ -332,7 +352,7 @@ async function doStowageSolve() {
           '40HC': Number(stowageData.multi40hcCount) || 3,
           '20GP': Number(stowageData.multi20gpCount) || 3,
         },
-        shipmentIds: stowageData.shipmentIds.split(/[,\s]+/).filter(Boolean),
+        shipmentIds: allShipmentIds,
         route: stowageData.route ? stowageData.route.split(/[,\s]+/).filter(Boolean) : [],
         enableLifo: stowageData.enableLifo,
         packingFactor: Number(stowageData.packingFactor) || 0.65,
@@ -8160,8 +8180,15 @@ async function doReloadBill(id: number) {
               </div>
             </template>
             <div class="form-field full-width">
-              <label>Shipment IDs <span class="required">*</span></label>
-              <textarea v-model="stowageData.shipmentIds" rows="3" placeholder="多个 UUID，逗号/换行/空格分隔" />
+              <label>选 Shipments（推荐） <span class="required">*</span></label>
+              <MultiSelect v-model="stowageSelectedShipments"
+                           :options="stowageShipmentOptions"
+                           placeholder="点击选择运单（支持搜索）" />
+            </div>
+            <div class="form-field full-width">
+              <label>或手动输入 ID（备用）</label>
+              <textarea v-model="stowageData.shipmentIds" rows="2"
+                placeholder="可填: shipment.id / shipment_no / order.id / order_no, 多个用逗号/空格/换行分隔" />
             </div>
             <div class="form-field full-width">
               <label>客户路线 (customer_id 数组,逗号分隔；可选)</label>

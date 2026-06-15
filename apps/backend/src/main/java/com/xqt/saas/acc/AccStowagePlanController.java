@@ -421,9 +421,41 @@ public class AccStowagePlanController {
         return multiPack(wrap);
     }
 
-    /** 拉 cartons + 缺失尺寸兜底。 */
-    private List<Map<String, Object>> fetchCartonsForShipments(List<String> shipmentIds) {
-        String inClause = String.join(",", shipmentIds.stream().map(s -> "?").toList());
+    /**
+     * 拉 cartons + 缺失尺寸兜底（默认 30×30×30 cm, 10kg）。
+     *
+     * 输入接受三种 UUID：
+     *   1. shipment.id 直接                 (最准)
+     *   2. order.id   → 通过 shipment_order_links 翻译成 shipment_id
+     *   3. shipment.shipment_no / order.order_no 也接受 (字符串非 UUID)
+     *
+     * 错误消息明确说哪个 ID 找不到，避免运营猜。
+     */
+    private List<Map<String, Object>> fetchCartonsForShipments(List<String> inputIds) {
+        java.util.Set<String> shipmentIds = new java.util.LinkedHashSet<>();
+        java.util.List<String> notFound = new java.util.ArrayList<>();
+
+        for (String input : inputIds) {
+            if (input == null || input.isBlank()) continue;
+            String trimmed = input.trim();
+            String sid = resolveShipmentId(trimmed);
+            if (sid != null) {
+                shipmentIds.add(sid);
+            } else {
+                notFound.add(trimmed);
+            }
+        }
+        if (!notFound.isEmpty()) {
+            throw ApiException.badRequest(
+                "找不到以下 ID 对应的 shipment（接受 shipment.id / shipment_no / order.id / order_no）: "
+                + String.join(", ", notFound));
+        }
+        if (shipmentIds.isEmpty()) {
+            throw ApiException.badRequest("shipmentIds 全部为空");
+        }
+
+        List<String> ids = new java.util.ArrayList<>(shipmentIds);
+        String inClause = String.join(",", ids.stream().map(s -> "?").toList());
         List<Map<String, Object>> cartons = jdbc.queryForList(
             "SELECT c.carton_no AS sku, c.actual_weight_kg AS weight_kg,"
             + "       c.length_cm, c.width_cm, c.height_cm,"
@@ -431,15 +463,72 @@ public class AccStowagePlanController {
             + "  FROM cartons c JOIN shipments s ON s.id = c.shipment_id"
             + " WHERE c.tenant_id = ?::uuid AND c.shipment_id::text IN (" + inClause + ")"
             + " ORDER BY s.customer_id, c.carton_no",
-            join(defaultTenantId, shipmentIds));
-        if (cartons.isEmpty()) throw ApiException.badRequest("没找到 cartons 数据");
+            join(defaultTenantId, ids));
+        if (cartons.isEmpty()) {
+            throw ApiException.badRequest(
+                "找到 " + ids.size() + " 个 shipment 但都没有 cartons 数据。"
+                + "请先在「配载中心 → 配载管理」给这些运单录入 cartons，"
+                + "或在前端拣选已签收的 shipments");
+        }
+        int filled = 0, missing = 0;
         for (Map<String, Object> ct : cartons) {
-            if (ct.get("length_cm") == null) ct.put("length_cm", 30);
+            if (ct.get("length_cm") == null) { ct.put("length_cm", 30); missing++; }
+            else filled++;
             if (ct.get("width_cm") == null)  ct.put("width_cm", 30);
             if (ct.get("height_cm") == null) ct.put("height_cm", 30);
             if (ct.get("weight_kg") == null) ct.put("weight_kg", 10);
         }
+        if (missing > 0) {
+            LOG.warn("配载拉 cartons: {} 件有真实尺寸, {} 件用默认 30×30×30 cm 兜底", filled, missing);
+        }
         return cartons;
+    }
+
+    /**
+     * 把任意 ID 形式解析为 shipment.id。
+     * 支持: shipment.id (uuid) / shipment.shipment_no / order.id (uuid) / order.order_no
+     * 返回 null = 都找不到。
+     */
+    private String resolveShipmentId(String input) {
+        boolean looksUuid = input.length() == 36 && input.indexOf('-') > 0;
+
+        // 1. shipment.id 直接
+        if (looksUuid) {
+            try {
+                Integer cnt = jdbc.queryForObject(
+                    "SELECT count(*) FROM shipments WHERE id=?::uuid AND tenant_id=?::uuid",
+                    Integer.class, input, defaultTenantId);
+                if (cnt != null && cnt > 0) return input;
+            } catch (DataAccessException ignored) {}
+        }
+        // 2. shipment.shipment_no
+        try {
+            String sid = jdbc.queryForObject(
+                "SELECT id::text FROM shipments WHERE shipment_no=? AND tenant_id=?::uuid LIMIT 1",
+                String.class, input, defaultTenantId);
+            if (sid != null) return sid;
+        } catch (DataAccessException ignored) {}
+        // 3. order.id → shipment_order_links
+        if (looksUuid) {
+            try {
+                String sid = jdbc.queryForObject(
+                    "SELECT shipment_id::text FROM shipment_order_links WHERE order_id=?::uuid"
+                    + " AND tenant_id=?::uuid LIMIT 1",
+                    String.class, input, defaultTenantId);
+                if (sid != null) return sid;
+            } catch (DataAccessException ignored) {}
+        }
+        // 4. order.order_no → orders.id → shipment_order_links
+        try {
+            String sid = jdbc.queryForObject(
+                "SELECT sol.shipment_id::text FROM orders o"
+                + " JOIN shipment_order_links sol ON sol.order_id = o.id"
+                + " WHERE o.order_no=? AND o.tenant_id=?::uuid LIMIT 1",
+                String.class, input, defaultTenantId);
+            if (sid != null) return sid;
+        } catch (DataAccessException ignored) {}
+
+        return null;
     }
 
     /**
