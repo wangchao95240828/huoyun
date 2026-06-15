@@ -55,6 +55,31 @@ cat result.json | python pusher.py -
 
 ## 定时自动跑（两个 systemd 单元）
 
+### CentOS 7 注意 — 用 Docker 跑爬虫
+
+CentOS 7 自带 gcc 4.8 编不了新 greenlet 源码。**必须用 docker**：
+
+```bash
+cd /opt/xqt-saas/python/fedex
+cat > Dockerfile <<'EOF'
+FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
+WORKDIR /app
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir uv
+COPY . /app
+RUN uv venv && uv sync --no-install-project
+EXPOSE 8090
+CMD ["uv", "run", "main.py", "--port=8090"]
+EOF
+
+docker build -t xqt-fedex-crawler:latest .
+docker run -d --name fedex-crawler --restart unless-stopped \
+  -p 127.0.0.1:8090:8090 \
+  xqt-fedex-crawler:latest
+```
+
+新 OS (Ubuntu 22.04+/Rocky 9+) 直接 systemd + uv 即可：
+
 ### 1. 爬虫常驻服务 (main.py)
 
 ```
@@ -70,7 +95,7 @@ EnvironmentFile=/opt/xqt-saas/python/fedex/.env
 ExecStart=/root/.local/bin/uv run main.py --port=8080
 Restart=always
 RestartSec=10
-StandardOutput=append:/var/log/fedex-crawler.log
+StandardOutput=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -89,7 +114,7 @@ Type=oneshot
 WorkingDirectory=/opt/xqt-saas/python/fedex
 EnvironmentFile=/opt/xqt-saas/python/fedex/.env
 ExecStart=/usr/bin/python3 /opt/xqt-saas/python/fedex/runner.py
-StandardOutput=append:/var/log/fedex-tracking.log
+StandardOutput=journal
 
 # /etc/systemd/system/fedex-tracking.timer
 [Unit]
