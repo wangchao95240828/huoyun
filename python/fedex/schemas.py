@@ -9,6 +9,7 @@ import data
 
 DigitalStr = tp.Annotated[str, pd.StringConstraints(pattern=(r'^\d+$'))]
 NotBlankStr = tp.Annotated[str, pd.StringConstraints(strip_whitespace=True, min_length=1)]
+StripedStr = tp.Annotated[str, pd.StringConstraints(strip_whitespace=True)]
 
 
 class Address(pd.BaseModel):
@@ -16,7 +17,8 @@ class Address(pd.BaseModel):
     stateOrProvinceCode: data.USA_STATES
 
 
-_location_state_re: re.Pattern[str] = re.compile(r'[, ]([A-Z]{2})$')
+_location_state_re: re.Pattern[str] = re.compile(r'[, ](?P<state>[A-Z]{2})$')
+_gmtoffset_re: re.Pattern[str] = re.compile(r'^(?P<sign>[-+]?)(?P<hour>\d{2}):(?P<minute>\d{2})$')
 
 
 class Event(pd.BaseModel):
@@ -25,22 +27,9 @@ class Event(pd.BaseModel):
     date: dt.date
     time: dt.time
     status: NotBlankStr
-    scanLocation: NotBlankStr
+    scanLocation: StripedStr
     delivered: bool
-
-    _location_state: data.USA_STATES | None = None
-
-    @property
-    def location_state(self: tp.Self) -> data.USA_STATES:
-        if self._location_state is not None:
-            return self._location_state
-
-        if match := _location_state_re.search(self.scanLocation):
-            s = match.group(1)
-            if s not in data.USA_STATE_TIMEZONES.keys():
-                raise KeyError(s)
-            return s  # type: ignore
-        raise ValueError(f'无法提取州: "{self.scanLocation}"')
+    gmtOffset: StripedStr
 
     _datetime: dt.datetime | None = None
 
@@ -49,7 +38,35 @@ class Event(pd.BaseModel):
         if self._datetime is not None:
             return self._datetime
 
-        return dt.datetime(
+        tzinfo: dt.tzinfo
+
+        # 先尝试 gmtOffset，再尝试 scanLocation
+        if match := _gmtoffset_re.search(self.gmtOffset):
+            sign: tp.Literal['', '-', '+'] = match.group('sign')  # type: ignore
+
+            hour = int(match.group('hour'))
+            if hour < 0 or hour > 23:
+                raise ValueError(f'hour={hour}')
+
+            minute = int(match.group('minute'))
+            if minute < 0 or minute > 59:
+                raise ValueError(f'minuete={minute}')
+
+            total_seconds = hour * 3600 + minute * 60
+            if sign == '-':
+                total_seconds = -total_seconds
+            tzinfo = dt.timezone(dt.timedelta(seconds=total_seconds))
+
+        elif match := _location_state_re.search(self.scanLocation):
+            state = match.group('state')
+            if state not in data.USA_STATE_TIMEZONES:
+                raise KeyError(state)
+            tzinfo = data.USA_STATE_TIMEZONES[state]
+
+        else:
+            raise ValueError('无法从 gmtOffset 或 scanLocation 提取时区')
+
+        self._datetime = dt.datetime(
             year=self.date.year,
             month=self.date.month,
             day=self.date.day,
@@ -57,8 +74,9 @@ class Event(pd.BaseModel):
             minute=self.time.minute,
             second=self.time.second,
             microsecond=self.time.microsecond,
-            tzinfo=data.USA_STATE_TIMEZONES[self.location_state],
+            tzinfo=tzinfo,
         )
+        return self._datetime
 
 
 class Package(pd.BaseModel):
@@ -71,7 +89,7 @@ class Package(pd.BaseModel):
     pkgKgsWgt: pd.NonNegativeFloat
     pkgLbsWgt: pd.NonNegativeFloat
     shipperAddress: Address
-    recipientAddress: Address
+    destLocationAddress: Address
     scanEventList: list[Event] = pd.Field(min_length=1)
 
 
@@ -86,7 +104,7 @@ class Response(pd.BaseModel):
 class History(pd.BaseModel):
     datetime: pd.AwareDatetime
     status: NotBlankStr
-    location: NotBlankStr
+    location: StripedStr
     delivered: bool
 
 
@@ -126,8 +144,8 @@ def response_to_result(response: Response, /) -> Result:
         weight_lb=p.pkgLbsWgt,
         shipper_city=p.shipperAddress.city,
         shipper_state=p.shipperAddress.stateOrProvinceCode,
-        recipient_city=p.recipientAddress.city,
-        recipient_state=p.recipientAddress.stateOrProvinceCode,
+        recipient_city=p.destLocationAddress.city,
+        recipient_state=p.destLocationAddress.stateOrProvinceCode,
         scan_history=history,
     )
 
@@ -135,7 +153,15 @@ def response_to_result(response: Response, /) -> Result:
 
 
 if __name__ == '__main__':
-    with open('temp.response.json', 'rb') as f:
-        response = Response.model_validate_json(f.read())
+    import pathlib as pl
+    import traceback as tb
 
-    result = response_to_result(response)
+    dir = pl.Path('debug')
+    for f in dir.rglob('shipments.json'):
+        print(f'\n========== {f.parent} ==========\n')
+        try:
+            response = Response.model_validate_json(f.read_bytes())
+            result = response_to_result(response)
+        except Exception:
+            tb.print_exc()
+            continue
