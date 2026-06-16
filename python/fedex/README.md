@@ -16,4 +16,4 @@ GET /{运单号}?timeout={超时时间}
 
 ### 输出
 
-参照 `schemas.py` 中的 `Result`
+参照 `main.py` 中的 `GetResponse`

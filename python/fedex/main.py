@@ -7,7 +7,6 @@ import traceback as tb
 
 import click
 import fastapi as fa
-import fastapi.responses as resps
 import patchright.async_api as pr
 import pydantic as pd
 import uvicorn
