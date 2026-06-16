@@ -75,20 +75,22 @@ async def scrape(context: pr.BrowserContext, id: str, timeout: dt.timedelta) -> 
 
 
 headless: bool = False
+browser: str | None = None
 
 
 @cl.asynccontextmanager
 async def lifespan(app: fa.FastAPI):
     async with pr.async_playwright() as p:
-        browser = await p.chromium.launch(headless=headless)
-        context = await browser.new_context()
+        # todo: 触发反爬时需要更换浏览器
+        bw = await p.chromium.launch(executable_path=browser, headless=headless)
+        bc = await bw.new_context()
 
-        app.state.browser_context = context
+        app.state.browser_context = bc
 
         yield
 
         try:
-            await browser.close()
+            await bw.close()
         except Exception:
             pass
 
@@ -115,10 +117,12 @@ async def get(id: schemas.DigitalStr, timeout: pd.NonNegativeFloat = 30) -> GetR
 @click.command()
 @click.option('--port', default=8000, help='端口')
 @click.option('--headless', 'headless_', is_flag=True, default=False, help='隐藏浏览器界面')
+@click.option('--browser', 'browser_', default=None, help='浏览器 exe 位置')
 @click.option('--debug', 'debug_', is_flag=True, help='爬取时在 debug 目录保存网页文件')
-def main(port: int, headless_: bool, debug_: bool):
-    global headless, debug
+def main(port: int, headless_: bool, browser_: str | None, debug_: bool):
+    global headless, browser, debug
     headless = headless_
+    browser = browser_
     debug = debug_
     uvicorn.run(app, host='127.0.0.1', port=port, timeout_graceful_shutdown=30)
 
