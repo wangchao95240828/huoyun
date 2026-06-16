@@ -6,7 +6,6 @@ import pydantic as pd
 
 import data
 
-# fixme: 870076668900 Duplicate results found
 
 DigitalStr = tp.Annotated[str, pd.StringConstraints(pattern=(r'^\d+$'))]
 NotBlankStr = tp.Annotated[str, pd.StringConstraints(strip_whitespace=True, min_length=1)]
