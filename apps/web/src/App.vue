@@ -1465,9 +1465,8 @@ Object.assign(accColumns, {
     { key: 'fitted_count',       label: '装入件数' },
     { key: 'unfitted_count',     label: '未装件数' },
     { key: 'volume_utilization', label: '利用率', fmt: 'percent' },
-    { key: 'weight_used_kg',     label: '总重(kg)', fmt: 'money' },
+    { key: 'weight_used_kg',     label: '总重', fmt: 'kg' },
     { key: 'created_at',         label: '创建时间', fmt: 'date' },
-    { key: 'approved_at',        label: '审定时间', fmt: 'date' },
   ],
   orders: [
     { key: "orderNo", label: "客户单号" },
@@ -3427,6 +3426,11 @@ function fmtJson(value: any): string {
 function fmtCell(value: any, format?: string): string {
   if (value === null || value === undefined) return "-";
   if (format === "money") return "¥" + fmt(Number(value));
+  if (format === "kg") return fmt(Number(value)) + " kg";
+  if (format === "percent") {
+    const n = Number(value);
+    return Number.isFinite(n) ? (n * 100).toFixed(2) + "%" : "-";
+  }
   if (format === "bool") return value ? "是" : "否";
   if (format === "date" && typeof value === "string") return value.slice(0, 19).replace("T", " ");
   return String(value);
@@ -7039,18 +7043,18 @@ async function doReloadBill(id: number) {
                   <input type="checkbox" @change="toggleSelectAll()" :checked="selectedIds.size > 0 && selectedIds.size === accData.length" />
                 </th>
                 <th v-for="col in accColumns[accTab]" :key="col.key">{{ col.label }}</th>
-                <th class="audit-status-col">审核状态</th>
+                <th v-if="accTab !== 'stowage-plans'" class="audit-status-col">审核状态</th>
                 <th>操作</th>
               </tr>
             </thead>
             <tbody>
               <tr v-if="accLoading">
-                <td :colspan="accColumns[accTab].length + 2 + (canSelect ? 1 : 0)" class="loading-cell">
+                <td :colspan="accColumns[accTab].length + (accTab === 'stowage-plans' ? 1 : 2) + (canSelect ? 1 : 0)" class="loading-cell">
                   <RefreshCw :size="16" class="spinning" /> 加载中...
                 </td>
               </tr>
               <tr v-else-if="accData.length === 0">
-                <td :colspan="accColumns[accTab].length + 2 + (canSelect ? 1 : 0)" class="empty-cell">暂无数据</td>
+                <td :colspan="accColumns[accTab].length + (accTab === 'stowage-plans' ? 1 : 2) + (canSelect ? 1 : 0)" class="empty-cell">暂无数据</td>
               </tr>
               <tr v-for="row in accData" :key="row.id ?? row.code ?? row.no"
                   :class="{
@@ -7073,7 +7077,7 @@ async function doReloadBill(id: number) {
                   </template>
                   <template v-else>{{ fmtCell(row[col.key], col.fmt) }}</template>
                 </td>
-                <td class="audit-status-cell">
+                <td v-if="accTab !== 'stowage-plans'" class="audit-status-cell">
                   <span v-if="row.auditStatus === 'AUDITED'" class="audit-badge audited" :title="`审核人: ${row.auditName ?? ''}\n审核时间: ${row.auditedAt ?? ''}`">已审核</span>
                   <span v-else-if="row.auditStatus === 'UNAUDITED'" class="audit-badge unaudited">已反审</span>
                   <span v-else-if="row.auditStatus === 'PENDING'" class="audit-badge pending">待审核</span>
