@@ -1,6 +1,7 @@
 import asyncio
 import datetime as dt
 import contextlib as cl
+import os
 import re
 import traceback as tb
 
@@ -15,8 +16,12 @@ import schemas
 
 expect_response_re: re.Pattern[str] = re.compile(r'api.fedex.com/track/v2/shipments')
 
+debug: bool = False
 
-async def scrape(context: pr.BrowserContext, id: str, timeout: dt.timedelta) -> schemas.Response:
+
+async def scrape(context: pr.BrowserContext, id: str, timeout: dt.timedelta) -> schemas.Result:
+    """失败时若 debug=True 就保存响应体和页面截图"""
+    body: bytes | None = None
     page = await context.new_page()
     try:
         async with asyncio.timeout(timeout.seconds):
@@ -30,8 +35,30 @@ async def scrape(context: pr.BrowserContext, id: str, timeout: dt.timedelta) -> 
                 if not response.ok:
                     raise Exception(f'status: {response.status}')
 
-                response = await info.value
-                return schemas.Response.model_validate_json(await response.body(), extra='ignore')
+                body = await (await info.value).body()
+                return schemas.response_to_result(
+                    schemas.Response.model_validate_json(body, extra='ignore')
+                )
+
+    except Exception as e1:
+        # debug 引发的异常只在此处打印，不要向外泄露
+        if debug and body is not None:
+            try:
+                os.makedirs(f'debug/{id}', exist_ok=True)
+
+                with open(f'debug/{id}/document.html', 'w') as f:
+                    f.write(await page.content())
+
+                with open(f'debug/{id}/screenshot.jpeg', 'wb') as f:
+                    f.write(await page.screenshot(type='jpeg', quality=90, timeout=1000))
+
+                with open(f'debug/{id}/shipments.json', 'wb') as f:
+                    f.write(body)
+
+            except Exception:
+                tb.print_exc()
+
+        raise e1
 
     finally:
         await page.close()
@@ -42,7 +69,6 @@ headless: bool = False
 
 @cl.asynccontextmanager
 async def lifespan(app: fa.FastAPI):
-    global headless
     async with pr.async_playwright() as p:
         browser = await p.chromium.launch(headless=headless)
         context = await browser.new_context()
@@ -62,10 +88,9 @@ app = fa.FastAPI(lifespan=lifespan)
 
 @app.get('/{id}')
 async def get(id: schemas.DigitalStr, timeout: pd.NonNegativeFloat = 30) -> fa.Response:
+    """成功返回 Result 的 json，失败返回 Exception 的 traceback"""
     try:
-        result = schemas.response_to_result(
-            await scrape(app.state.browser_context, id, dt.timedelta(seconds=timeout))
-        )
+        result = await scrape(app.state.browser_context, id, dt.timedelta(seconds=timeout))
         return fa.Response(
             content=result.model_dump_json(), status_code=200, media_type='application/json'
         )
@@ -75,10 +100,12 @@ async def get(id: schemas.DigitalStr, timeout: pd.NonNegativeFloat = 30) -> fa.R
 
 @click.command()
 @click.option('--port', default=8000, help='端口')
-@click.option('--headless', 'headless_', default=False, help='隐藏浏览器界面')
-def main(port: int, headless_: bool):
-    global headless
+@click.option('--headless', 'headless_', is_flag=True, default=False, help='隐藏浏览器界面')
+@click.option('--debug', 'debug_', is_flag=True, default=False, help='爬取失败时在 debug 目录保存网页文件')
+def main(port: int, headless_: bool, debug_: bool):
+    global headless, debug
     headless = headless_
+    debug = debug_
     uvicorn.run(app, host='127.0.0.1', port=port, timeout_graceful_shutdown=30)
 
 
