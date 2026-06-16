@@ -97,16 +97,20 @@ async def lifespan(app: fa.FastAPI):
 app = fa.FastAPI(lifespan=lifespan)
 
 
+class GetResponse(pd.BaseModel):
+    ok: bool
+    result: schemas.Result | None = None
+    traceback: str | None = None
+
+
 @app.get('/{id}')
-async def get(id: schemas.DigitalStr, timeout: pd.NonNegativeFloat = 30) -> fa.Response:
+async def get(id: schemas.DigitalStr, timeout: pd.NonNegativeFloat = 30) -> GetResponse:
     """成功返回 Result 的 json，失败返回 Exception 的 traceback"""
     try:
         result = await scrape(app.state.browser_context, id, dt.timedelta(seconds=timeout))
-        return fa.Response(
-            content=result.model_dump_json(), status_code=200, media_type='application/json'
-        )
+        return GetResponse(ok=True, result=result)
     except Exception:
-        return resps.PlainTextResponse(content=tb.format_exc(), status_code=500)
+        return GetResponse(ok=False, traceback=tb.format_exc())
 
 
 @click.command()
