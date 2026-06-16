@@ -36,26 +36,26 @@ async def scrape(context: pr.BrowserContext, id: str, timeout: dt.timedelta) -> 
                     raise Exception(f'status: {response.status}')
 
                 body = await (await info.value).body()
+                if debug:
+                    try:
+                        os.makedirs(f'debug/{id}', exist_ok=True)
+
+                        with open(f'debug/{id}/document.html', 'w') as f:
+                            f.write(await page.content())
+                        with open(f'debug/{id}/screenshot.jpeg', 'wb') as f:
+                            f.write(await page.screenshot(type='jpeg', quality=90, timeout=1000))
+
+                        if body is not None:
+                            with open(f'debug/{id}/shipments.json', 'wb') as f:
+                                f.write(body)
+
+                    # debug 引发的异常只在此处打印，不要向外泄露
+                    except Exception as debug_err:
+                        tb.print_exception(debug_err)
+
                 return schemas.response_to_result(
                     schemas.Response.model_validate_json(body, extra='ignore')
                 )
-
-        if debug:
-            try:
-                os.makedirs(f'debug/{id}', exist_ok=True)
-
-                with open(f'debug/{id}/document.html', 'w') as f:
-                    f.write(await page.content())
-                with open(f'debug/{id}/screenshot.jpeg', 'wb') as f:
-                    f.write(await page.screenshot(type='jpeg', quality=90, timeout=1000))
-
-                if body is not None:
-                    with open(f'debug/{id}/shipments.json', 'wb') as f:
-                        f.write(body)
-
-            # debug 引发的异常只在此处打印，不要向外泄露
-            except Exception as debug_err:
-                tb.print_exception(debug_err)
 
     except Exception as e1:
         if debug:
@@ -112,9 +112,7 @@ async def get(id: schemas.DigitalStr, timeout: pd.NonNegativeFloat = 30) -> fa.R
 @click.command()
 @click.option('--port', default=8000, help='端口')
 @click.option('--headless', 'headless_', is_flag=True, default=False, help='隐藏浏览器界面')
-@click.option(
-    '--debug', 'debug_', is_flag=True, default=False, help='爬取时在 debug 目录保存网页文件'
-)
+@click.option('--debug', 'debug_', is_flag=True, help='爬取时在 debug 目录保存网页文件')
 def main(port: int, headless_: bool, debug_: bool):
     global headless, debug
     headless = headless_
