@@ -239,20 +239,23 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
         @RequestParam(required = false, defaultValue = "100") Integer pageSize
     ) {
         int limit = Math.max(1, Math.min(500, pageSize));
+        // piece/weight 来自 cartons 子查询 (shipments 表本身无 total_piece 列)
         java.util.List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT
-              cn.name                                                          AS channel_name,
-              cu.name                                                          AS customer_name,
-              count(DISTINCT s.id)                                             AS shipment_count,
-              coalesce(sum(s.total_piece), 0)                                  AS total_piece,
-              coalesce(sum(s.total_weight), 0)                                 AS total_weight,
-              coalesce(sum((SELECT sum(c.amount) FROM charges c
-                            WHERE c.shipment_id = s.id AND c.side='AR'
-                              AND c.settlement_status <> 'VOID')), 0)          AS total_charge,
-              coalesce(sum((SELECT sum(c.amount) FROM charges c
-                            WHERE c.shipment_id = s.id AND c.side='AP'
-                              AND c.settlement_status <> 'VOID')), 0)          AS total_cost,
-              to_char(date_trunc('day', s.created_at), 'YYYY-MM-DD')           AS the_date
+              cn.name                                                AS channel_name,
+              cu.name                                                AS customer_name,
+              count(DISTINCT s.id)                                   AS shipment_count,
+              coalesce(sum((SELECT count(*) FROM cartons c
+                            WHERE c.shipment_id = s.id)), 0)         AS total_piece,
+              coalesce(sum((SELECT sum(c.actual_weight_kg) FROM cartons c
+                            WHERE c.shipment_id = s.id)), 0)         AS total_weight,
+              coalesce(sum((SELECT sum(ch.amount) FROM charges ch
+                            WHERE ch.shipment_id = s.id AND ch.side='AR'
+                              AND ch.settlement_status <> 'VOID')), 0) AS total_charge,
+              coalesce(sum((SELECT sum(ch.amount) FROM charges ch
+                            WHERE ch.shipment_id = s.id AND ch.side='AP'
+                              AND ch.settlement_status <> 'VOID')), 0) AS total_cost,
+              to_char(date_trunc('day', s.created_at), 'YYYY-MM-DD') AS the_date
             FROM shipments s
             LEFT JOIN customers cu ON cu.id = s.customer_id
             LEFT JOIN channels  cn ON cn.id = s.channel_id
