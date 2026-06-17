@@ -775,7 +775,6 @@ const sysData = ref<any[]>([]);
 const sysTotal = ref(0);
 const sysPage = ref(1);
 const sysLoading = ref(false);
-const sysInfo = ref<any>(null);
 
 const navItems = [
   { key: "dashboard", label: "驾驶舱", icon: BarChart3 },
@@ -828,25 +827,13 @@ function statusTone(status?: { available: boolean; connected: boolean }) {
   return "gray";
 }
 
+// 系统设置: 仅保留后端真实现的 3 个 tab (对齐 ACC 系统设置 3 项: 用户/管理员/添加管理员)
+// 其余早期占位 (menus/error-logs/sms-logs/sys-info/db-stats/cust-accounts/service-msg/hardware/tools/configs)
+// 后端无对应 endpoint, 全部删除避免假装功能
 const sysTabs = [
-  // 用户权限
-  { key: "users", label: "用户管理", icon: Users },
-  { key: "roles", label: "角色权限", icon: ShieldCheck },
-  { key: "menus", label: "菜单管理", icon: ListChecks },
-  // 日志审计
-  { key: "op-logs", label: "操作日志", icon: FileText },
-  { key: "error-logs", label: "错误日志", icon: AlertTriangle },
-  { key: "sms-logs", label: "短信记录", icon: Mail },
-  // 系统配置
-  { key: "configs", label: "系统配置", icon: ListChecks },
-  { key: "sys-info", label: "系统信息", icon: Globe },
-  { key: "db-stats", label: "数据库统计", icon: BarChart3 },
-  // 客户/服务
-  { key: "cust-accounts", label: "客户账号", icon: Users },
-  { key: "service-msg", label: "在线客服", icon: Mail },
-  { key: "tools", label: "系统工具", icon: ListChecks },
-  // 接口
-  { key: "hardware", label: "硬件接口", icon: Layers },
+  { key: "users",   label: "用户管理", icon: Users },        // ACC 管理员列表 + 添加 = users + 「+ 新增」
+  { key: "roles",   label: "角色权限", icon: ShieldCheck },
+  { key: "op-logs", label: "操作日志", icon: FileText },     // /api/admin/audit-logs
 ];
 
 const sysColumns: Record<string, Array<{ key: string; label: string }>> = {
@@ -859,69 +846,24 @@ const sysColumns: Record<string, Array<{ key: string; label: string }>> = {
     { key: "id", label: "编号" }, { key: "name", label: "角色名" }, { key: "description", label: "描述" },
     { key: "permissions", label: "权限" }, { key: "createdAt", label: "创建时间" },
   ],
-  menus: [
-    { key: "id", label: "编号" }, { key: "parentId", label: "父级" }, { key: "name", label: "菜单名" },
-    { key: "path", label: "路径" }, { key: "icon", label: "图标" }, { key: "sort", label: "排序" },
-    { key: "permission", label: "权限码" }, { key: "visible", label: "可见" },
-  ],
   "op-logs": [
     { key: "id", label: "编号" }, { key: "username", label: "用户" }, { key: "module", label: "模块" },
     { key: "action", label: "操作" }, { key: "target", label: "目标" },
     { key: "ip", label: "IP 地址" }, { key: "createdAt", label: "时间" },
   ],
-  "error-logs": [
-    { key: "id", label: "编号" }, { key: "level", label: "级别" }, { key: "module", label: "模块" },
-    { key: "message", label: "消息" }, { key: "created_at", label: "时间" },
-  ],
-  "sms-logs": [
-    { key: "id", label: "编号" }, { key: "phone", label: "手机号" }, { key: "content", label: "内容" },
-    { key: "template", label: "模板" }, { key: "status", label: "状态" }, { key: "created_at", label: "时间" },
-  ],
-  configs: [
-    { key: "key", label: "配置键" }, { key: "value", label: "值" },
-    { key: "description", label: "描述" }, { key: "group", label: "分组" },
-  ],
-  "db-stats": [
-    { key: "table_name", label: "表名" }, { key: "row_count", label: "行数" },
-  ],
-  "cust-accounts": [
-    { key: "id", label: "编号" }, { key: "customerId", label: "客户ID" }, { key: "username", label: "用户名" },
-    { key: "status", label: "状态" }, { key: "lastLogin", label: "最后登录" },
-  ],
-  "service-msg": [
-    { key: "id", label: "编号" }, { key: "customerId", label: "客户ID" }, { key: "direction", label: "方向" },
-    { key: "content", label: "内容" }, { key: "createdAt", label: "时间" },
-  ],
-  hardware: [
-    { key: "id", label: "编号" }, { key: "type", label: "类型" }, { key: "name", label: "名称" },
-    { key: "status", label: "状态" }, { key: "last_heartbeat", label: "最后心跳" },
-  ],
 };
 
-// 后端实际暴露的 admin 端点：/api/admin/{users,roles,permissions,audit-logs}。
-// 旧 sys 命名空间的其余 tab（menus/configs/sys-info/db-stats/sms-logs/hardware/...）
-// 在新平台没有对应控制器，暂时返回空数组并由 UI 提示"未上线"。
+// 后端实际暴露的 admin 端点 (3 个 sysTabs 一一映射)
 const SYS_TAB_API_MAP: Record<string, string> = {
-  users: '/api/admin/users',
-  roles: '/api/admin/roles',
-  'op-logs': '/api/admin/audit-logs',
-  configs: '/api/admin/permissions',
+  users:    '/api/admin/users',
+  roles:    '/api/admin/roles',
+  'op-logs':'/api/admin/audit-logs',
 };
-const SYS_TAB_UNAVAILABLE: Set<string> = new Set([
-  'menus', 'error-logs', 'sms-logs', 'sys-info',
-  'db-stats', 'cust-accounts', 'service-msg', 'hardware', 'tools',
-]);
 
 async function loadSystemData() {
   sysLoading.value = true;
   try {
     const tab = sysTab.value;
-    if (SYS_TAB_UNAVAILABLE.has(tab)) {
-      sysData.value = [];
-      sysTotal.value = 0;
-      sysInfo.value = { unavailable: true, message: '此模块尚未在新后端上线' };
-      return;
-    }
     const url = SYS_TAB_API_MAP[tab];
     if (!url) { sysData.value = []; return; }
     const res = await apiFetch(`${API}${url}`);
@@ -7488,35 +7430,14 @@ async function doReloadBill(id: number) {
         <nav class="acc-tabs-bar">
           <div class="acc-group">
             <span class="acc-group-label">用户权限</span>
-            <button v-for="tab in sysTabs.slice(0, 3)" :key="tab.key"
+            <button v-for="tab in sysTabs.slice(0, 2)" :key="tab.key"
               :class="['acc-tab', { active: sysTab === tab.key }]" @click="sysTab = tab.key; loadSystemData()">
               <component :is="tab.icon" :size="14" /> {{ tab.label }}
             </button>
           </div>
           <div class="acc-group">
             <span class="acc-group-label">日志审计</span>
-            <button v-for="tab in sysTabs.slice(3, 6)" :key="tab.key"
-              :class="['acc-tab', { active: sysTab === tab.key }]" @click="sysTab = tab.key; loadSystemData()">
-              <component :is="tab.icon" :size="14" /> {{ tab.label }}
-            </button>
-          </div>
-          <div class="acc-group">
-            <span class="acc-group-label">系统配置</span>
-            <button v-for="tab in sysTabs.slice(6, 9)" :key="tab.key"
-              :class="['acc-tab', { active: sysTab === tab.key }]" @click="sysTab = tab.key; loadSystemData()">
-              <component :is="tab.icon" :size="14" /> {{ tab.label }}
-            </button>
-          </div>
-          <div class="acc-group">
-            <span class="acc-group-label">客户/服务</span>
-            <button v-for="tab in sysTabs.slice(9, 12)" :key="tab.key"
-              :class="['acc-tab', { active: sysTab === tab.key }]" @click="sysTab = tab.key; loadSystemData()">
-              <component :is="tab.icon" :size="14" /> {{ tab.label }}
-            </button>
-          </div>
-          <div class="acc-group">
-            <span class="acc-group-label">接口/工具</span>
-            <button v-for="tab in sysTabs.slice(12)" :key="tab.key"
+            <button v-for="tab in sysTabs.slice(2)" :key="tab.key"
               :class="['acc-tab', { active: sysTab === tab.key }]" @click="sysTab = tab.key; loadSystemData()">
               <component :is="tab.icon" :size="14" /> {{ tab.label }}
             </button>
@@ -7524,19 +7445,6 @@ async function doReloadBill(id: number) {
         </nav>
         <section class="panel-card">
           <div v-if="sysLoading" class="placeholder"><RefreshCw :size="32" class="spinning" /><p>加载中...</p></div>
-          <div v-else-if="sysTab === 'sys-info' && sysInfo">
-            <h3 class="panel-title">系统信息</h3>
-            <div class="form-grid">
-              <div class="form-field"><label>系统版本</label><input readonly :value="sysInfo.version" /></div>
-              <div class="form-field"><label>Node版本</label><input readonly :value="sysInfo.nodeVersion" /></div>
-              <div class="form-field"><label>平台</label><input readonly :value="sysInfo.platform" /></div>
-              <div class="form-field"><label>运行时间</label><input readonly :value="Math.round(sysInfo.uptime/3600) + '小时'" /></div>
-              <div class="form-field"><label>在线用户数</label><input readonly :value="sysInfo.users" /></div>
-              <div class="form-field"><label>角色数</label><input readonly :value="sysInfo.roles" /></div>
-              <div class="form-field"><label>今日操作</label><input readonly :value="sysInfo.todayLogs" /></div>
-              <div class="form-field"><label>今日错误</label><input readonly :value="sysInfo.todayErrors" /></div>
-            </div>
-          </div>
           <div v-else>
             <table class="data-table" v-if="sysData.length">
               <thead>
