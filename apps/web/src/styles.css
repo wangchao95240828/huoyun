@@ -1544,6 +1544,13 @@ input, select, textarea { font: inherit; }
 .modal-sm { width: 420px; }
 .modal-xl { width: 1200px; max-width: 95vw; max-height: 92vh; }
 
+/* 货物信息 section 标题旁的提示文案（弱化, 灰色, 不抢戏）*/
+.form-hint {
+  font-size: 12px; color: var(--c-text-muted); font-weight: 400;
+  margin-left: 8px;
+}
+.form-hint .row-link { font-weight: 600; }
+
 /* 表格内可点击行链接（客户单号/订单号 → 详情）*/
 .row-link {
   color: var(--c-primary); cursor: pointer;

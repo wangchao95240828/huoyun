@@ -3924,6 +3924,24 @@ function scrollFormTo(id: string) {
   const target = body.querySelector('#' + id) as HTMLElement | null;
   if (target) body.scrollTo({ top: target.offsetTop - 12, behavior: 'smooth' });
 }
+
+// 货物信息 → 申报明细 智能联动:
+// 用户在「货物信息」填了英文/中文品名/件数/货值, 若申报明细只有 1 行且 name 为空,
+// 自动同步过去 — 避免重复输入. 用户改过申报明细就停止同步.
+watch(
+  () => [fullOrderData.materialsEn, fullOrderData.materialsCn, fullOrderData.piece, fullOrderData.declaredValue],
+  ([en, cn, pcs, val]) => {
+    if (!showFullOrderForm.value) return;
+    const d = fullOrderData.declare;
+    if (!Array.isArray(d) || d.length !== 1) return;
+    const r = d[0];
+    if (r.name && r.name !== en) return; // 用户改过, 不覆盖
+    r.name = en || r.name;
+    r.cnName = cn || r.cnName;
+    if (pcs && pcs > 0) r.quantity = pcs;
+    if (val && val > 0 && pcs && pcs > 0) r.price = Number((Number(val) / Number(pcs)).toFixed(2));
+  }
+);
 const emptyParty = () => ({ company: '', name: '', phone: '', province: '', postcode: '', city: '', vat: '', address: '', houseNo: '' });
 const emptyDeclareRow = () => ({ name: '', cnName: '', origin: '', quantity: 1, price: 0, hsCode: '', remark: '' });
 const emptyPackageRow = () => ({ no: '', weight: 0, name: '', cnName: '', hsCode: '', grossWeight: 0, length: 0, width: 0, height: 0, quantity: 1, price: 0, material: '' });
@@ -7475,7 +7493,7 @@ async function doReloadBill(id: number) {
           <!-- 货物信息 -->
           <a id="sec-cargo"></a>
           <div class="form-section">
-            <h4>货物信息</h4>
+            <h4>货物信息 <span class="form-hint">— 海关编码 / 申报数量 / 货值 在下方 <a class="row-link" @click.prevent="scrollFormTo('sec-declare')">⚠ 申报明细</a> 表格里填</span></h4>
             <div class="form-grid">
               <div class="form-field full-width"><label>英文品名 <span class="required">*</span></label><input type="text" v-model="fullOrderData.materialsEn" placeholder="英文品名 (ACC MaterialsEN)" /></div>
               <div class="form-field full-width"><label>中文品名</label><input type="text" v-model="fullOrderData.materialsCn" placeholder="中文品名 (ACC MaterialsCN)" /></div>
