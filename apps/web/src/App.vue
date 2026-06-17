@@ -2819,6 +2819,7 @@ const accFormFields: Record<string, FormField[]> = {
   ],
   banks: [
     { col: 'Name', label: '账户名称', type: 'text', required: true },
+    { col: 'BankName', label: '开户银行', type: 'text', required: true },
     { col: 'Currency', label: '币种', type: 'select', ref: 'currencies' },
     { col: 'Deposit', label: '存款', type: 'number' },
     { col: 'isOpen', label: '启用', type: 'boolean' },
@@ -4086,6 +4087,41 @@ function closeForm() {
   formError.value = '';
 }
 
+// 财务通用 form PascalCase → 后端键名映射.
+// 通用 form col 用 PascalCase ('No', 'Customer', 'Amount', 'TheDate', 'Bank', 'Supplier' ...),
+// 后端 createImpl/updateImpl 读 'no'/'customer_id'/'amount'/'the_date'/'financial_account_id'/'partner_id'.
+// 不映射 = 字段全丢, 后端报「单号必填」「请选择客户」.
+function normalizeFinanceFormBody(api: string, src: Record<string, any>): Record<string, any> {
+  const FINANCE_TXN_APIS = new Set([
+    'receiveds','payments','customer-refunds','supplier-refunds',
+    'customer-rebates','supplier-rebates','customer-fines','supplier-fines',
+    'customer-adjusts','supplier-adjusts','borrowings','transfers','expenses','wages','dividends',
+  ]);
+  // 兼容 ACC 老字段名 (PascalCase) → 新后端 (camelCase / snake_case)
+  const MAP: Record<string, string> = {
+    No: 'no', TheDate: 'theDate', Amount: 'amount', Currency: 'currency',
+    Remark: 'remark', Reason: 'reason', Poundage: 'poundage', FxRate: 'fxRate',
+    PayCurrency: 'payCurrency', Status: 'status', AddName: 'addName',
+    Customer: 'customer_id', Supplier: 'partner_id', Partner: 'partner_id',
+    Bank: 'financial_account_id', BankIn: 'financial_account_id_in', BankOut: 'financial_account_id_out',
+    BankName: 'bank_name', Name: 'name', Code: 'code', Deposit: 'deposit',
+    Paid: 'paid', EndDate: 'endDate', Settlement: 'settlement',
+  };
+  // charges/costs 通用 form 字段语义复杂(Express=shipment, Type=charge_item),
+  // 推荐用「+ 添加成本」对话框. 通用 form 一律不动 body, 让后端报错指引用户.
+  if (api === 'charges' || api === 'costs') return src;
+  if (!FINANCE_TXN_APIS.has(api) && api !== 'charges' && api !== 'costs' && api !== 'banks' && api !== 'currencies') {
+    return src; // 非财务 tab, 不动 (订单/物流商等沿用 ACC PascalCase)
+  }
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (v === '' || v === null || v === undefined) continue;
+    const mapped = MAP[k] ?? (k[0] === k[0].toLowerCase() ? k : k[0].toLowerCase() + k.slice(1));
+    out[mapped] = v;
+  }
+  return out;
+}
+
 async function saveForm() {
   formSaving.value = true;
   formError.value = '';
@@ -4160,6 +4196,10 @@ async function saveForm() {
         ? `${API}/api/acc/${tab.api}`
         : `${API}/api/acc/${tab.api}/${editId.value}`;
       method = formMode.value === 'add' ? 'POST' : 'PUT';
+      // 财务通用 form 用 PascalCase col 名 (No/Customer/Amount/TheDate ...)
+      // 但后端 createImpl 读 camelCase/snake_case (no/customer_id/amount/the_date ...)
+      // 这里做最小化映射, 不动模板和后端.
+      body = normalizeFinanceFormBody(tab.api, formData);
     }
     const res = await fetch(url, {
       method,
