@@ -3316,8 +3316,8 @@ const refEndpoints: Record<string, { api: string; nameField: string }> = {
   ports: { api: 'ports', nameField: 'name' },
   currencies: { api: 'currencies', nameField: 'name' },
   'stowage-categories': { api: 'stowage-categories', nameField: 'name' },
-  // 制单表单缺失的 3 个下拉
-  'channel-accounts': { api: 'channel-accounts', nameField: 'account_name' },
+  // 制单表单缺失的 3 个下拉 — accountName/code 全 camelCase (后端 project() 已转换)
+  'channel-accounts': { api: 'channel-accounts', nameField: 'accountName' },
   warehouses: { api: 'warehouses', nameField: 'name' },
   'importer-templates': { api: 'importer-templates', nameField: 'name' },
 };
@@ -3885,7 +3885,8 @@ async function loadSelectOptions(fields: FormField[]) {
       selectOptions.value[r] = list.map((row: any) => ({
         id: row.id,
         name: row[ep.nameField] || row.name || row.code || String(row.id),
-        code: row.code ?? undefined,
+        // code 用于下拉 :value (优先 code, 渠道账号用 accountNo)
+        code: row.code ?? row.accountNo ?? undefined,
       }));
     } catch {
       selectOptions.value[r] = [];
@@ -3917,6 +3918,12 @@ async function openAdd() {
 const showFullOrderForm = ref(false);
 const fullOrderError = ref('');
 const fullOrderSaving = ref(false);
+const fullOrderModalBody = ref<HTMLDivElement | null>(null);
+function scrollFormTo(id: string) {
+  const body = fullOrderModalBody.value; if (!body) return;
+  const target = body.querySelector('#' + id) as HTMLElement | null;
+  if (target) body.scrollTo({ top: target.offsetTop - 12, behavior: 'smooth' });
+}
 const emptyParty = () => ({ company: '', name: '', phone: '', province: '', postcode: '', city: '', vat: '', address: '', houseNo: '' });
 const emptyDeclareRow = () => ({ name: '', cnName: '', origin: '', quantity: 1, price: 0, hsCode: '', remark: '' });
 const emptyPackageRow = () => ({ no: '', weight: 0, name: '', cnName: '', hsCode: '', grossWeight: 0, length: 0, width: 0, height: 0, quantity: 1, price: 0, material: '' });
@@ -7075,6 +7082,10 @@ async function doReloadBill(id: number) {
                     {{ fmtMoney(row.amount, row.currency) }}
                     <span class="dual-currency"> → {{ fmtMoney(row.targetAmount, row.targetCurrency) }}</span>
                   </template>
+                  <!-- 客户单号/订单号 列：可点击打开详情 -->
+                  <template v-else-if="(col.key === 'orderNo' || col.key === 'order_no') && row[col.key]">
+                    <a class="row-link" @click.prevent="viewDetail(row)">{{ row[col.key] }}</a>
+                  </template>
                   <template v-else>{{ fmtCell(row[col.key], col.fmt) }}</template>
                 </td>
                 <td v-if="accTab !== 'stowage-plans'" class="audit-status-cell">
@@ -7374,10 +7385,23 @@ async function doReloadBill(id: number) {
           <h3>新增 快件订单（完整制单）</h3>
           <button class="modal-close" @click="showFullOrderForm = false"><X :size="18" /></button>
         </div>
-        <div class="modal-body">
+        <!-- 章节快速跳转条 (下方表单太长,先给用户指路) -->
+        <div class="form-anchor-bar">
+          <a href="#sec-basic" @click.prevent="scrollFormTo('sec-basic')">基本信息</a>
+          <a href="#sec-channel" @click.prevent="scrollFormTo('sec-channel')">发货渠道</a>
+          <a href="#sec-cargo" @click.prevent="scrollFormTo('sec-cargo')">货物信息</a>
+          <a href="#sec-invoice" @click.prevent="scrollFormTo('sec-invoice')">发票信息</a>
+          <a href="#sec-receiver" @click.prevent="scrollFormTo('sec-receiver')">收件人</a>
+          <a href="#sec-shipper" @click.prevent="scrollFormTo('sec-shipper')">发件人</a>
+          <a href="#sec-importer" @click.prevent="scrollFormTo('sec-importer')">进口商</a>
+          <a href="#sec-declare" @click.prevent="scrollFormTo('sec-declare')" class="anchor-warn">⚠ 申报明细 (HS 编码/数量/货值)</a>
+          <a href="#sec-package" @click.prevent="scrollFormTo('sec-package')">装箱单</a>
+        </div>
+        <div class="modal-body" ref="fullOrderModalBody">
           <div class="error-bar" v-if="fullOrderError">{{ fullOrderError }}</div>
 
           <!-- 基本信息 -->
+          <a id="sec-basic"></a>
           <div class="form-section">
             <h4>基本信息</h4>
             <div class="form-grid">
@@ -7394,6 +7418,7 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- 发货渠道 -->
+          <a id="sec-channel"></a>
           <div class="form-section">
             <h4>发货渠道</h4>
             <div class="form-grid">
@@ -7448,6 +7473,7 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- 货物信息 -->
+          <a id="sec-cargo"></a>
           <div class="form-section">
             <h4>货物信息</h4>
             <div class="form-grid">
@@ -7470,6 +7496,7 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- 发票信息 -->
+          <a id="sec-invoice"></a>
           <div class="form-section">
             <h4>发票信息</h4>
             <div class="form-grid">
@@ -7500,6 +7527,7 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- 收件人 -->
+          <a id="sec-receiver"></a>
           <div class="form-section">
             <h4>收件人</h4>
             <div class="form-grid">
@@ -7531,6 +7559,7 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- 发件人 -->
+          <a id="sec-shipper"></a>
           <div class="form-section">
             <h4>发件人 <span style="color:#c00;font-size:12px;font-weight:normal">（为空则按默认）</span></h4>
             <div class="form-grid">
@@ -7546,6 +7575,7 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- 进口商 -->
+          <a id="sec-importer"></a>
           <div class="form-section">
             <h4>进口商 (IOR)</h4>
             <div class="form-grid">
@@ -7568,6 +7598,7 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- 申报明细 -->
+          <a id="sec-declare"></a>
           <div class="form-section">
             <h4>申报明细 <button class="primary sm" type="button" @click="addDeclareRow"><Plus :size="13" /> 添加商品</button></h4>
             <table class="inline-table">
@@ -7593,6 +7624,7 @@ async function doReloadBill(id: number) {
           </div>
 
           <!-- 装箱单明细 -->
+          <a id="sec-package"></a>
           <div class="form-section">
             <h4>装箱单明细 <button class="primary sm" type="button" @click="addPackageRow"><Plus :size="13" /> 添加装箱</button></h4>
             <table class="inline-table">
