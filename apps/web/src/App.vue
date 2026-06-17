@@ -4210,11 +4210,15 @@ async function doDelete() {
 // 主数据/字典类（customers/channels/currencies/bank-names/postcodes 等）后端
 // 也可审核但前端不显示按钮——审核策略由运营在后端 API 调用而非每行按钮决定。
 const bizAuditTabs = new Set([
-  // 订单 / 出货 / 配载（含 ACC 订单状态 4 个 sub-tab）
-  'orders', 'orders-draft', 'orders-history', 'orders-cancelled',   'shipments', 'packages', 'stowages', 'transits',
+  // 订单 / 出货 / 配载（含 ACC 订单状态 5 个 sub-tab）
+  'orders', 'orders-draft', 'orders-history', 'orders-cancelled', 'orders-void',
+  'shipments', 'packages', 'stowages', 'transits',
   // 财务核心
   'charges', 'costs', 'bills', 'receiveds', 'payments', 'commissions',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
+  // 财务待审 sub-tab(共享 api 但需要行内审核按钮)
+  'receiveds-pending', 'payments-pending',
+  'customer-refunds-pending', 'supplier-refunds-pending',
   // 调账 / 罚款 / 退款 / 返利
   'customer-fines', 'supplier-fines', 'customer-adjusts', 'supplier-adjusts',
   'customer-rebates', 'supplier-rebates',
