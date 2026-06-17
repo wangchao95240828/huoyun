@@ -6389,6 +6389,15 @@ async function doReloadBill(id: number) {
           <button class="primary sm" v-if="canCrud && accTab !== 'charges' && accTab !== 'costs'" @click="openAdd">
             <Plus :size="13" /> 新增
           </button>
+          <!-- ACC 核算中心「导入费用/导入成本」: tab 即上传入口 -->
+          <label class="primary sm" v-if="accTab === 'charges-import'" style="cursor:pointer">
+            <Upload :size="13" /> 上传费用 CSV
+            <input type="file" accept=".csv" style="display:none" @change="doImportActualBill" />
+          </label>
+          <label class="primary sm" v-if="accTab === 'costs-import'" style="cursor:pointer">
+            <Upload :size="13" /> 上传成本 CSV
+            <input type="file" accept=".csv" style="display:none" @change="doImportActualCost" />
+          </label>
           <button class="secondary sm" v-if="canBatchAudit" @click="doBatchAudit" :disabled="bizLoading || selectedIds.size === 0">
             <CheckCircle :size="13" /> 批量审核({{ selectedIds.size }})
           </button>
