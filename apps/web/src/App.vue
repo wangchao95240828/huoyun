@@ -4867,6 +4867,56 @@ async function doImportExcel(event: Event) {
   }
 }
 
+// ACC 制单中心「批量打印」: 把勾选订单 POST 到 orders/print-label, 后端返回 JSON 文档清单,
+// 前端打开 print-preview 新窗口(后续可扩 PDF 渲染, 先把文档清单展示出来).
+async function doBatchPrintLabels() {
+  if (selectedIds.value.size === 0) { setBizError('请先勾选订单'); return; }
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/print-label`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: Array.from(selectedIds.value) }),
+    });
+    const j = await res.json();
+    if (!res.ok) {
+      setBizError('打印失败: ' + (j.error || res.status));
+      return;
+    }
+    // 后端返回 { docType, documents[], count } — 先弹列表确认, 后续接 PDF 渲染
+    setBizOk(`批量打印就绪: 文档 ${j.count ?? 0} 张${j.notFound?.length ? `, 缺 ${j.notFound.length}`:''}`);
+    console.log('print payload:', j);
+  } catch (e: any) { setBizError('打印失败: ' + e.message); }
+  finally { bizLoading.value = false; }
+}
+
+// ACC 制单中心「追踪快递」: 把勾选订单的 tracking_no 拿出来, 调 /api/acc/tracking/poll-ups-batch
+async function doBatchPollTracking() {
+  if (selectedIds.value.size === 0) { setBizError('请先勾选订单'); return; }
+  bizLoading.value = true;
+  try {
+    // poll-ups-batch 接受 { trackingNumbers: [...] }, 从订单 list 拿 trackNo
+    const orders = accData.value.filter((o: any) => selectedIds.value.has(o.id));
+    const trackingNumbers = orders.map((o: any) => o.trackNo).filter(Boolean);
+    if (trackingNumbers.length === 0) {
+      setBizError('选中的订单都没有转单号, 无法追踪'); return;
+    }
+    const res = await apiFetch(`${API}/api/acc/tracking/poll-ups-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trackingNumbers }),
+    });
+    const j = await res.json();
+    if (!res.ok) {
+      setBizError('追踪失败: ' + (j.error || res.status));
+      return;
+    }
+    setBizOk(`批量追踪完成: 更新 ${j.updated ?? trackingNumbers.length} 条`);
+    await fetchAccData();
+  } catch (e: any) { setBizError('追踪失败: ' + e.message); }
+  finally { bizLoading.value = false; }
+}
+
 // 批量汇款 dialog state
 const showBatchRemitDialog = ref(false);
 const batchRemitAccountId = ref("");
@@ -6414,6 +6464,28 @@ async function doReloadBill(id: number) {
             <Upload :size="13" /> 上传成本 CSV
             <input type="file" accept=".csv" style="display:none" @change="doImportActualCost" />
           </label>
+          <!-- ACC 制单中心「导入快件」: 下载模板 + 上传 Excel/CSV -->
+          <template v-if="accTab === 'orders-import'">
+            <button class="secondary sm" @click="doDownloadImportTemplate">
+              <FileText :size="13" /> 下载模板
+            </button>
+            <label class="primary sm" style="cursor:pointer">
+              <Upload :size="13" /> 上传快件 Excel/CSV
+              <input type="file" accept=".csv,.xls,.xlsx" style="display:none" @change="doImportExcel" />
+            </label>
+          </template>
+          <!-- ACC 制单中心「批量打印」: 选中订单后批量打面单 -->
+          <button class="primary sm" v-if="accTab === 'orders-batch-print'"
+                  @click="doBatchPrintLabels"
+                  :disabled="bizLoading || selectedIds.size === 0">
+            <FileText :size="13" /> 批量打印面单({{ selectedIds.size }})
+          </button>
+          <!-- ACC 制单中心「追踪快递」: 批量轮询追踪状态 -->
+          <button class="primary sm" v-if="accTab === 'orders-batch-track'"
+                  @click="doBatchPollTracking"
+                  :disabled="bizLoading || selectedIds.size === 0">
+            <MapPin :size="13" /> 批量追踪({{ selectedIds.size }})
+          </button>
           <button class="secondary sm" v-if="canBatchAudit" @click="doBatchAudit" :disabled="bizLoading || selectedIds.size === 0">
             <CheckCircle :size="13" /> 批量审核({{ selectedIds.size }})
           </button>
