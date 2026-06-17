@@ -1242,12 +1242,28 @@ const accGroupCustomerService = [
   T("reparations-history"),// 历史赔偿
   T("received-sms"),       // 收款短信（客服触发）
 ];
-// 销售中心
+// 销售中心 (对齐 ACC 13 项 + xqt-saas 扩展)
 const accGroupSales = [
-  T("customers"), T("customer-groups"), T("suppliers"),
-  T("channels"), T("channel-accounts"),
-  T("products"), T("product-items"),
-  T("potentials"), T("sold-tos"), T("notices"),
+  // ACC 客户管理子组 (3): 客户管理 / 客户列表 / 创建客户(走 customers 的「+ 新增」)
+  T("customers"),
+  T("customer-groups"),
+  // ACC 客户往来子组 (7) - 跟财务中心共挂, 销售视角入口
+  T("customer-adjusts"),       // 客户调账
+  T("customer-receivables"),   // 应收款项
+  T("bills"),                  // 客户账单
+  T("customer-rebates"),       // 客户返利
+  T("customer-fines"),         // 客户罚款
+  T("receiveds"),              // 收款记录
+  T("customer-refunds"),       // 退款记录
+  // xqt-saas 扩展: 销售线索/产品/渠道
+  T("potentials"),
+  T("sold-tos"),
+  T("notices"),
+  T("suppliers"),
+  T("channels"),
+  T("channel-accounts"),
+  T("products"),
+  T("product-items"),
 ];
 // 核算中心（业务核算 - SKU 级 AR/AP/利润）
 const accGroupAccounting = [
