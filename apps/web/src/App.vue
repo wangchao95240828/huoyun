@@ -704,6 +704,15 @@ watch(accTab, (newTab) => {
     Object.entries(def.data).forEach(([k,v]) => { (advFilters as any)[k] = Array.isArray(v) ? (v as any[]).slice() : v; });
   }
 });
+
+// ACC 客服中心「发起新问题/申请赔偿」是入口 tab(对齐 ACC),
+// 切到这两个 tab 自动打开新建表单, 用户不必再点「+ 新增」.
+const AUTO_OPEN_ADD_TABS = new Set(['asks-new', 'reparations-apply']);
+watch(accTab, async (newTab) => {
+  if (AUTO_OPEN_ADD_TABS.has(newTab)) {
+    await openAdd();
+  }
+});
 onMounted(() => loadPresetsFromStorage());
 const accDateFrom = ref("");
 const accDateTo = ref("");
