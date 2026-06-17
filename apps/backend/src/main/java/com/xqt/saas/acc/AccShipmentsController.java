@@ -227,6 +227,58 @@ public AccShipmentsController(JdbcTemplate jdbc, JsonSupport json,
         };
     }
 
+    /**
+     * 渠道统计: 对齐 ACC 配载中心「渠道统计」(Collect.php?act=Collect).
+     * 按 channel + customer + date 分组聚合, 返回 piece sum / weight sum / charge sum / cost sum.
+     * 时间窗默认最近 30 天, 可传 dateFrom/dateTo 覆盖.
+     */
+    @GetMapping("/channel-stats")
+    public Map<String, Object> channelStats(
+        @RequestParam(required = false) String dateFrom,
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false, defaultValue = "100") Integer pageSize
+    ) {
+        int limit = Math.max(1, Math.min(500, pageSize));
+        java.util.List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT
+              cn.name                                                          AS channel_name,
+              cu.name                                                          AS customer_name,
+              count(DISTINCT s.id)                                             AS shipment_count,
+              coalesce(sum(s.total_piece), 0)                                  AS total_piece,
+              coalesce(sum(s.total_weight), 0)                                 AS total_weight,
+              coalesce(sum((SELECT sum(c.amount) FROM charges c
+                            WHERE c.shipment_id = s.id AND c.side='AR'
+                              AND c.settlement_status <> 'VOID')), 0)          AS total_charge,
+              coalesce(sum((SELECT sum(c.amount) FROM charges c
+                            WHERE c.shipment_id = s.id AND c.side='AP'
+                              AND c.settlement_status <> 'VOID')), 0)          AS total_cost,
+              to_char(date_trunc('day', s.created_at), 'YYYY-MM-DD')           AS the_date
+            FROM shipments s
+            LEFT JOIN customers cu ON cu.id = s.customer_id
+            LEFT JOIN channels  cn ON cn.id = s.channel_id
+            WHERE (?::date IS NULL OR s.created_at >= ?::date)
+              AND (?::date IS NULL OR s.created_at < (?::date + 1))
+              AND (?::date IS NOT NULL OR s.created_at >= current_date - 30)
+            GROUP BY cn.name, cu.name, date_trunc('day', s.created_at)
+            ORDER BY the_date DESC, channel_name, customer_name
+            LIMIT ?
+            """, dateFrom, dateFrom, dateTo, dateTo, dateFrom, limit);
+        java.util.List<Map<String, Object>> projected = rows.stream().map(r -> {
+            Map<String, Object> o = new java.util.LinkedHashMap<>();
+            o.put("id", (r.get("channel_name") + "|" + r.get("customer_name") + "|" + r.get("the_date")));
+            o.put("channelName",   r.get("channel_name"));
+            o.put("customerName",  r.get("customer_name"));
+            o.put("shipmentCount", r.get("shipment_count"));
+            o.put("totalPiece",    r.get("total_piece"));
+            o.put("totalWeight",   r.get("total_weight"));
+            o.put("totalCharge",   r.get("total_charge"));
+            o.put("totalCost",     r.get("total_cost"));
+            o.put("theDate",       r.get("the_date"));
+            return o;
+        }).toList();
+        return Map.of("data", projected, "total", projected.size());
+    }
+
     @GetMapping("/{id}/raw")
     public Map<String, Object> raw(@PathVariable String id) {
         List<Map<String, Object>> rows = jdbc.queryForList(

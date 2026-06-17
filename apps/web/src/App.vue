@@ -972,7 +972,7 @@ const accTabs = [
   { key: "shipments-today", label: "今日快件", icon: CalendarClock, api: "shipments", statusFilter: "TODAY" },
   // 配载中心 ACC 缺失补齐
   { key: "stowages-exception", label: "异常提单", icon: AlertTriangle, api: "stowages", statusFilter: "EXCEPTION" },
-  { key: "shipments-channel-stats", label: "渠道统计", icon: BarChart3, api: "shipments" },
+  { key: "shipments-channel-stats", label: "渠道统计", icon: BarChart3, api: "shipments/channel-stats" },
   { key: "shipments-pickup-today", label: "今日提取", icon: CalendarClock, api: "shipments", statusFilter: "PICKUP_TODAY" },
   { key: "shipments-pickup-week", label: "本周提取", icon: CalendarClock, api: "shipments", statusFilter: "PICKUP_WEEK" },
   { key: "shipments-intransit", label: "在途订单", icon: Plane, api: "shipments", statusFilter: "INTRANSIT" },
@@ -1354,7 +1354,6 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'shipments-exception': 'shipments',
       'shipments-delivered-today': 'shipments',
       'stowages-exception': 'stowages',
-      'shipments-channel-stats': 'shipments',
       // 制单中心 view tabs (复用 orders 列)
       'orders-queue': 'orders',
       'orders-import': 'orders',
@@ -1416,7 +1415,6 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'shipments-exception': 'shipments',
       'shipments-delivered-today': 'shipments',
       'stowages-exception': 'stowages',
-      'shipments-channel-stats': 'shipments',
       // 制单中心 view tabs (复用 orders 列)
       'orders-queue': 'orders',
       'orders-import': 'orders',
@@ -1500,6 +1498,17 @@ Object.assign(accColumns, {
     { key: "totalCost", label: "成本", fmt: "money" },
     { key: "auditName", label: "审核人" },
     { key: "addTime", label: "添加时间", fmt: "date" },
+  ],
+  // ACC 配载中心「渠道统计」按 渠道 × 客户 × 日期 聚合
+  "shipments-channel-stats": [
+    { key: "theDate",       label: "日期", fmt: "date" },
+    { key: "channelName",   label: "渠道账号" },
+    { key: "customerName",  label: "客户" },
+    { key: "shipmentCount", label: "出货单数" },
+    { key: "totalPiece",    label: "件数" },
+    { key: "totalWeight",   label: "重量(kg)", fmt: "kg" },
+    { key: "totalCharge",   label: "运费", fmt: "money" },
+    { key: "totalCost",     label: "成本", fmt: "money" },
   ],
   stowages: [
     { key: "no", label: "配载单号" },
