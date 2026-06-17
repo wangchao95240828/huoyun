@@ -6366,7 +6366,9 @@ async function doReloadBill(id: number) {
                   :style="missingCostOnly ? 'background:#dc2626;border-color:#dc2626' : ''">
             ⚠️ {{ missingCostOnly ? '✓ 只看缺成本' : '只看缺成本' }}
           </button>
-          <button class="primary sm" v-if="canCrud" @click="openAdd">
+          <!-- charges/costs 走「+ 添加成本」对话框 (语义复杂: 必须选订单 + 费用项),
+               通用「+ 新增」会让用户误以为能直接填表, 这里隐藏 -->
+          <button class="primary sm" v-if="canCrud && accTab !== 'charges' && accTab !== 'costs'" @click="openAdd">
             <Plus :size="13" /> 新增
           </button>
           <button class="secondary sm" v-if="canBatchAudit" @click="doBatchAudit" :disabled="bizLoading || selectedIds.size === 0">
