@@ -1,0 +1,10 @@
+[Unit]
+Description=XQT-SaaS PostgreSQL Daily Backup Timer (02:00 daily)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=xqt-pg-backup.service
+
+[Install]
+WantedBy=timers.target
