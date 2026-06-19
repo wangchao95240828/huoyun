@@ -4961,6 +4961,96 @@ async function doBatchPollTracking() {
   finally { bizLoading.value = false; }
 }
 
+// ════════ ACC ExpressBatch.php 4 个批量操作 ════════
+// dialog 共用 state: 转单号/计费重用 mapping textarea, 变客户用单值, 批量计费用 ids only
+const showBatchOpsDialog = ref(false);
+const batchOpsType = ref<'tracking' | 'weight' | 'customer' | 'recharge'>('tracking');
+const batchOpsMapping = ref(''); // textarea, 每行 "orderNoOrId,值"
+const batchOpsNewCustomerId = ref('');
+
+function openBatchOpsDialog(type: 'tracking' | 'weight' | 'customer' | 'recharge') {
+  batchOpsType.value = type;
+  batchOpsMapping.value = '';
+  batchOpsNewCustomerId.value = '';
+  // 变客户/批量计费需要预选订单 → 检查 selectedIds
+  if ((type === 'customer' || type === 'recharge') && selectedIds.value.size === 0) {
+    setBizError('请先勾选订单');
+    return;
+  }
+  // 变客户需要加载客户列表
+  if (type === 'customer') {
+    loadSelectOptions([{ type: 'select', ref: 'customers' } as any]);
+  }
+  showBatchOpsDialog.value = true;
+}
+
+// 解析 textarea: 每行 "id,值" 或 "id 值" → Map<id, value>
+function parseBatchMapping(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of batchOpsMapping.value.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const m = trimmed.split(/[,\s]+/);
+    if (m.length < 2) continue;
+    out[m[0]] = m[1];
+  }
+  return out;
+}
+
+// 把 "id,值" 行映射解析成 rows[{ id, valueKey: value }] (现有后端用 rows[] 而非 mapping{})
+function parseBatchMappingRows(valueKey: string): Array<Record<string, any>> {
+  const out: Array<Record<string, any>> = [];
+  for (const line of batchOpsMapping.value.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const m = trimmed.split(/[,\s]+/);
+    if (m.length < 2) continue;
+    const row: Record<string, any> = { id: m[0] };
+    row[valueKey] = valueKey === 'chargeableKg' ? Number(m[1]) : m[1];
+    out.push(row);
+  }
+  return out;
+}
+
+async function submitBatchOps() {
+  bizLoading.value = true;
+  try {
+    let url = '';
+    let body: any = {};
+    if (batchOpsType.value === 'tracking') {
+      const rows = parseBatchMappingRows('trackingNo');
+      if (rows.length === 0) { setBizError('请填映射: 每行 "订单ID,转单号"'); return; }
+      url = '/api/acc/orders/batch-update-tracking';
+      body = { rows };
+    } else if (batchOpsType.value === 'weight') {
+      const rows = parseBatchMappingRows('chargeableKg');
+      if (rows.length === 0) { setBizError('请填映射: 每行 "订单ID,计费重kg"'); return; }
+      url = '/api/acc/orders/batch-update-weight';
+      body = { rows };
+    } else if (batchOpsType.value === 'customer') {
+      if (!batchOpsNewCustomerId.value) { setBizError('请选目标客户'); return; }
+      url = '/api/acc/orders/batch-change-customer';
+      body = { ids: Array.from(selectedIds.value), customerId: batchOpsNewCustomerId.value };
+    } else if (batchOpsType.value === 'recharge') {
+      url = '/api/acc/orders/batch-recharge';
+      body = { ids: Array.from(selectedIds.value) };
+    }
+    const res = await apiFetch(`${API}${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json();
+    if (!res.ok) { setBizError('批量失败: ' + (j.error || res.status)); return; }
+    const okCnt = j.updated ?? j.rerated ?? j.voided ?? 0;
+    const skip = j.skipped ?? 0;
+    setBizOk(`批量完成: 成功 ${okCnt}${skip > 0 ? ` / 跳过 ${skip}` : ''} (总 ${j.total ?? okCnt})`);
+    showBatchOpsDialog.value = false;
+    await fetchAccData();
+  } catch (e: any) { setBizError('批量异常: ' + e.message); }
+  finally { bizLoading.value = false; }
+}
+
 // 批量汇款 dialog state
 const showBatchRemitDialog = ref(false);
 const batchRemitAccountId = ref("");
@@ -6529,6 +6619,25 @@ async function doReloadBill(id: number) {
                   @click="doBatchPollTracking"
                   :disabled="bizLoading || selectedIds.size === 0">
             <MapPin :size="13" /> 批量追踪({{ selectedIds.size }})
+          </button>
+          <!-- ACC ExpressBatch 4 个批量页 -->
+          <button class="primary sm" v-if="accTab === 'orders-update-tracking'"
+                  @click="openBatchOpsDialog('tracking')">
+            <RefreshCw :size="13" /> 批量改转单号
+          </button>
+          <button class="primary sm" v-if="accTab === 'orders-update-weight'"
+                  @click="openBatchOpsDialog('weight')">
+            <RefreshCw :size="13" /> 批量改计费重
+          </button>
+          <button class="primary sm" v-if="accTab === 'orders-change-customer'"
+                  @click="openBatchOpsDialog('customer')"
+                  :disabled="bizLoading || selectedIds.size === 0">
+            <ArrowLeftRight :size="13" /> 变更选中({{ selectedIds.size }})到新客户
+          </button>
+          <button class="primary sm" v-if="accTab === 'orders-batch-charge'"
+                  @click="openBatchOpsDialog('recharge')"
+                  :disabled="bizLoading || selectedIds.size === 0">
+            <Calculator :size="13" /> 重算选中({{ selectedIds.size }})费用
           </button>
           <button class="secondary sm" v-if="canBatchAudit" @click="doBatchAudit" :disabled="bizLoading || selectedIds.size === 0">
             <CheckCircle :size="13" /> 批量审核({{ selectedIds.size }})
@@ -8514,6 +8623,68 @@ async function doReloadBill(id: number) {
                   :disabled="!!stowageSolveBlockedReason"
                   :title="stowageSolveBlockedReason || '求解当前选中的运单'">
             <Boxes :size="14" /> 求解并落库
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ACC ExpressBatch 4 in 1 dialog -->
+    <div class="modal-backdrop" v-if="showBatchOpsDialog" @click.self="showBatchOpsDialog = false">
+      <div class="modal-dialog" style="max-width:680px">
+        <div class="modal-header">
+          <h3>{{
+            batchOpsType === 'tracking' ? '批量更新转单号' :
+            batchOpsType === 'weight'   ? '批量更新计费重' :
+            batchOpsType === 'customer' ? '批量变更客户' :
+            '批量重算费用'
+          }}</h3>
+          <button class="modal-close" @click="showBatchOpsDialog = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <!-- 转单号/计费重: textarea 填映射 -->
+          <template v-if="batchOpsType === 'tracking' || batchOpsType === 'weight'">
+            <div class="form-field">
+              <label>{{ batchOpsType === 'tracking' ? '订单ID,转单号 (每行一条)' : '订单ID,计费重kg (每行一条)' }}</label>
+              <textarea v-model="batchOpsMapping" rows="10"
+                        :placeholder="batchOpsType === 'tracking' ?
+                          'd3f4a-...,1Z999AA10123456784\nd5e8c-...,1Z999AA10123456785' :
+                          'd3f4a-...,1.5\nd5e8c-...,2.3'"
+                        style="width:100%;font-family:monospace;font-size:12px"></textarea>
+              <div style="font-size:12px;color:var(--c-text-muted);margin-top:4px">
+                单次上限 200 行. 用逗号/空格分隔. 行首 # 是注释.
+                {{ batchOpsType === 'weight' ? '多件订单按比例分配到每件 carton.' : '已审核 (AUDITED) 订单不会被改.' }}
+              </div>
+            </div>
+          </template>
+          <!-- 变客户: 单一目标客户 -->
+          <template v-if="batchOpsType === 'customer'">
+            <div class="error-bar" style="background:#fef3c7;color:#92400e">
+              将把已勾选的 <b>{{ selectedIds.size }}</b> 个订单变更到下列客户.
+              已审核或已完结/作废订单不会被改.
+            </div>
+            <div class="form-field">
+              <label>新客户 *</label>
+              <select v-model="batchOpsNewCustomerId">
+                <option value="">— 选择 —</option>
+                <option v-for="opt in selectOptions.customers || []" :key="opt.id" :value="opt.id">
+                  {{ opt.name }}
+                </option>
+              </select>
+            </div>
+          </template>
+          <!-- 批量计费: 仅勾选 + 确认 -->
+          <template v-if="batchOpsType === 'recharge'">
+            <div class="error-bar" style="background:#fef3c7;color:#92400e">
+              将把已勾选的 <b>{{ selectedIds.size }}</b> 个订单下的 ESTIMATED 状态 charges 标记 VOID,
+              下次审核时触发定价引擎重新计费. 已审核 charges 不会被作废.
+            </div>
+          </template>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showBatchOpsDialog = false">取消</button>
+          <button class="primary" @click="submitBatchOps" :disabled="bizLoading">
+            <RefreshCw v-if="bizLoading" :size="14" class="spinning" />
+            确认执行
           </button>
         </div>
       </div>
