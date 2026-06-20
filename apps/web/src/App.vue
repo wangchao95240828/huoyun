@@ -1059,6 +1059,7 @@ const accTabs = [
   { key: "profits-lowprofit", label: "低利快件", icon: BarChart3, api: "profits", statusFilter: "LOWPROFIT" },
   // API 对接（对应 ACC CustomerAPI.php / OnlineAPI.php）
   { key: "api-credentials", label: "API 凭证", icon: KeyRound, api: "api-credentials" },
+  { key: "customer-logins", label: "客户登陆号", icon: KeyRound, api: "customer-logins" },
   { key: "api-call-logs", label: "API 调用日志", icon: ListChecks, api: "api-call-logs" },
   { key: "webhook-endpoints", label: "Webhook 回调地址", icon: Webhook, api: "webhook-endpoints" },
   { key: "webhook-events", label: "Webhook 投递记录", icon: Send, api: "webhook-events" },
@@ -1197,6 +1198,9 @@ const accGroupSales = [
   T("customer-fines"),         // 客户罚款
   T("receiveds"),              // 收款记录
   T("customer-refunds"),       // 退款记录
+  // ACC 客户 API + 登陆号 (对齐 ACC 销售中心)
+  T("api-credentials"),        // 客户 API (跨挂自 API 对接中心)
+  T("customer-logins"),        // 客户登陆号
   // xqt-saas 扩展: 销售线索/产品/渠道
   T("potentials"),
   T("sold-tos"),
@@ -2310,6 +2314,16 @@ Object.assign(accColumns, {
     { key: "isOpen", label: "启用", fmt: "bool" },
     { key: "remark", label: "备注" },
   ],
+  "customer-logins": [
+    { key: "username", label: "登录用户名" },
+    { key: "customerCode", label: "客户编号" },
+    { key: "customerName", label: "客户名称" },
+    { key: "status", label: "状态" },
+    { key: "lastLoginAt", label: "最近登录" },
+    { key: "lastLoginIp", label: "最近 IP" },
+    { key: "remark", label: "备注" },
+    { key: "createdAt", label: "创建时间" },
+  ],
   "api-credentials": [
     { key: "access_key", label: "访问密钥" },
     { key: "owner_code", label: "客户编号" },
@@ -3218,6 +3232,11 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'ownerId', label: '客户', type: 'select', ref: 'customers', required: true },
     { col: 'remark', label: '备注', type: 'textarea' },
     { col: 'expiresAt', label: '过期时间(ISO)', type: 'text' },
+  ],
+  'customer-logins': [
+    { col: 'customerId', label: '客户', type: 'select', ref: 'customers', required: true },
+    { col: 'username', label: '登录用户名', type: 'text', required: true },
+    { col: 'remark', label: '备注', type: 'textarea' },
   ],
   'webhook-endpoints': [
     { col: 'url', label: '回调 URL', type: 'text', required: true },
@@ -4292,6 +4311,10 @@ async function saveForm() {
       fetchAccData();
       if (json.secret) {
         alert(`Access Key: ${json.accessKey}\nSecret: ${json.secret}\n\n${json.warning || '请立即保存，不会再次显示。'}`);
+      }
+      // 客户登陆号: 后端首次返回明文密码
+      if (json.password && json.username) {
+        alert(`登录用户名: ${json.username}\n密码: ${json.password}\n\n${json.warning || '请立即交给客户。关闭后无法找回。'}`);
       }
     }
   } catch (e: any) {
@@ -6163,6 +6186,74 @@ async function doReloadBill(id: number) {
     setTimeout(() => { bizMessage.value = ''; }, 3000);
   }
 }
+
+// ════════ ACC 客户 API + 登陆号 ════════
+async function doResetApiSecret(row: any) {
+  if (!confirm(`重置 ${row.owner_name || row.owner_code} 的 API secret?\n旧 secret 立刻失效, 客户已对接的系统会中断, 必须把新 secret 重新配过去.`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/api-credentials/${row.id}/reset-secret`, { method: 'POST' });
+    const j = await res.json();
+    if (!res.ok) { setBizError('重置失败: ' + (j.error || res.status)); return; }
+    if (j.secret) {
+      // ACC CustomerAPI.php 对齐: 新 secret 仅显示一次, 用 alert 强制用户复制
+      alert(`新 secret (仅显示这一次):\n\n${j.secret}\n\n请立刻交给客户. 关闭弹窗后无法找回.`);
+    }
+    setBizOk('密钥已重置');
+    await fetchAccData();
+  } catch (e: any) { setBizError('重置异常: ' + e.message); }
+  finally { bizLoading.value = false; }
+}
+
+async function doDisableApiCredential(row: any) {
+  if (!confirm(`禁用 ${row.owner_name || row.owner_code} 的 API 凭证?\n客户调用会立刻报 401, 记录保留可以日后启用.`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/api-credentials/${row.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'DISABLED' }),
+    });
+    const j = await res.json();
+    if (!res.ok) { setBizError('禁用失败: ' + (j.error || res.status)); return; }
+    setBizOk('凭证已禁用');
+    await fetchAccData();
+  } catch (e: any) { setBizError('禁用异常: ' + e.message); }
+  finally { bizLoading.value = false; }
+}
+
+async function doResetCustomerLoginPassword(row: any) {
+  if (!confirm(`重置 ${row.username} 的登录密码?\n旧密码立刻失效, 新密码仅显示一次.`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/customer-logins/${row.id}/reset-password`, { method: 'POST' });
+    const j = await res.json();
+    if (!res.ok) { setBizError('重置失败: ' + (j.error || res.status)); return; }
+    if (j.password) {
+      alert(`新登录密码 (仅显示这一次):\n\n${j.password}\n\n请立刻交给客户. 关闭弹窗后无法找回.`);
+    }
+    setBizOk('密码已重置');
+    await fetchAccData();
+  } catch (e: any) { setBizError('重置异常: ' + e.message); }
+  finally { bizLoading.value = false; }
+}
+
+async function doDisableCustomerLogin(row: any) {
+  if (!confirm(`锁定 ${row.username} 的客户登录?\n客户立刻无法登录, 记录保留可以日后解锁.`)) return;
+  bizLoading.value = true;
+  try {
+    const res = await apiFetch(`${API}/api/acc/customer-logins/${row.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'LOCKED' }),
+    });
+    const j = await res.json();
+    if (!res.ok) { setBizError('锁定失败: ' + (j.error || res.status)); return; }
+    setBizOk('账号已锁定');
+    await fetchAccData();
+  } catch (e: any) { setBizError('锁定异常: ' + e.message); }
+  finally { bizLoading.value = false; }
+}
 </script>
 
 <template>
@@ -7460,6 +7551,28 @@ async function doReloadBill(id: number) {
                   </button>
                   <button class="action-btn" v-if="accTab === 'bills'" @click="doReloadBill(row.id)" title="重算" :disabled="bizLoading">
                     <Calculator :size="12" />
+                  </button>
+                  <!-- 客户 API 凭证: 重置密钥 / 禁用 (ACC CustomerAPI.php 对齐) -->
+                  <button class="action-btn fwb fwb-label" v-if="accTab === 'api-credentials' && row.status === 'ACTIVE'"
+                          @click="doResetApiSecret(row)" :disabled="bizLoading"
+                          title="重置 secret — 旧 secret 立刻失效,新 secret 仅显示一次">
+                    <RefreshCw :size="13" /> 重置密钥
+                  </button>
+                  <button class="action-btn del" v-if="accTab === 'api-credentials' && row.status === 'ACTIVE'"
+                          @click="doDisableApiCredential(row)" :disabled="bizLoading"
+                          title="禁用 — 立刻拦截调用,不删凭证记录">
+                    <XCircle :size="12" />
+                  </button>
+                  <!-- 客户登陆号: 重置密码 / 锁定 (ACC CustomerLogin.php 对齐) -->
+                  <button class="action-btn fwb fwb-label" v-if="accTab === 'customer-logins' && row.status === 'ACTIVE'"
+                          @click="doResetCustomerLoginPassword(row)" :disabled="bizLoading"
+                          title="生成新密码 — 仅显示一次">
+                    <RefreshCw :size="13" /> 重置密码
+                  </button>
+                  <button class="action-btn del" v-if="accTab === 'customer-logins' && row.status === 'ACTIVE'"
+                          @click="doDisableCustomerLogin(row)" :disabled="bizLoading"
+                          title="锁定账号 — 立刻拦截登录,不删账号记录">
+                    <XCircle :size="12" />
                   </button>
                   <!-- 下载面单：订单已提交（有 tracking）即可下载 -->
                   <button class="action-btn fwb fwb-label"
