@@ -88,6 +88,13 @@ xqt:
     ingest-token: ${XQT_TRACKING_INGEST_TOKEN:}
     tenant-id:    ${XQT_TENANT_ID:2bda8c16-7b19-4ce6-ab71-9584f5a140ed}
 
+# 智能客服 agent (Python FastAPI cs-agent)
+ai:
+  cs:
+    agent:
+      url:   ${AI_CS_AGENT_URL:http://localhost:8101}
+      token: ${AI_CS_AGENT_TOKEN:}
+
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: com.xqt.saas.finance.entity

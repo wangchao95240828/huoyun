@@ -78,6 +78,7 @@ import {
   TrendingUp,
   Wallet,
   AlertCircle,
+  Bot,
 } from "lucide-vue-next";
 
 const API = import.meta.env.VITE_API_URL ?? "";
@@ -901,6 +902,10 @@ const accTabs = [
   { key: "asks-pending", label: "未处理问题", icon: HelpCircle, api: "asks", statusFilter: "PENDING" },
   { key: "asks-new", label: "发起新问题", icon: PlusCircle, api: "asks" },
   { key: "asks-history", label: "历史问题件", icon: HelpCircle, api: "asks", statusFilter: "DONE" },
+  // 智能客服 (AI Agent — DeepSeek + tool-use + RAG)
+  { key: "ai-cs-chat", label: "AI 客服对话", icon: Bot, api: "ai-cs" },
+  { key: "ai-cs-sessions", label: "AI 会话历史", icon: HelpCircle, api: "ai-cs/sessions" },
+  { key: "ai-cs-kb", label: "AI 知识库", icon: ListChecks, api: "ai-cs/kb" },
   { key: "reparations", label: "赔偿管理", icon: Gavel, api: "reparations" },
   // 赔偿 3 子页
   { key: "reparations-apply", label: "申请赔偿", icon: PlusCircle, api: "reparations", statusFilter: "DRAFT" },
@@ -1178,6 +1183,10 @@ const accGroupCustomerService = [
   T("asks-pending"),       // 未处理问题
   T("asks-new"),           // 发起新问题
   T("asks-history"),       // 历史问题件
+  // AI 智能客服 (DeepSeek + tool-use + RAG)
+  T("ai-cs-chat"),         // AI 客服对话(打开聊天面板)
+  T("ai-cs-sessions"),     // AI 会话历史(看 bot 跟客户聊过什么)
+  T("ai-cs-kb"),           // AI 知识库(运维 FAQ/政策)
   // 赔偿 4 子页
   T("reparations"),        // 赔偿管理 (总)
   T("reparations-apply"),  // 申请赔偿
@@ -1905,6 +1914,23 @@ Object.assign(accColumns, {
     { key: "isShow", label: "客户可见", fmt: "bool" },
     { key: "addName", label: "创建人" },
     { key: "addTime", label: "创建时间", fmt: "date" },
+  ],
+  "ai-cs-sessions": [
+    { key: "customerCode", label: "客户编号" },
+    { key: "customerName", label: "客户名称" },
+    { key: "source", label: "来源" },
+    { key: "status", label: "状态" },
+    { key: "turnCount", label: "对话轮数" },
+    { key: "totalTokens", label: "累计 token" },
+    { key: "createdAt", label: "开始时间", fmt: "date" },
+    { key: "lastActiveAt", label: "最后活跃", fmt: "date" },
+  ],
+  "ai-cs-kb": [
+    { key: "category", label: "分类" },
+    { key: "title", label: "标题" },
+    { key: "summary", label: "摘要" },
+    { key: "hitCount", label: "命中次数" },
+    { key: "createdAt", label: "创建时间", fmt: "date" },
   ],
   reparations: [
     { key: "expressNo", label: "快件单号" },
@@ -4536,6 +4562,62 @@ const isBatchPrintPage = computed(() => accTab.value === 'orders-batch-print');
 // API 文档独立 iframe 页
 const isApiDocsPage = computed(() => accTab.value === 'api-docs');
 const apiDocsUrl = '/swagger-ui/index.html';
+// AI 客服聊天面板 (独立交互, 不走列表)
+const isAiCsChatPage = computed(() => accTab.value === 'ai-cs-chat');
+// 聊天状态
+type AiCsMsg = { role: 'user' | 'assistant'; content: string; toolCalls?: any[];
+                 confidence?: number; escalate?: boolean; tokens?: number; latency?: number };
+const aiCsMessages = ref<AiCsMsg[]>([]);
+const aiCsInput = ref('');
+const aiCsSessionId = ref<string | null>(null);
+const aiCsCustomerCode = ref('');
+const aiCsCustomerName = ref('');
+const aiCsSending = ref(false);
+async function sendAiCsMessage() {
+  const msg = aiCsInput.value.trim();
+  if (!msg || aiCsSending.value) return;
+  aiCsMessages.value.push({ role: 'user', content: msg });
+  aiCsInput.value = '';
+  aiCsSending.value = true;
+  try {
+    const body: any = { message: msg };
+    if (aiCsSessionId.value) body.session_id = aiCsSessionId.value;
+    if (aiCsCustomerCode.value) body.customer_code = aiCsCustomerCode.value;
+    if (aiCsCustomerName.value) body.customer_name = aiCsCustomerName.value;
+    const res = await apiFetch(`${API}/api/acc/ai-cs/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await res.json();
+    if (!res.ok) {
+      aiCsMessages.value.push({
+        role: 'assistant',
+        content: '❌ 调用失败: ' + (j.error || res.status),
+      });
+      return;
+    }
+    aiCsSessionId.value = j.session_id ?? aiCsSessionId.value;
+    aiCsMessages.value.push({
+      role: 'assistant',
+      content: j.content || '',
+      toolCalls: j.tool_calls || [],
+      confidence: j.confidence,
+      escalate: j.escalate,
+      tokens: j.tokens_used,
+      latency: j.latency_ms,
+    });
+  } catch (e: any) {
+    aiCsMessages.value.push({ role: 'assistant', content: '❌ 网络异常: ' + e.message });
+  } finally {
+    aiCsSending.value = false;
+  }
+}
+function resetAiCsChat() {
+  aiCsMessages.value = [];
+  aiCsSessionId.value = null;
+  aiCsInput.value = '';
+}
 // 批量打印状态
 const printScanInput = ref('');
 const printScanRows = ref<any[]>([]);
@@ -6639,7 +6721,7 @@ async function doDisableCustomerLogin(row: any) {
         </div>
 
         <!-- Search bar (批量页面/打印页/API文档页隐藏) -->
-        <div class="acc-search-bar" v-if="!batchPagePanel && !isBatchPrintPage && !isApiDocsPage">
+        <div class="acc-search-bar" v-if="!batchPagePanel && !isBatchPrintPage && !isApiDocsPage && !isAiCsChatPage">
           <!-- ACC 风格：搜索字段下拉 + 输入框 -->
           <template v-if="currentTabSearchFields">
             <span style="font-size:13px;margin-right:4px">搜索:</span>
@@ -6964,7 +7046,7 @@ async function doDisableCustomerLogin(row: any) {
         </div>
 
         <!-- 多条件筛选面板（对齐 ACC 大货运单页：grid 多 filter 同时生效 + 每个下拉多选） -->
-        <div v-if="showAdvancedFilter && showAdvFilterButton && !batchPagePanel && !isBatchPrintPage && !isApiDocsPage"
+        <div v-if="showAdvancedFilter && showAdvFilterButton && !batchPagePanel && !isBatchPrintPage && !isApiDocsPage && !isAiCsChatPage"
              class="adv-filter-panel">
           <div class="adv-filter-grid">
             <!-- ▼ 多选 ▼ -->
@@ -7169,6 +7251,59 @@ async function doDisableCustomerLogin(row: any) {
               </div>
             </span>
             <span class="adv-filter-hint">当前生效 {{ activeAdvFilterCount() }} 个条件</span>
+          </div>
+        </div>
+
+        <!-- AI 客服聊天面板 (DeepSeek + tool-use + RAG) -->
+        <div v-if="isAiCsChatPage" class="ai-cs-chat" style="background:#fff;border:1px solid #cbd5e1;border-radius:4px;margin-top:8px;display:flex;flex-direction:column;height:calc(100vh - 240px)">
+          <div style="padding:10px 14px;background:#f8fafc;border-bottom:1px solid #cbd5e1;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <Bot :size="18" />
+            <strong>AI 客服 — DeepSeek + tool-use</strong>
+            <input type="text" v-model="aiCsCustomerCode" placeholder="客户编号(可选,如 DOC-DEMO)" style="padding:4px 8px;font-size:12px;width:200px" />
+            <input type="text" v-model="aiCsCustomerName" placeholder="客户名(可选)" style="padding:4px 8px;font-size:12px;width:200px" />
+            <button class="secondary sm" @click="resetAiCsChat">新会话</button>
+            <span v-if="aiCsSessionId" style="font-size:11px;color:var(--c-text-muted)">session: {{ aiCsSessionId.slice(0,8) }}…</span>
+          </div>
+          <div style="flex:1;overflow-y:auto;padding:14px;background:#fafbfc">
+            <div v-if="aiCsMessages.length === 0" style="text-align:center;color:var(--c-text-muted);padding:40px;font-size:13px;line-height:1.8">
+              <Bot :size="48" style="opacity:0.4" /><br/>
+              <b>智能客服已就绪</b><br/>
+              试试这些问题：<br/>
+              <span style="font-style:italic;color:#64748b">「我的订单 DEMO-US-1781482220-3 到哪了」</span><br/>
+              <span style="font-style:italic;color:#64748b">「我有几张待付账单」</span><br/>
+              <span style="font-style:italic;color:#64748b">「无人机带锂电池能不能空运到美国」</span><br/>
+              <span style="font-style:italic;color:#64748b">「快件发出后想改地址怎么办」</span>
+            </div>
+            <div v-for="(m, i) in aiCsMessages" :key="i" :style="m.role === 'user'
+              ? 'display:flex;justify-content:flex-end;margin-bottom:12px'
+              : 'display:flex;justify-content:flex-start;margin-bottom:12px'">
+              <div :style="m.role === 'user'
+                ? 'background:#3b82f6;color:#fff;padding:8px 12px;border-radius:12px;max-width:70%;font-size:13px;white-space:pre-wrap;line-height:1.6'
+                : 'background:#fff;border:1px solid #e2e8f0;padding:8px 12px;border-radius:12px;max-width:80%;font-size:13px;line-height:1.6'">
+                <div style="white-space:pre-wrap">{{ m.content }}</div>
+                <div v-if="m.role === 'assistant' && (m.toolCalls?.length || m.confidence != null)"
+                     style="margin-top:6px;padding-top:6px;border-top:1px dashed #e2e8f0;font-size:11px;color:#64748b;display:flex;gap:8px;flex-wrap:wrap">
+                  <span v-if="m.toolCalls?.length">🔧 {{ m.toolCalls.map((t:any)=>t.tool).join(', ') }}</span>
+                  <span v-if="m.confidence != null">置信度: {{ (m.confidence * 100).toFixed(0) }}%</span>
+                  <span v-if="m.escalate" style="color:#dc2626;font-weight:600">⚠ 已转人工</span>
+                  <span v-if="m.tokens">{{ m.tokens }} tok / {{ m.latency }}ms</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="aiCsSending" style="display:flex;justify-content:flex-start;margin-bottom:12px">
+              <div style="background:#fff;border:1px solid #e2e8f0;padding:8px 12px;border-radius:12px;font-size:13px;color:#94a3b8">
+                <RefreshCw :size="13" class="spinning" /> 正在思考...
+              </div>
+            </div>
+          </div>
+          <div style="padding:10px 14px;background:#fff;border-top:1px solid #cbd5e1;display:flex;gap:8px">
+            <textarea v-model="aiCsInput" placeholder="输入问题,按 Enter 发送, Shift+Enter 换行"
+              @keydown.enter.exact.prevent="sendAiCsMessage"
+              :disabled="aiCsSending" rows="2"
+              style="flex:1;padding:8px;font-size:13px;border:1px solid #cbd5e1;border-radius:4px;resize:none"></textarea>
+            <button class="primary" @click="sendAiCsMessage" :disabled="aiCsSending || !aiCsInput.trim()" style="padding:0 18px">
+              <Send :size="14" /> 发送
+            </button>
           </div>
         </div>
 
@@ -7465,7 +7600,7 @@ async function doDisableCustomerLogin(row: any) {
         </div>
 
         <!-- Data table (非批量页/打印页/API文档页才显示) -->
-        <div class="acc-table-wrap" v-if="!batchPagePanel && !isBatchPrintPage && !isApiDocsPage">
+        <div class="acc-table-wrap" v-if="!batchPagePanel && !isBatchPrintPage && !isApiDocsPage && !isAiCsChatPage">
           <table class="data-table" v-if="accColumns[accTab]">
             <thead>
               <tr>
