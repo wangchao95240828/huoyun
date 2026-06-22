@@ -31,7 +31,55 @@ public class StowageAuditPreCheck implements AuditSideEffect {
 
     @Override
     public void onAudited(String table, String entityId, String tenantId, String actorName) {
-        // 副作用空：配载审核入账由其它流程处理
+        // P0-C3 修复 (ACC Stowage.php:1642-1744 doAudit 多表联动):
+        try {
+            // 1. shipments 推进到 IN_TRANSIT (对齐 ACC EXPRESS_SHIPMENT)
+            int shipUpdated = jdbc.update("""
+                UPDATE shipments SET status = 'IN_TRANSIT'::shipment_status
+                WHERE id IN (SELECT shipment_id FROM cartons WHERE stowage_id = ?::uuid)
+                  AND status IN ('IN_WAREHOUSE','MEASURED','BOOKED')
+                """, entityId);
+            // 2. 关闭 acc_asks 退件类问题件 (ACC L1738-1740: 配载审核自动关闭 Type=14 退件件)
+            int asksClosed = jdbc.update("""
+                UPDATE acc_asks SET status = 'CLOSED'
+                WHERE shipment_id IN (SELECT shipment_id FROM cartons WHERE stowage_id = ?::uuid)
+                  AND status IN ('OPEN','PENDING')
+                  AND (ask_type ILIKE '%物流退件%' OR ask_type = 'RETURN')
+                """, entityId);
+            // 3. acc_stowage_steps 写流程节点 (如果表存在)
+            try {
+                jdbc.update("""
+                    INSERT INTO acc_stowage_steps
+                      (tenant_id, stowage_id, step_code, operator, remark, created_at)
+                    VALUES (?::uuid, ?::uuid, 'AUDIT_OK', ?, ?, now())
+                    """, tenantId, entityId, actorName, "配载审核通过");
+            } catch (org.springframework.dao.DataAccessException ignored) {
+                // 没有 acc_stowage_steps 表就跳过
+            }
+        } catch (org.springframework.dao.DataAccessException ex) {
+            // 副作用失败不阻断审核
+        }
+    }
+
+    @Override
+    public void onUndone(String table, String entityId, String tenantId, String actorName) {
+        // P0-C4 修复: 配载撤销审核回退路径 (ACC Stowage.php:1749-1817 doUndo)
+        try {
+            // 1. shipments 退回 IN_WAREHOUSE
+            jdbc.update("""
+                UPDATE shipments SET status = 'IN_WAREHOUSE'::shipment_status
+                WHERE id IN (SELECT shipment_id FROM cartons WHERE stowage_id = ?::uuid)
+                  AND status = 'IN_TRANSIT'
+                """, entityId);
+            // 2. 写撤销流程
+            try {
+                jdbc.update("""
+                    INSERT INTO acc_stowage_steps
+                      (tenant_id, stowage_id, step_code, operator, remark, created_at)
+                    VALUES (?::uuid, ?::uuid, 'AUDIT_UNDO', ?, ?, now())
+                    """, tenantId, entityId, actorName, "配载反审核");
+            } catch (org.springframework.dao.DataAccessException ignored) {}
+        } catch (org.springframework.dao.DataAccessException ignored) {}
     }
 
     @Override

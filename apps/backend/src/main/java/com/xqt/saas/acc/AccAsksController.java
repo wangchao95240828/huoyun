@@ -211,4 +211,157 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
         out.put("auditName", row.get("audit_name"));
         return out;
     }
+
+    // ════════ P0-C7+C8 修复: ACC Ask.php doReply 7 种 Handle 联动 ════════
+    //   handle=0 普通回复(仅写 acc_ask_replies)
+    //   handle=1 申请扣件 → 自动建 acc_detains 单
+    //   handle=2 解除扣件 → acc_detains 改 RESOLVED
+    //   handle=3 申请退件 → 自动建 return_orders 单
+    //   handle=4 申请赔偿 → 自动建 acc_reparations 单
+    //   handle=5 撤销赔偿 → acc_reparations 改 status=CANCELLED
+    //   handle=6 关闭问题件 → acc_asks.status='CLOSED'
+
+    /** GET /asks/{id}/replies — 问题件回复线索 */
+    @org.springframework.web.bind.annotation.GetMapping("/{id}/replies")
+    public java.util.Map<String, Object> listReplies(@org.springframework.web.bind.annotation.PathVariable String id) {
+        java.util.List<java.util.Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT id::text, source, add_name, content, to_role, is_show, handle,
+                   handle_ref_id::text, created_at
+              FROM acc_ask_replies WHERE ask_id = ?::uuid
+              ORDER BY created_at
+            """, id);
+        return java.util.Map.of("data", rows.stream().map(r -> {
+            java.util.Map<String, Object> o = new java.util.LinkedHashMap<>();
+            o.put("id", r.get("id"));
+            o.put("source", r.get("source"));
+            o.put("addName", r.get("add_name"));
+            o.put("content", r.get("content"));
+            o.put("toRole", r.get("to_role"));
+            o.put("isShow", r.get("is_show"));
+            o.put("handle", r.get("handle"));
+            o.put("handleRefId", r.get("handle_ref_id"));
+            o.put("createdAt", json.value(r.get("created_at")));
+            return o;
+        }).toList());
+    }
+
+    /** POST /asks/{id}/reply
+     *  body: { content, source?, addName?, toRole?, isShow?, handle?(0-6) } */
+    @org.springframework.web.bind.annotation.PostMapping("/{id}/reply")
+    @org.springframework.transaction.annotation.Transactional
+    public java.util.Map<String, Object> reply(
+            @org.springframework.web.bind.annotation.PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestBody java.util.Map<String, Object> body) {
+        // 1. 取 ask 上下文
+        java.util.Map<String, Object> ask;
+        try {
+            ask = jdbc.queryForMap("""
+                SELECT a.shipment_id::text AS shipment_id, a.customer_ref, a.status::text AS status,
+                       a.tenant_id::text AS tenant_id, s.customer_id::text AS customer_id
+                FROM acc_asks a LEFT JOIN shipments s ON s.id = a.shipment_id
+                WHERE a.id = ?::uuid
+                """, id);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            throw com.xqt.saas.common.ApiException.notFound("问题件不存在: " + id);
+        }
+        String content = (String) body.get("content");
+        if (content == null || content.isBlank())
+            throw com.xqt.saas.common.ApiException.badRequest("回复内容必填");
+        String source = (String) body.getOrDefault("source", "STAFF");
+        String addName = (String) body.getOrDefault("addName", "system");
+        String toRole = (String) body.get("toRole");
+        Object isShowRaw = body.getOrDefault("isShow", true);
+        Boolean isShow = isShowRaw instanceof Boolean b ? b : Boolean.parseBoolean(String.valueOf(isShowRaw));
+        int handle = body.get("handle") instanceof Number n ? n.intValue() : 0;
+
+        // 2. handle 联动产生的关联 id (创建 detain / return / reparation)
+        String handleRefId = null;
+        String shipmentId = (String) ask.get("shipment_id");
+        String customerRef = (String) ask.get("customer_ref");
+        String tenantId = (String) ask.get("tenant_id");
+
+        try {
+            switch (handle) {
+                case 1: // 申请扣件
+                    if (shipmentId != null) {
+                        handleRefId = jdbc.queryForObject("""
+                            INSERT INTO acc_detains
+                              (tenant_id, shipment_id, reason, status, add_name)
+                            VALUES (?::uuid, ?::uuid, ?, 'OPEN', ?)
+                            RETURNING id::text
+                            """, String.class, tenantId, shipmentId,
+                            "Ask reply 联动: " + content, addName);
+                        jdbc.update("UPDATE shipments SET status = 'DETAINED'::shipment_status WHERE id = ?::uuid", shipmentId);
+                    }
+                    break;
+                case 2: // 解除扣件
+                    if (shipmentId != null) {
+                        int n = jdbc.update("""
+                            UPDATE acc_detains SET status = 'RESOLVED'
+                            WHERE shipment_id = ?::uuid AND status IN ('OPEN','PENDING')
+                            """, shipmentId);
+                        if (n > 0) {
+                            jdbc.update("UPDATE shipments SET status = 'IN_TRANSIT'::shipment_status WHERE id = ?::uuid", shipmentId);
+                        }
+                    }
+                    break;
+                case 3: // 申请退件
+                    if (shipmentId != null) {
+                        handleRefId = jdbc.queryForObject("""
+                            INSERT INTO return_orders
+                              (tenant_id, shipment_id, customer_ref, reason, status, refund_amount)
+                            VALUES (?::uuid, ?::uuid, ?, ?, 'DRAFT', 0)
+                            RETURNING id::text
+                            """, String.class, tenantId, shipmentId, customerRef,
+                            "Ask reply 联动: " + content);
+                        jdbc.update("UPDATE shipments SET status = 'RETURNING'::shipment_status WHERE id = ?::uuid", shipmentId);
+                    }
+                    break;
+                case 4: // 申请赔偿
+                    if (shipmentId != null) {
+                        java.math.BigDecimal applyAmount = body.get("applyAmount") instanceof Number na
+                            ? new java.math.BigDecimal(na.toString()) : java.math.BigDecimal.ZERO;
+                        String currency = (String) body.getOrDefault("currency", "CNY");
+                        handleRefId = jdbc.queryForObject("""
+                            INSERT INTO acc_reparations
+                              (tenant_id, shipment_id, customer_ref, reason, apply_amount, currency, status, add_name)
+                            VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, 'DRAFT', ?)
+                            RETURNING id::text
+                            """, String.class, tenantId, shipmentId, customerRef,
+                            content, applyAmount, currency, addName);
+                        jdbc.update("UPDATE shipments SET status = 'CLAIMING'::shipment_status WHERE id = ?::uuid", shipmentId);
+                    }
+                    break;
+                case 5: // 撤销赔偿
+                    if (shipmentId != null) {
+                        jdbc.update("""
+                            UPDATE acc_reparations SET status = 'CANCELLED'
+                            WHERE shipment_id = ?::uuid AND status IN ('DRAFT','PENDING')
+                            """, shipmentId);
+                    }
+                    break;
+                case 6: // 关闭问题件
+                    jdbc.update("UPDATE acc_asks SET status = 'CLOSED' WHERE id = ?::uuid", id);
+                    if (toRole == null) toRole = "CLOSED";
+                    break;
+                default: // 0 普通回复, 不联动业务
+                    break;
+            }
+        } catch (org.springframework.dao.DataAccessException ex) {
+            // handle 联动失败不影响回复落库
+        }
+
+        // 3. 写 acc_ask_replies + 推路由
+        String replyId = jdbc.queryForObject("""
+            INSERT INTO acc_ask_replies
+              (tenant_id, ask_id, source, add_name, content, to_role, is_show, handle, handle_ref_id)
+            VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?::uuid)
+            RETURNING id::text
+            """, String.class, tenantId, id, source, addName, content, toRole, isShow, handle, handleRefId);
+        if (toRole != null) {
+            jdbc.update("UPDATE acc_asks SET to_role = ? WHERE id = ?::uuid", toRole, id);
+        }
+
+        return java.util.Map.of("id", replyId, "askId", id, "handleRefId", handleRefId == null ? "" : handleRefId);
+    }
 }
