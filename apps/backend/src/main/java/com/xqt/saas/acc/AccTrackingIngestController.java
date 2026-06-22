@@ -102,7 +102,31 @@ public class AccTrackingIngestController {
             String location = strOr(e.get("location"), null);
             Boolean delivered = Boolean.TRUE.equals(e.get("delivered"));
             if (dt == null || rawStatus == null) continue;
-            String normalized = normalize(rawStatus, delivered);
+            // P0-C10: 用 CarrierStatusMap 字典精确归一 (5 家承运商 50+ raw code)
+            String rawCode = strOr(e.get("status_code"), e.get("code"));
+            String normalized = delivered ? "DELIVERED"
+                : CarrierStatusMap.normalize(carrier, rawCode, rawStatus);
+            // 问题词典: 异常关键字 → 自动 INSERT acc_asks (避免重复, 同 ship+ask_type 只建一次)
+            String askType = CarrierStatusMap.detectAskTrigger(rawStatus);
+            if (askType != null && shipmentId != null) {
+                try {
+                    Integer dupAsk = jdbc.queryForObject("""
+                        SELECT count(*) FROM acc_asks
+                        WHERE shipment_id = ?::uuid AND ask_type = ?
+                          AND status IN ('OPEN','PENDING')
+                        """, Integer.class, shipmentId, askType);
+                    if (dupAsk != null && dupAsk == 0) {
+                        jdbc.update("""
+                            INSERT INTO acc_asks
+                              (tenant_id, shipment_id, content, source, ask_type, status, add_name, to_role)
+                            VALUES (?::uuid, ?::uuid, ?, 'SYSTEM', ?, 'OPEN', 'tracking-bot', 'STAFF')
+                            """, defaultTenantId, shipmentId,
+                            "[自动] " + carrier + " 轨迹检测异常: " + rawStatus, askType);
+                    }
+                } catch (DataAccessException ex) {
+                    LOGGER.warn("auto-create ask failed tn={} err={}", trackingNo, ex.getMessage());
+                }
+            }
             // 幂等：同 tracking_no + event_time + raw_status 不重复
             Integer dup = jdbc.queryForObject(
                 "SELECT count(*) FROM tracking_events"
