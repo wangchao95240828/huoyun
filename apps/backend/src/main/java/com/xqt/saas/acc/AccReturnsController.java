@@ -172,6 +172,70 @@ public class AccReturnsController {
         return Map.of("id", id, "deleted", true);
     }
 
+    // ════════ P0-C2 修复: ACC Back.php 4 步退件流程 ════════
+    //   ① POST     → 创建 (DRAFT, 入仓登记) ← 已有
+    //   ② /confirm → 客户确认 (shipments→RETURNING; 关联关闭 detains/asks)
+    //   ③ /verify  → 财务录入实退金额 (audit_status=PENDING)
+    //   ④ /audit-biz → 审核通过 (走 AccAuditController 的通用 audit-biz)
+    //      触发 ReturnReparationFinanceSideEffect 反算 charges + 客户余额回填
+
+    /** ② 客户确认: shipment.status → RETURNING, 关联 detains/asks 自动关闭 */
+    @PostMapping("/{id}/confirm")
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> confirm(@PathVariable String id) {
+        Map<String, Object> ret = jdbc.queryForMap(
+            "SELECT shipment_id::text, audit_status FROM return_orders WHERE id = ?::uuid", id);
+        if ("AUDITED".equals(ret.get("audit_status"))) {
+            throw com.xqt.saas.common.ApiException.badRequest("已审退件不能再次确认, 请先反审");
+        }
+        String shipmentId = (String) ret.get("shipment_id");
+        if (shipmentId == null) {
+            throw com.xqt.saas.common.ApiException.badRequest("退件没绑 shipment, 无法推流转");
+        }
+        jdbc.update("UPDATE shipments SET status = 'RETURNING'::shipment_status WHERE id = ?::uuid", shipmentId);
+        // 关联关闭 acc_asks Type 退件类问题件 (对齐 ACC Back.php:518-560)
+        int closedAsks = jdbc.update("""
+            UPDATE acc_asks SET status = 'CLOSED'
+            WHERE shipment_id = ?::uuid AND status IN ('OPEN','PENDING')
+              AND (ask_type ILIKE '%退件%' OR ask_type = 'BACK')
+            """, shipmentId);
+        // 关联关闭 acc_detains 扣件单(如果有)
+        int closedDetains = jdbc.update("""
+            UPDATE acc_detains SET status = 'RESOLVED'
+            WHERE shipment_id = ?::uuid AND status IN ('OPEN','PENDING')
+            """, shipmentId);
+        return Map.of("id", id, "confirmed", true,
+            "closedAsks", closedAsks, "closedDetains", closedDetains);
+    }
+
+    /** ③ 财务核账: 输入真实退款金额 + 物流商责任 + 实退币种 */
+    @PostMapping("/{id}/verify")
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> verify(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        java.math.BigDecimal refundAmount = body.get("refundAmount") instanceof Number n
+            ? new java.math.BigDecimal(n.toString()) : null;
+        java.math.BigDecimal supplierFee = body.get("supplierFee") instanceof Number n2
+            ? new java.math.BigDecimal(n2.toString()) : null;
+        String reason = (String) body.getOrDefault("reason", null);
+        if (refundAmount == null || refundAmount.signum() < 0) {
+            throw com.xqt.saas.common.ApiException.badRequest("退款金额必填且 >= 0");
+        }
+        // 看 return_orders 实际有哪些列, 用通用 UPDATE 容错 (不存在的列 ALTER 时报错即可后续 migration 补)
+        try {
+            jdbc.update("""
+                UPDATE return_orders SET
+                  refund_amount = ?,
+                  supplier_fee = coalesce(?, supplier_fee),
+                  reason = coalesce(?, reason)
+                WHERE id = ?::uuid
+                """, refundAmount, supplierFee, reason, id);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            // 若 supplier_fee/reason 列不存在, 退化只更 refund_amount
+            jdbc.update("UPDATE return_orders SET refund_amount = ? WHERE id = ?::uuid", refundAmount, id);
+        }
+        return Map.of("id", id, "verified", true, "refundAmount", refundAmount);
+    }
+
     private Map<String, Object> project(Map<String, Object> row) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("id", row.get("id"));

@@ -238,11 +238,22 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
     }
 
     @DeleteMapping("/{id}")
+    @org.springframework.transaction.annotation.Transactional
     public Map<String, Object> delete(@PathVariable String id) {
         // 级联校验：已关联收款的账单不允许删
         cascadeChecker.checkBeforeDelete(TABLE, id);
+        // P0-B5 修复 (ACC CBill.php:1647-1654): 账单删除时, 必须把所有指向该账单的费用单
+        // 释放回"未结算"状态. ACC 同步回写 7 张表的 Bill=0; 新模型走 charges +
+        // customer_invoice_lines 桥接, 把 settlement_status 改回 UNSETTLED.
+        int releasedCharges = jdbc.update("""
+            UPDATE charges SET settlement_status = 'UNSETTLED'
+            WHERE id IN (SELECT charge_id FROM customer_invoice_lines WHERE invoice_id = ?::uuid)
+              AND settlement_status = 'SETTLED'
+            """, id);
+        // 删桥接行 (FK 不级联自动删, 显式清)
+        jdbc.update("DELETE FROM customer_invoice_lines WHERE invoice_id = ?::uuid", id);
         jdbc.update("DELETE FROM customer_invoices WHERE id = ?::uuid", id);
-        return Map.of("id", id, "deleted", true);
+        return Map.of("id", id, "deleted", true, "releasedCharges", releasedCharges);
     }
 
     /**

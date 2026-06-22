@@ -1065,6 +1065,7 @@ const accTabs = [
   // API 对接（对应 ACC CustomerAPI.php / OnlineAPI.php）
   { key: "api-credentials", label: "API 凭证", icon: KeyRound, api: "api-credentials" },
   { key: "customer-logins", label: "客户登陆号", icon: KeyRound, api: "customer-logins" },
+  { key: "customer-rate-cards", label: "客户专价绑定", icon: DollarSign, api: "customer-rate-cards" },
   { key: "api-call-logs", label: "API 调用日志", icon: ListChecks, api: "api-call-logs" },
   { key: "webhook-endpoints", label: "Webhook 回调地址", icon: Webhook, api: "webhook-endpoints" },
   { key: "webhook-events", label: "Webhook 投递记录", icon: Send, api: "webhook-events" },
@@ -1209,6 +1210,7 @@ const accGroupSales = [
   // ACC 客户 API + 登陆号 (对齐 ACC 销售中心)
   T("api-credentials"),        // 客户 API (跨挂自 API 对接中心)
   T("customer-logins"),        // 客户登陆号
+  T("customer-rate-cards"),    // 客户专价绑定 (修 P0-D1: 表存在但 UI 没暴露)
   // xqt-saas 扩展: 销售线索/产品/渠道
   T("potentials"),
   T("sold-tos"),
@@ -2349,6 +2351,18 @@ Object.assign(accColumns, {
     { key: "remark", label: "备注" },
     { key: "createdAt", label: "创建时间" },
   ],
+  "customer-rate-cards": [
+    { key: "customerCode", label: "客户编号" },
+    { key: "customerName", label: "客户名称" },
+    { key: "channelName", label: "渠道" },
+    { key: "serviceCode", label: "产品" },
+    { key: "rateCardName", label: "费率表" },
+    { key: "rateCardCurrency", label: "币种" },
+    { key: "priority", label: "优先级" },
+    { key: "effectiveFrom", label: "生效日" },
+    { key: "effectiveTo", label: "失效日" },
+    { key: "active", label: "启用", fmt: "bool" },
+  ],
   "api-credentials": [
     { key: "access_key", label: "访问密钥" },
     { key: "owner_code", label: "客户编号" },
@@ -3262,6 +3276,15 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'customerId', label: '客户', type: 'select', ref: 'customers', required: true },
     { col: 'username', label: '登录用户名', type: 'text', required: true },
     { col: 'remark', label: '备注', type: 'textarea' },
+  ],
+  'customer-rate-cards': [
+    { col: 'customerId', label: '客户 *', type: 'select', ref: 'customers', required: true },
+    { col: 'rateCardId', label: '费率表 *', type: 'text', required: true },
+    { col: 'channelId', label: '渠道 (留空=全渠道)', type: 'select', ref: 'channels' },
+    { col: 'serviceCode', label: '产品代码 (留空=全产品)', type: 'text' },
+    { col: 'priority', label: '优先级 (0-1000, 越小越优先)', type: 'number' },
+    { col: 'effectiveFrom', label: '生效日 (YYYY-MM-DD)', type: 'date' },
+    { col: 'effectiveTo', label: '失效日 (留空=永久)', type: 'date' },
   ],
   'webhook-endpoints': [
     { col: 'url', label: '回调 URL', type: 'text', required: true },

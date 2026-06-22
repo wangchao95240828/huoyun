@@ -94,13 +94,24 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
                   coalesce((
                     SELECT sum(c.actual_weight_kg) FROM cartons c WHERE c.shipment_id = s.id
                   ), 0) AS channel_weight,
+                  -- P0-B6 修复: 利润 SQL 必须用审核时刻 freeze 的汇率快照(target_amount),
+                  -- 而不是 charges.amount 原始币种值. 否则汇率波动后历史利润漂移.
+                  -- 优先 snap.target_amount (CNY), 没快照 fallback ch.amount.
                   coalesce((
-                    SELECT sum(ch.amount) FROM charges ch
+                    SELECT sum(coalesce(snap.target_amount, ch.amount))
+                    FROM charges ch
+                    LEFT JOIN exchange_rate_snapshots snap
+                      ON snap.entity_type = 'charges' AND snap.entity_id = ch.id
+                       AND snap.target_currency = 'CNY'
                     WHERE ch.shipment_id = s.id AND ch.side = 'AR'
                       AND ch.settlement_status <> 'VOID'
                   ), 0) AS revenue,
                   coalesce((
-                    SELECT sum(ch.amount) FROM charges ch
+                    SELECT sum(coalesce(snap.target_amount, ch.amount))
+                    FROM charges ch
+                    LEFT JOIN exchange_rate_snapshots snap
+                      ON snap.entity_type = 'charges' AND snap.entity_id = ch.id
+                       AND snap.target_currency = 'CNY'
                     WHERE ch.shipment_id = s.id AND ch.side = 'AP'
                       AND ch.settlement_status <> 'VOID'
                   ), 0) AS cost,

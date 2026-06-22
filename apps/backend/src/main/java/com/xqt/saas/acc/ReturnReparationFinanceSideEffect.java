@@ -100,7 +100,7 @@ public class ReturnReparationFinanceSideEffect implements AuditSideEffect {
         Map<String, Object> rep;
         try {
             rep = jdbc.queryForMap("""
-                SELECT r.apply_amount, r.currency, r.customer_ref,
+                SELECT r.apply_amount, r.currency, r.customer_ref, r.shipment_id::text,
                        s.customer_id::text AS customer_id
                   FROM acc_reparations r
                   LEFT JOIN shipments s ON s.id = r.shipment_id
@@ -111,19 +111,58 @@ public class ReturnReparationFinanceSideEffect implements AuditSideEffect {
             return;
         }
         String customerId = (String) rep.get("customer_id");
+        String shipmentId = (String) rep.get("shipment_id");
         if (customerId == null) {
-            // 兜底：找不到 shipment 关联客户，跳过
             LOGGER.warn("reparation {} missing shipment customer_id", repId);
             return;
         }
         BigDecimal amount = (BigDecimal) rep.get("apply_amount");
         if (amount == null || amount.signum() <= 0) return;
 
+        // 1. 客户余额 (CREDIT 入预扣账户, 或反审 DEBIT 退回)
         writeLedger(customerId, (String) rep.get("currency"),
             amount, reverse ? "DEBIT" : "CREDIT",
             reverse ? "VOID" : "COMPENSATE",
             "acc_reparations", repId, (String) rep.get("customer_ref"), tenantId,
             (reverse ? "反审赔偿" : "赔偿审核通过"));
+
+        // P0-C9 修复 (ACC Reparation.php:498-565):
+        // 2. 推 shipment.status: 申请审核通过 → CLAIMING → CLAIMED
+        //    反审 → 退回 EXCEPTION 让人工处理
+        if (shipmentId != null) {
+            try {
+                String newStatus = reverse ? "EXCEPTION" : "CLAIMED";
+                jdbc.update("UPDATE shipments SET status = ?::shipment_status WHERE id = ?::uuid",
+                    newStatus, shipmentId);
+            } catch (DataAccessException ex) {
+                LOGGER.warn("update shipment status failed: {}", ex.getMessage());
+            }
+
+            // 3. 在 charges 上记一笔"赔偿调整"(side=AR, status=ADJUSTED, 负数), 这样利润
+            //    SQL (sum AR) 自动扣回该客户应收. 反审就把这条 ADJUSTED 标 VOID.
+            try {
+                if (!reverse) {
+                    jdbc.update("""
+                        INSERT INTO charges
+                          (tenant_id, shipment_id, side, status, audit_status, settlement_status,
+                           currency, amount, remark, created_at)
+                        VALUES (?::uuid, ?::uuid, 'AR', 'ADJUSTED'::charge_status, 'AUDITED',
+                                'UNSETTLED', ?, ?, ?, now())
+                        """, tenantId, shipmentId,
+                        rep.get("currency"), amount.negate(),
+                        "赔偿审核扣回应收 (rep_id=" + repId + ")");
+                } else {
+                    // 反审: 把之前那条 ADJUSTED 的负数费用标 VOID
+                    jdbc.update("""
+                        UPDATE charges SET settlement_status = 'VOID'
+                        WHERE shipment_id = ?::uuid AND status = 'ADJUSTED'
+                          AND remark LIKE ?
+                        """, shipmentId, "%rep_id=" + repId + "%");
+                }
+            } catch (DataAccessException ex) {
+                LOGGER.warn("write reparation charge adjustment failed: {}", ex.getMessage());
+            }
+        }
     }
 
     /** 简化版的 writeLedger：自动找/建影子账户 + 写 balance_ledger。 */
