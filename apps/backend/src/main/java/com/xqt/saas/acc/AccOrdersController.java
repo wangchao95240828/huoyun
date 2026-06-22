@@ -998,11 +998,35 @@ public class AccOrdersController {
         try {
             ctx = jdbc.queryForMap(
                 "SELECT o.tenant_id::text AS tenant_id, o.customer_id::text AS customer_id,"
-                + " o.order_no, c.code AS customer_code"
+                + " o.order_no, c.code AS customer_code,"
+                + " coalesce(c.credit_amount, 0) AS credit_amount,"
+                + " coalesce(c.account_mode, 'PREPAY') AS account_mode"
                 + " FROM orders o JOIN customers c ON c.id=o.customer_id"
                 + " WHERE o.id = ?::uuid", id);
         } catch (DataAccessException ex) {
             throw ApiException.notFound("order not found: " + id);
+        }
+        // P0-B7 修复 (ACC Online.php L1769-1771): 制单提交时校验客户余额+授信不足→拒绝.
+        // account_mode='PREPAY' (预付) 必校验; CREDIT/MONTHLY 等放过.
+        String accountMode = String.valueOf(ctx.get("account_mode"));
+        if ("PREPAY".equals(accountMode)) {
+            try {
+                String customerId = (String) ctx.get("customer_id");
+                // 客户当前所有币种欠款合计 (charges AR 已审 - payments 已审) + 预扣账户余额
+                java.math.BigDecimal unpaid = jdbc.queryForObject("""
+                    SELECT coalesce(sum(amount), 0) FROM charges
+                    WHERE shipment_id IN (
+                      SELECT shipment_id FROM shipment_order_links sol
+                      JOIN orders o ON o.id = sol.order_id
+                      WHERE o.customer_id = ?::uuid
+                    ) AND side='AR' AND audit_status='AUDITED' AND settlement_status='UNSETTLED'
+                    """, java.math.BigDecimal.class, customerId);
+                java.math.BigDecimal credit = (java.math.BigDecimal) ctx.get("credit_amount");
+                if (unpaid != null && credit != null && unpaid.compareTo(credit) > 0) {
+                    throw ApiException.badRequest(
+                        "客户欠款 " + unpaid + " 已超信用额度 " + credit + ", 请先收款再提交订单");
+                }
+            } catch (DataAccessException ignored) { /* 没数据走过 */ }
         }
         CustomerApiPrincipal principal = new CustomerApiPrincipal(
             null,

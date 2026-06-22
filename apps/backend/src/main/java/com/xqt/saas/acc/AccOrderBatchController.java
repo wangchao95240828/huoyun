@@ -34,10 +34,13 @@ public class AccOrderBatchController {
 
     private final JdbcTemplate jdbc;
     private final JsonSupport json;
+    private final com.xqt.saas.framework.audit.AuditService auditService;
 
-    public AccOrderBatchController(JdbcTemplate jdbc, JsonSupport json) {
+    public AccOrderBatchController(JdbcTemplate jdbc, JsonSupport json,
+                                    com.xqt.saas.framework.audit.AuditService auditService) {
         this.jdbc = jdbc;
         this.json = json;
+        this.auditService = auditService;
     }
 
     /**
@@ -239,21 +242,36 @@ public class AccOrderBatchController {
     public Map<String, Object> batchAuditVoid(@RequestBody Map<String, Object> body) {
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
         if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
+        // P0-B8 修复: 走 AuditService.audit 触发 OrderVoidAuditSideEffect
+        // 回滚客户预扣账户余额 + 反向 balance_ledger + charges 标 VOID.
+        // 之前直接 SQL UPDATE 跳过副作用 → 客户欠款流水跟实际状态错位.
+        String tenantId = jdbc.queryForObject(
+            "SELECT current_setting('app.current_tenant_id')", String.class);
+        String actor = jdbc.queryForObject(
+            "SELECT current_setting('app.user_name', true)", String.class);
+        if (actor == null || actor.isBlank()) actor = "system";
         int approved = 0, skipped = 0;
         for (String id : ids) {
-            int n = jdbc.update(
-                "UPDATE orders SET"
-                + "  status = 'CANCELLED',"
-                + "  audit_status = 'AUDITED',"
-                + "  audited_at = now(),"
-                + "  audit_name = current_setting('app.user_name', true),"
-                + "  metadata = coalesce(metadata,'{}'::jsonb) || jsonb_build_object("
-                + "    'void_approved_at', now()::text),"
-                + "  updated_at = now()"
-                + " WHERE id = ?::uuid AND metadata->'void_request' IS NOT NULL"
-                + "   AND audit_status <> 'AUDITED'",
-                id);
-            if (n > 0) approved++; else skipped++;
+            // 先检查是否有 void_request, 没有就跳
+            Integer ok = jdbc.queryForObject("""
+                SELECT count(*) FROM orders WHERE id = ?::uuid
+                  AND metadata->'void_request' IS NOT NULL
+                  AND audit_status <> 'AUDITED'
+                """, Integer.class, id);
+            if (ok == null || ok == 0) { skipped++; continue; }
+            try {
+                auditService.audit("orders", id, tenantId, actor);
+                // 副作用 (OrderVoidAuditSideEffect) 已经把 status 改 CANCELLED + 反向 ledger
+                jdbc.update("""
+                    UPDATE orders SET
+                      metadata = coalesce(metadata,'{}'::jsonb) || jsonb_build_object(
+                        'void_approved_at', now()::text)
+                    WHERE id = ?::uuid
+                    """, id);
+                approved++;
+            } catch (Exception ex) {
+                skipped++;
+            }
         }
         return Map.of("approved", approved, "skipped", skipped, "total", ids.size());
     }
