@@ -4181,7 +4181,76 @@ async function openFullOrderAdd() {
   ]);
   // HS code 后端自定义合并 (用户自己加的优先级最高,失败回退 DEFAULTS)
   fetchHsCodes();
+  formMode.value = 'add';
+  editId.value = 0;
   showFullOrderForm.value = true;
+}
+
+// P0-B 编辑模式: 拉订单 detail 回填到 fullOrderData (ACC Online.php doTable 编辑回填)
+async function openFullOrderEdit(row: any) {
+  fullOrderError.value = '';
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders/${row.id}/detail`);
+    const detail = await res.json();
+    if (detail?.error) { setBizError('加载订单失败: ' + detail.error); return; }
+    const meta = detail.metadata || {};
+    Object.assign(fullOrderData, {
+      orderNo: detail.orderNo || row.orderNo || '',
+      orderDate: detail.orderedAt?.slice(0,10) || row.addTime?.slice(0,10) || '',
+      customerId: detail.customerId || row.customerId || '',
+      product: meta.product || detail.product || row.product || '',
+      channelAccount: meta.channelAccount || meta.channel_account || row.channelAccount || '',
+      packageType: meta.packageType || 'PARCEL',
+      batteryType: meta.batteryType ?? 0,
+      batteryCode: meta.batteryCode || '',
+      specialType: meta.specialType ?? 0,
+      labelType: meta.labelType || 'PDF',
+      materialsEn: meta.materialsEn || meta.materials_en || '',
+      materialsCn: meta.materialsCn || meta.materials_cn || '',
+      country: detail.country || '',
+      weight: detail.weight || 0,
+      piece: detail.piece || 1,
+      volume: detail.volume || 0,
+      currency: detail.currency || 'USD',
+      declaredValue: detail.declaredValue || 0,
+      freight: meta.freight || 0,
+      insurance: meta.insurance || 0,
+      services: meta.services || [],
+      remark: detail.remark || '',
+      receiver: {
+        warehouseCode: meta.warehouseCode || '',
+        country: detail.country || '',
+        areaCode: detail.recipientPostcode || meta.postcode || '',
+        company: detail.recipientCompany || '',
+        name: detail.recipientConsignee || '',
+        phone: detail.recipientPhone || '',
+        province: detail.recipientProvince || '',
+        city: detail.recipientCity || '',
+        address: detail.recipientAddress || '',
+        houseNo: meta.recipientHouseNo || '',
+        taxNo: detail.recipientTaxNo || '',
+        amazonRef: meta.amazonRef || '',
+      },
+      shipper: detail.shipper || emptyParty(),
+      shipTo: detail.shipTo || { templateId: '', ...emptyParty() },
+      declare: (detail.declare && detail.declare.length > 0) ? detail.declare : [emptyDeclareRow()],
+      packageList: (detail.packageList && detail.packageList.length > 0) ? detail.packageList : [emptyPackageRow()],
+    });
+    await loadSelectOptions([
+      { type: 'select', ref: 'customers' } as any,
+      { type: 'select', ref: 'channels' } as any,
+      { type: 'select', ref: 'channel-accounts' } as any,
+      { type: 'select', ref: 'countries' } as any,
+      { type: 'select', ref: 'warehouses' } as any,
+      { type: 'select', ref: 'importer-templates' } as any,
+    ]);
+    fetchHsCodes();
+    formMode.value = 'edit';
+    editId.value = row.id;
+    showFullOrderForm.value = true;
+  } catch (e: any) {
+    setBizError('加载订单失败: ' + e.message);
+  }
 }
 
 // ACC 进口商模板选择 → 自动回填进口商区字段
@@ -4202,22 +4271,156 @@ function removeDeclareRow(i: number) { fullOrderData.declare.splice(i, 1); }
 function addPackageRow() { fullOrderData.packageList.push(emptyPackageRow()); }
 function removePackageRow(i: number) { fullOrderData.packageList.splice(i, 1); }
 
+// P0-A 字段校验: ACC Online.php doChange 1227-1500 对齐
+function validateFullOrder(): string | null {
+  // 1. 基本必填
+  if (!fullOrderData.orderNo) return '客户单号必填';
+  if (!fullOrderData.customerId) return '客户必填';
+  if (!fullOrderData.product) return '发货产品必填';
+  if (!fullOrderData.channelAccount) return '制单账号必填';
+  if (!fullOrderData.country) return '收件人国家必填';
+  // 2. 货物信息必填 (ACC P0)
+  if (!fullOrderData.materialsEn) return '英文品名必填';
+  if (!fullOrderData.materialsCn) return '中文品名必填';
+  if (!fullOrderData.weight || Number(fullOrderData.weight) <= 0)
+    return '货物重量必须 > 0';
+  if (!fullOrderData.piece || Number(fullOrderData.piece) <= 0)
+    return '件数必须 > 0';
+  // 3. 客户单号长度
+  if (fullOrderData.orderNo.length > 30) return '客户单号长度不能超过 30';
+  // 4. 申报明细 (ACC Online.php:1326-1332)
+  const declareValid = fullOrderData.declare.filter((r: any) => r.name || r.cnName);
+  if (declareValid.length === 0) return '申报明细至少 1 行';
+  for (let i = 0; i < declareValid.length; i++) {
+    const r = declareValid[i];
+    if (!r.name) return `申报明细第 ${i+1} 行: 英文品名必填`;
+    if (!r.cnName) return `申报明细第 ${i+1} 行: 中文品名必填`;
+    if (!r.quantity || Number(r.quantity) <= 0)
+      return `申报明细第 ${i+1} 行: 数量必须 > 0`;
+    if (Number(r.price) < 0) return `申报明细第 ${i+1} 行: 单价不能为负`;
+    if (!r.hsCode) return `申报明细第 ${i+1} 行: HS 编码必填`;
+    if (!/^\d{6,10}(\.\d+)?$/.test(String(r.hsCode).replace(/\./g, '')))
+      return `申报明细第 ${i+1} 行: HS 编码必须 6-10 位数字 (现 "${r.hsCode}")`;
+  }
+  // 5. 装箱单 (ACC Online.php:1380-1396)
+  const packageValid = fullOrderData.packageList.filter((r: any) => r.no || r.name);
+  if (packageValid.length === 0) return '装箱单明细至少 1 行';
+  for (let i = 0; i < packageValid.length; i++) {
+    const r = packageValid[i];
+    if (!r.no) return `装箱单第 ${i+1} 行: 装箱单号必填`;
+    if (!r.weight || Number(r.weight) <= 0)
+      return `装箱单第 ${i+1} 行: 货箱重量必须 > 0`;
+    if (!r.name && !r.cnName) return `装箱单第 ${i+1} 行: 英文/中文品名至少填一个`;
+    // 长宽高三选一填则都必须 > 0
+    const dims = [r.length, r.width, r.height].map(Number);
+    const filled = dims.filter(v => v > 0).length;
+    if (filled > 0 && filled < 3)
+      return `装箱单第 ${i+1} 行: 长/宽/高 要么全填要么全不填`;
+    if (r.hsCode && !/^\d{6,10}(\.\d+)?$/.test(String(r.hsCode).replace(/\./g, '')))
+      return `装箱单第 ${i+1} 行: HS 编码必须 6-10 位数字`;
+  }
+  return null;
+}
+
+// P0-B Warehouse onchange 自动填收件人 (ACC doWarehouse JS 对齐)
+async function applyWarehouseAddress() {
+  const code = fullOrderData.receiver.warehouseCode;
+  if (!code) return;
+  const wh: any = (selectOptions.value?.warehouses || []).find((w: any) =>
+    (w.code === code) || (w.id === code));
+  // 如果 selectOptions 里只有 id/name, 不够, 实时查 raw
+  if (!wh || !wh.address) {
+    try {
+      const res = await apiFetch(`${API}/api/acc/warehouses?keyword=${encodeURIComponent(code)}&pageSize=1`);
+      const json = await res.json();
+      const found = (json?.data || []).find((w: any) =>
+        w.code === code || w.id === code);
+      if (found) applyWarehouseFields(found);
+    } catch (e) { /* 静默 */ }
+  } else {
+    applyWarehouseFields(wh);
+  }
+}
+function applyWarehouseFields(wh: any) {
+  // 自动填收件人国家/邮编/省/市/地址 (用户输入过的不覆盖)
+  if (wh.country && !fullOrderData.country) fullOrderData.country = wh.country;
+  if (wh.postcode && !fullOrderData.receiver.areaCode) fullOrderData.receiver.areaCode = wh.postcode;
+  if (wh.province && !fullOrderData.receiver.province) fullOrderData.receiver.province = wh.province;
+  if (wh.city && !fullOrderData.receiver.city) fullOrderData.receiver.city = wh.city;
+  if (wh.address && !fullOrderData.receiver.address) fullOrderData.receiver.address = wh.address;
+  if (wh.companyName && !fullOrderData.receiver.company) fullOrderData.receiver.company = wh.companyName;
+  if (wh.contactPerson && !fullOrderData.receiver.name) fullOrderData.receiver.name = wh.contactPerson;
+  if (wh.phone && !fullOrderData.receiver.phone) fullOrderData.receiver.phone = wh.phone;
+}
+
+// P0-B 邮编 onblur → 自动判偏远 + 反查国家 (ACC doRemote + initPostcode 对齐)
+const isRemoteShown = ref(false);
+async function checkRemotePostcode() {
+  const postcode = fullOrderData.receiver.areaCode?.trim();
+  isRemoteShown.value = false;
+  if (!postcode) return;
+  try {
+    // 先反查 postcodes 表带出国家 (如果用户没选国家)
+    if (!fullOrderData.country) {
+      const r = await apiFetch(`${API}/api/acc/postcodes?keyword=${encodeURIComponent(postcode)}&pageSize=1`);
+      const j = await r.json();
+      const hit = (j?.data || []).find((p: any) => p.postcode === postcode);
+      if (hit?.country) fullOrderData.country = hit.country;
+    }
+    // 偏远判断
+    if (fullOrderData.country) {
+      const r2 = await apiFetch(`${API}/api/acc/remotes?keyword=${encodeURIComponent(postcode)}&pageSize=3`);
+      const j2 = await r2.json();
+      const hit = (j2?.data || []).find((p: any) =>
+        p.country === fullOrderData.country &&
+        (p.postcode === postcode || (p.postcodeStart <= postcode && p.postcodeEnd >= postcode)));
+      if (hit) {
+        isRemoteShown.value = true;
+        (fullOrderData as any).isRemote = true;
+      } else {
+        (fullOrderData as any).isRemote = false;
+      }
+    }
+  } catch (e) { /* 静默 */ }
+}
+
+// 客户单号 onblur 重号检查 (ACC checkNo 对齐)
+async function checkOrderNoUnique() {
+  const no = fullOrderData.orderNo?.trim();
+  if (!no || formMode.value === 'edit') return;
+  try {
+    const res = await apiFetch(`${API}/api/acc/orders?keyword=${encodeURIComponent(no)}&pageSize=1`);
+    const json = await res.json();
+    const hit = (json?.data || []).find((r: any) => r.orderNo === no || r.no === no);
+    if (hit) fullOrderError.value = `客户单号 ${no} 已存在 (查到订单 ${hit.id?.slice(0,8) || ''})`;
+    else if (fullOrderError.value?.startsWith('客户单号') && fullOrderError.value?.includes('已存在'))
+      fullOrderError.value = ''; // 清掉旧重号提示
+  } catch (e) { /* 静默 */ }
+}
+
+// P0-A 申报明细货值实时汇总 (ACC declareValue=sum(quantity*price))
+const totalDeclaredValue = computed(() =>
+  fullOrderData.declare.reduce((sum: number, r: any) =>
+    sum + (Number(r.quantity) || 0) * (Number(r.price) || 0), 0));
+
 async function saveFullOrder() {
   fullOrderError.value = '';
-  if (!fullOrderData.orderNo || !fullOrderData.customerId) {
-    fullOrderError.value = '客户单号、客户必填';
-    return;
-  }
+  const err = validateFullOrder();
+  if (err) { fullOrderError.value = err; return; }
   fullOrderSaving.value = true;
   try {
-    // 清掉空 declare / package 行
+    // 货值自动覆盖为申报明细汇总, 跟 ACC 一致
     const body = {
       ...fullOrderData,
+      declaredValue: Number(totalDeclaredValue.value.toFixed(2)),
       declare: fullOrderData.declare.filter((r: any) => r.name || r.cnName),
       packageList: fullOrderData.packageList.filter((r: any) => r.no || r.name),
     };
-    const res = await apiFetch(`${API}/api/acc/orders/full`, {
-      method: 'POST',
+    const url = formMode.value === 'edit' && editId.value
+      ? `${API}/api/acc/orders/${editId.value}/full`
+      : `${API}/api/acc/orders/full`;
+    const res = await apiFetch(url, {
+      method: formMode.value === 'edit' ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
@@ -4236,6 +4439,10 @@ async function saveFullOrder() {
 }
 
 async function openEdit(row: any) {
+  // P0-B: orders tab 编辑走完整制单 modal 而非通用 form
+  if (accTab.value === 'orders' || accTab.value === 'orders-draft') {
+    return openFullOrderEdit(row);
+  }
   formMode.value = 'edit';
   editId.value = row.id;
   formError.value = '';
@@ -7955,7 +8162,7 @@ async function doDisableCustomerLogin(row: any) {
           <div class="form-section">
             <h4>基本信息</h4>
             <div class="form-grid">
-              <div class="form-field"><label>客户单号 <span class="required">*</span></label><input type="text" v-model="fullOrderData.orderNo" /></div>
+              <div class="form-field"><label>客户单号 <span class="required">*</span></label><input type="text" v-model="fullOrderData.orderNo" @blur="checkOrderNoUnique" maxlength="30" /></div>
               <div class="form-field"><label>日期 <span class="required">*</span></label><input type="date" v-model="fullOrderData.orderDate" /></div>
               <div class="form-field">
                 <label>客户 <span class="required">*</span></label>
@@ -8027,10 +8234,10 @@ async function doDisableCustomerLogin(row: any) {
           <div class="form-section">
             <h4>货物信息 <span class="form-hint">— 海关编码 / 申报数量 / 货值 在下方 <a class="row-link" @click.prevent="scrollFormTo('sec-declare')">⚠ 申报明细</a> 表格里填</span></h4>
             <div class="form-grid">
-              <div class="form-field full-width"><label>英文品名 <span class="required">*</span></label><input type="text" v-model="fullOrderData.materialsEn" placeholder="英文品名 (ACC MaterialsEN)" /></div>
-              <div class="form-field full-width"><label>中文品名</label><input type="text" v-model="fullOrderData.materialsCn" placeholder="中文品名 (ACC MaterialsCN)" /></div>
-              <div class="form-field"><label>件数</label><input type="number" v-model.number="fullOrderData.piece" /></div>
-              <div class="form-field"><label>重量 (kg)</label><input type="number" step="any" v-model.number="fullOrderData.weight" /></div>
+              <div class="form-field full-width"><label>英文品名 <span class="required">*</span></label><input type="text" v-model="fullOrderData.materialsEn" placeholder="英文品名 (ACC MaterialsEN)" maxlength="200" /></div>
+              <div class="form-field full-width"><label>中文品名 <span class="required">*</span></label><input type="text" v-model="fullOrderData.materialsCn" placeholder="中文品名 (ACC MaterialsCN)" maxlength="200" /></div>
+              <div class="form-field"><label>件数 <span class="required">*</span></label><input type="number" min="1" v-model.number="fullOrderData.piece" /></div>
+              <div class="form-field"><label>重量 (kg) <span class="required">*</span></label><input type="number" step="any" min="0.01" v-model.number="fullOrderData.weight" /></div>
               <div class="form-field"><label>体积 (m³)</label><input type="number" step="any" v-model.number="fullOrderData.volume" /></div>
               <div class="form-field">
                 <label>电池代码</label>
@@ -8069,7 +8276,7 @@ async function doDisableCustomerLogin(row: any) {
                   <option value="JPY">JPY</option>
                 </select>
               </div>
-              <div class="form-field"><label>货物金额</label><input type="number" step="any" v-model.number="fullOrderData.declaredValue" /></div>
+              <div class="form-field"><label>货物金额 <span style="color:#94a3b8;font-size:11px">(自动汇总申报明细)</span></label><input type="number" step="any" :value="totalDeclaredValue.toFixed(2)" readonly style="background:#f8fafc;color:#475569" /></div>
               <div class="form-field"><label>运费 (Freight)</label><input type="number" step="any" v-model.number="fullOrderData.freight" /></div>
               <div class="form-field"><label>保险 (Insurance)</label><input type="number" step="any" v-model.number="fullOrderData.insurance" /></div>
               <div class="form-field full-width"><label>备注</label><textarea v-model="fullOrderData.remark" rows="2" /></div>
@@ -8083,7 +8290,7 @@ async function doDisableCustomerLogin(row: any) {
             <div class="form-grid">
               <div class="form-field">
                 <label>仓库地址</label>
-                <select v-model="fullOrderData.receiver.warehouseCode">
+                <select v-model="fullOrderData.receiver.warehouseCode" @change="applyWarehouseAddress">
                   <option value="">请选择仓库地址</option>
                   <option v-for="opt in (selectOptions['warehouses'] ?? [])" :key="opt.id" :value="opt.code || opt.id">{{ opt.name }}</option>
                 </select>
@@ -8095,7 +8302,7 @@ async function doDisableCustomerLogin(row: any) {
                   <option v-for="opt in (selectOptions['countries'] ?? [])" :key="opt.id" :value="opt.code || opt.name">{{ opt.name }}</option>
                 </select>
               </div>
-              <div class="form-field"><label>目的地代码</label><input type="text" v-model="fullOrderData.receiver.areaCode" placeholder="输入后自动填充国家邮编" /></div>
+              <div class="form-field"><label>邮编 <span v-if="isRemoteShown" style="color:#dc2626;font-size:11px">⚠ 偏远</span></label><input type="text" v-model="fullOrderData.receiver.areaCode" @blur="checkRemotePostcode" placeholder="输入邮编自动判偏远" /></div>
               <div class="form-field"><label>公司 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.company" /></div>
               <div class="form-field"><label>收件人 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.name" /></div>
               <div class="form-field"><label>电话 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.phone" /></div>

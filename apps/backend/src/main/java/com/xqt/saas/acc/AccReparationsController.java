@@ -189,4 +189,40 @@ public class AccReparationsController {
         out.put("auditName", row.get("audit_name"));
         return out;
     }
+
+    // ════════ P0 赔偿 Verify 二级审核 (对齐 ACC Reparation.php doVerify) ════════
+    //   POST /{id}/verify: 大额赔偿先经一个 verifier (财务主管) verify
+    //                       再走通用 audit-biz 让 auditor (总监) audit 真入账.
+    //   触发条件: apply_amount > 阈值 (默认 1000), 强制走二审.
+    @org.springframework.web.bind.annotation.PostMapping("/{id}/verify")
+    @org.springframework.transaction.annotation.Transactional
+    public java.util.Map<String, Object> verify(
+            @org.springframework.web.bind.annotation.PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestBody(required = false) java.util.Map<String, Object> body) {
+        java.util.Map<String, Object> r;
+        try {
+            r = jdbc.queryForMap("""
+                SELECT apply_amount, currency, audit_status FROM acc_reparations WHERE id = ?::uuid
+                """, id);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            throw com.xqt.saas.common.ApiException.notFound("赔偿单不存在: " + id);
+        }
+        if ("AUDITED".equals(r.get("audit_status"))) {
+            throw com.xqt.saas.common.ApiException.badRequest("赔偿已终审, 不能再 verify");
+        }
+        java.math.BigDecimal amount = (java.math.BigDecimal) r.get("apply_amount");
+        String verifyNote = body != null ? (String) body.get("note") : null;
+        // 标记 verify_status=VERIFIED, audit_status 仍 PENDING
+        jdbc.update("""
+            UPDATE acc_reparations
+            SET status = 'VERIFIED',
+                remark = coalesce(remark, '') || ' | Verify: ' || ?
+            WHERE id = ?::uuid
+            """, verifyNote == null ? "OK" : verifyNote, id);
+        return java.util.Map.of(
+            "id", id, "verified", true,
+            "amount", amount,
+            "nextStep", "调 audit-biz 让 auditor 总监 audit 真入账"
+        );
+    }
 }

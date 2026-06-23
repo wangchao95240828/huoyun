@@ -48,6 +48,18 @@ public class OrderVoidAuditSideEffect implements AuditSideEffect {
                 )
                 WHERE id = ?::uuid AND tenant_id = ?::uuid AND status <> 'VOID'
                 """, entityId, tenantId);
+            // 1b) ACC 兼容: 清零 metadata.acc_compat 8 字段 (Amount/Charges/Surcharge/
+            //     Additional/Discount/Paid/Cost/Profit) 对齐 ACC 老报表口径
+            jdbc.update("""
+                UPDATE orders
+                SET metadata = metadata || jsonb_build_object(
+                  'acc_compat', coalesce(metadata->'acc_compat', '{}'::jsonb) || jsonb_build_object(
+                    'Amount', 0, 'Charges', 0, 'Surcharge', 0, 'Additional', 0,
+                    'Discount', 0, 'Paid', 0, 'Cost', 0, 'Profit', 0,
+                    'voided_at', now()::text
+                  ))
+                WHERE id = ?::uuid AND tenant_id = ?::uuid
+                """, entityId, tenantId);
             // 2) 改 status=VOID
             int n = jdbc.update("""
                 UPDATE orders SET status = 'CANCELLED'
@@ -138,7 +150,29 @@ public class OrderVoidAuditSideEffect implements AuditSideEffect {
                 UPDATE orders SET status = ?::text
                 WHERE id = ?::uuid AND tenant_id = ?::uuid AND status = 'CANCELLED'
                 """, prev == null ? "DRAFT" : prev, entityId, tenantId);
-            LOGGER.info("order {} restored to {} (audit_status=UNAUDITED), rows={}", entityId, prev, n);
+            // P0 修复: 反向恢复 charges (作废时被标 VOID, 撤销作废时还原 ESTIMATED)
+            int restored = jdbc.update("""
+                UPDATE charges SET status = 'ESTIMATED'::charge_status,
+                                    audit_status = 'PENDING'
+                WHERE order_id = ?::uuid AND status = 'VOID'::charge_status
+                  AND remark LIKE '订单作废自动回退%'
+                """, entityId);
+            // 清掉 metadata.acc_compat 8 字段(撤销 → 8 字段值由 charges 实时算)
+            jdbc.update("""
+                UPDATE orders
+                SET metadata = metadata #- '{acc_compat,Amount}'
+                              #- '{acc_compat,Charges}'
+                              #- '{acc_compat,Surcharge}'
+                              #- '{acc_compat,Additional}'
+                              #- '{acc_compat,Discount}'
+                              #- '{acc_compat,Paid}'
+                              #- '{acc_compat,Cost}'
+                              #- '{acc_compat,Profit}'
+                              #- '{acc_compat,voided_at}'
+                WHERE id = ?::uuid AND tenant_id = ?::uuid
+                """, entityId, tenantId);
+            LOGGER.info("order {} restored to {} (audit_status=UNAUDITED), rows={}, charges_restored={}",
+                entityId, prev, n, restored);
         } catch (DataAccessException ex) {
             LOGGER.warn("OrderVoidAuditSideEffect.onUndone failed: {}", ex.getMessage());
         }

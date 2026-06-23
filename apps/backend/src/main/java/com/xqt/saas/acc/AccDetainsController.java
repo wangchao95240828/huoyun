@@ -208,4 +208,108 @@ public AccDetainsController(JdbcTemplate jdbc, JsonSupport json,
         out.put("auditName", row.get("audit_name"));
         return out;
     }
+
+    // ════════ P0 异常审核-扣件 3 个端点 (对齐 ACC Detain.php) ════════
+    //   POST /{id}/lock    锁定扣件 (doSaveLock): shipment.status=DETAINED + Ask 路由
+    //   POST /{id}/release 放行 (doSaveUnlock): shipment.status=IN_TRANSIT + Ask 关闭
+    //   POST /{id}/call    反馈 (doCall): 写 acc_ask_replies + 限频
+
+    /** ① 锁定扣件 */
+    @org.springframework.web.bind.annotation.PostMapping("/{id}/lock")
+    @org.springframework.transaction.annotation.Transactional
+    public java.util.Map<String, Object> lock(@org.springframework.web.bind.annotation.PathVariable String id) {
+        java.util.Map<String, Object> d;
+        try {
+            d = jdbc.queryForMap(
+                "SELECT shipment_id::text, status FROM acc_detains WHERE id = ?::uuid", id);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            throw com.xqt.saas.common.ApiException.notFound("扣件不存在: " + id);
+        }
+        String shipmentId = (String) d.get("shipment_id");
+        if (shipmentId == null) {
+            throw com.xqt.saas.common.ApiException.badRequest("扣件没绑 shipment");
+        }
+        jdbc.update("UPDATE acc_detains SET status = 'PROCESSING' WHERE id = ?::uuid", id);
+        jdbc.update("UPDATE shipments SET status = 'DETAINED'::shipment_status WHERE id = ?::uuid", shipmentId);
+        // 关联建/更新 acc_asks (扣件类型)
+        try {
+            jdbc.update("""
+                INSERT INTO acc_asks (tenant_id, shipment_id, content, source, ask_type, status, add_name, to_role)
+                VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid,
+                  ?, 'SYSTEM', 'DETAIN', 'OPEN', 'detain-bot', 'STAFF')
+                """, shipmentId, "扣件锁定 detain_id=" + id);
+        } catch (org.springframework.dao.DataAccessException ignored) {}
+        return java.util.Map.of("id", id, "locked", true);
+    }
+
+    /** ② 放行扣件 */
+    @org.springframework.web.bind.annotation.PostMapping("/{id}/release")
+    @org.springframework.transaction.annotation.Transactional
+    public java.util.Map<String, Object> release(@org.springframework.web.bind.annotation.PathVariable String id) {
+        java.util.Map<String, Object> d;
+        try {
+            d = jdbc.queryForMap(
+                "SELECT shipment_id::text FROM acc_detains WHERE id = ?::uuid", id);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            throw com.xqt.saas.common.ApiException.notFound("扣件不存在: " + id);
+        }
+        String shipmentId = (String) d.get("shipment_id");
+        jdbc.update("UPDATE acc_detains SET status = 'RESOLVED' WHERE id = ?::uuid", id);
+        if (shipmentId != null) {
+            jdbc.update("UPDATE shipments SET status = 'IN_TRANSIT'::shipment_status WHERE id = ?::uuid", shipmentId);
+            // 关联关闭 acc_asks 扣件类型
+            jdbc.update("""
+                UPDATE acc_asks SET status = 'CLOSED'
+                WHERE shipment_id = ?::uuid AND ask_type = 'DETAIN' AND status IN ('OPEN','PENDING')
+                """, shipmentId);
+        }
+        return java.util.Map.of("id", id, "released", true);
+    }
+
+    /** ③ 反馈 (call) - 写 ask_reply 限频 1 小时 */
+    @org.springframework.web.bind.annotation.PostMapping("/{id}/call")
+    @org.springframework.transaction.annotation.Transactional
+    public java.util.Map<String, Object> call(
+            @org.springframework.web.bind.annotation.PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestBody java.util.Map<String, Object> body) {
+        String content = (String) body.get("content");
+        if (content == null || content.isBlank())
+            throw com.xqt.saas.common.ApiException.badRequest("反馈内容必填");
+        // 限频: 1 小时只能反馈 1 次 (ACC LastReply 对齐)
+        Integer recentCount = jdbc.queryForObject("""
+            SELECT count(*) FROM acc_ask_replies r
+            JOIN acc_asks a ON a.id = r.ask_id
+            WHERE a.shipment_id = (SELECT shipment_id FROM acc_detains WHERE id = ?::uuid)
+              AND a.ask_type = 'DETAIN'
+              AND r.created_at > now() - interval '1 hour'
+            """, Integer.class, id);
+        if (recentCount != null && recentCount > 0) {
+            throw com.xqt.saas.common.ApiException.badRequest("1 小时内已反馈过, 请稍后再试");
+        }
+        // 找扣件对应 ask, 没有就先建一个
+        java.util.Map<String, Object> d = jdbc.queryForMap(
+            "SELECT shipment_id::text FROM acc_detains WHERE id = ?::uuid", id);
+        String shipmentId = (String) d.get("shipment_id");
+        String askId;
+        try {
+            askId = jdbc.queryForObject("""
+                SELECT id::text FROM acc_asks
+                WHERE shipment_id = ?::uuid AND ask_type = 'DETAIN' AND status IN ('OPEN','PENDING')
+                ORDER BY created_at DESC LIMIT 1
+                """, String.class, shipmentId);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            askId = jdbc.queryForObject("""
+                INSERT INTO acc_asks (tenant_id, shipment_id, content, source, ask_type, status, add_name)
+                VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid,
+                  '扣件反馈', 'STAFF', 'DETAIN', 'OPEN', 'detain-bot')
+                RETURNING id::text
+                """, String.class, shipmentId);
+        }
+        jdbc.update("""
+            INSERT INTO acc_ask_replies (tenant_id, ask_id, source, add_name, content, to_role, handle)
+            VALUES (current_setting('app.current_tenant_id')::uuid, ?::uuid, 'STAFF',
+              ?, ?, 'CUSTOMER', 0)
+            """, askId, body.getOrDefault("addName", "detain-bot"), content);
+        return java.util.Map.of("id", id, "askId", askId, "fed", true);
+    }
 }
