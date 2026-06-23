@@ -174,11 +174,33 @@ public AccAsksController(JdbcTemplate jdbc, JsonSupport json,
     private static String buildAsksStatusFilter(String status) {
         if (status == null || status.isBlank()) return "";
         return switch (status) {
+            // 来源 (source)
             case "CUSTOMER"   -> " AND a.source = 'CUSTOMER'";
             case "SUPPLIER"   -> " AND a.source = 'SUPPLIER'";
+            case "SYSTEM"     -> " AND a.source = 'SYSTEM'";
+            // 状态 (status)
             case "PROCESSING" -> " AND a.status = 'PROCESSING'";
             case "PENDING"    -> " AND a.status IN ('OPEN','PENDING')";
             case "DONE"       -> " AND a.status IN ('CLOSED','DONE')";
+            // P0-C6: 16 档 ask_type 矩阵对齐 ACC ExpressAskType
+            case "QUERY"      -> " AND a.ask_type = 'QUERY'";          // 查件
+            case "ABNORMAL"   -> " AND a.ask_type = 'ABNORMAL'";       // 异常件
+            case "DETAIN"     -> " AND a.ask_type = 'DETAIN'";         // 扣件
+            case "RETURN"     -> " AND a.ask_type = 'RETURN'";         // 退件
+            case "REPARATION" -> " AND a.ask_type = 'REPARATION'";     // 赔偿
+            case "ADDRESS"    -> " AND a.ask_type = 'ADDRESS'";        // 地址有误
+            case "LOST"       -> " AND a.ask_type = 'LOST'";           // 丢失
+            case "DAMAGE"     -> " AND a.ask_type = 'DAMAGE'";         // 破损
+            case "DELAY"      -> " AND a.ask_type = 'DELAY'";          // 延误
+            case "COMPLAINT"  -> " AND a.ask_type = 'COMPLAINT'";      // 投诉
+            case "CUSTOMS"    -> " AND a.ask_type = 'CUSTOMS'";        // 海关
+            case "WEIGHT"     -> " AND a.ask_type = 'WEIGHT'";         // 重量异议
+            case "FEE"        -> " AND a.ask_type = 'FEE'";            // 费用异议
+            case "OTHER"      -> " AND a.ask_type = 'OTHER'";          // 其它
+            // to_role 路由
+            case "TO_STAFF"    -> " AND a.to_role = 'STAFF'";
+            case "TO_CUSTOMER" -> " AND a.to_role = 'CUSTOMER'";
+            case "TO_SUPPLIER" -> " AND a.to_role = 'SUPPLIER'";
             default            -> "";
         };
     }

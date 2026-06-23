@@ -187,4 +187,84 @@ public AccForecastsController(JdbcTemplate jdbc, JsonSupport json,
         out.put("auditName", row.get("audit_name"));
         return out;
     }
+
+    // ════════ P0-D6: 客户预报差异分析 (ACC Forecast_Package 对齐) ════════
+    //   GET /forecasts/diff?customerId=&dateFrom=&dateTo=
+    //   返回: 每个 forecast 实际到货 vs 预报的 piece_count / weight / volume 差异 +
+    //         未到货 (forecast 有但 shipment 没建) + 多到货 (shipment 多于 forecast).
+
+    @GetMapping("/diff")
+    public Map<String, Object> diff(
+            @RequestParam(required = false) String customerId,
+            @RequestParam(required = false) String dateFrom,
+            @RequestParam(required = false) String dateTo) {
+        try {
+            // 取预报 + 关联同期 shipments 聚合实际值
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT f.id::text AS forecast_id, f.forecast_no, f.customer_id::text AS customer_id,
+                       c.code AS customer_code, c.name AS customer_name,
+                       f.forecast_date, f.package_count AS forecast_pieces,
+                       f.weight AS forecast_weight, f.volume AS forecast_volume,
+                       f.origin, f.destination,
+                       coalesce((
+                         SELECT count(*) FROM cartons ct
+                         JOIN shipments s ON s.id = ct.shipment_id
+                         WHERE s.customer_id = f.customer_id
+                           AND s.created_at >= f.forecast_date::timestamptz
+                           AND s.created_at < (f.forecast_date + 7)::timestamptz
+                           AND (f.destination IS NULL OR s.destination_country = f.destination)
+                       ), 0) AS actual_pieces,
+                       coalesce((
+                         SELECT sum(ct.actual_weight_kg) FROM cartons ct
+                         JOIN shipments s ON s.id = ct.shipment_id
+                         WHERE s.customer_id = f.customer_id
+                           AND s.created_at >= f.forecast_date::timestamptz
+                           AND s.created_at < (f.forecast_date + 7)::timestamptz
+                           AND (f.destination IS NULL OR s.destination_country = f.destination)
+                       ), 0) AS actual_weight
+                FROM acc_forecasts f
+                LEFT JOIN customers c ON c.id = f.customer_id
+                WHERE (?::uuid IS NULL OR f.customer_id = ?::uuid)
+                  AND (?::date IS NULL OR f.forecast_date >= ?::date)
+                  AND (?::date IS NULL OR f.forecast_date <= ?::date)
+                ORDER BY f.forecast_date DESC
+                """, customerId, customerId, dateFrom, dateFrom, dateTo, dateTo);
+            List<Map<String, Object>> out = new java.util.ArrayList<>();
+            int totalForecastPieces = 0, totalActualPieces = 0, undeliveredCount = 0, overDeliveredCount = 0;
+            for (Map<String, Object> r : rows) {
+                int fp = r.get("forecast_pieces") instanceof Number n ? n.intValue() : 0;
+                int ap = r.get("actual_pieces") instanceof Number n2 ? n2.intValue() : 0;
+                java.math.BigDecimal fw = r.get("forecast_weight") instanceof java.math.BigDecimal bd ? bd : java.math.BigDecimal.ZERO;
+                java.math.BigDecimal aw = r.get("actual_weight") instanceof java.math.BigDecimal bd2 ? bd2 : java.math.BigDecimal.ZERO;
+                Map<String, Object> o = new LinkedHashMap<>();
+                o.put("forecastId", r.get("forecast_id"));
+                o.put("forecastNo", r.get("forecast_no"));
+                o.put("customerCode", r.get("customer_code"));
+                o.put("customerName", r.get("customer_name"));
+                o.put("forecastDate", json.value(r.get("forecast_date")));
+                o.put("destination", r.get("destination"));
+                o.put("forecastPieces", fp);
+                o.put("actualPieces", ap);
+                o.put("piecesDiff", ap - fp);
+                o.put("forecastWeight", fw);
+                o.put("actualWeight", aw);
+                o.put("weightDiff", aw.subtract(fw));
+                String label = ap == 0 ? "未到货"
+                    : (ap < fp ? "少到货" : (ap > fp ? "多到货" : "对齐"));
+                o.put("status", label);
+                out.add(o);
+                totalForecastPieces += fp; totalActualPieces += ap;
+                if (ap == 0) undeliveredCount++;
+                if (ap > fp) overDeliveredCount++;
+            }
+            return Map.of("data", out, "total", out.size(),
+                "summary", Map.of(
+                    "totalForecastPieces", totalForecastPieces,
+                    "totalActualPieces", totalActualPieces,
+                    "undeliveredCount", undeliveredCount,
+                    "overDeliveredCount", overDeliveredCount));
+        } catch (DataAccessException ex) {
+            return Map.of("data", List.of(), "total", 0, "error", ex.getMessage());
+        }
+    }
 }
