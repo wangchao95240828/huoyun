@@ -28,10 +28,20 @@ public final class CustomerApiRequests {
         Map<String, Object> shipTo,
         List<Map<String, Object>> declare,
         List<Map<String, Object>> packageList,
+        // P0-A2: 9 个 ACC 兼容结构化字段 (原本塞 extra Map 不参与计费校验)
+        String type,            // PackageType: PARCEL / DOCUMENT / PALLET
+        String batteryCode,     // UN3480/UN3481/UN3090/UN3091
+        Integer specialType,    // 0=普通 / 1=危险品 / 2=食品 / 3=液体
+        java.util.List<String> services,  // 附加服务 (位掩码语义): SIG / ADULT_SIG / PRE_TAX
+        Boolean preTax,         // 预扣税
+        String label,           // LabelType: PDF / ZPL / PNG
+        String materialsCN,     // 中文品名 (跟 materials_en 配套)
+        String warehouse,       // 仓库代码 (跟 receiver 二选一)
         Map<String, Object> extra
     ) {
         public PreOrder {
             extra = extra == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(extra));
+            if (services == null) services = java.util.List.of();
         }
     }
 

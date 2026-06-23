@@ -1,6 +1,7 @@
 package com.xqt.saas.customerapi;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -130,11 +131,47 @@ public class CustomerApiAuthFilter extends OncePerRequestFilter {
             return;
         }
 
+        // P0-A3: 签名模式开关 (X-API-Sign-Mode header):
+        //   COMPAT (默认): ACC 旧式 — body 每字段直接参签 (按 key 排序后 join values)
+        //   V2:           新式 — body 整体 sha256 成单 token 参签 (节流 + 防篡改更强)
+        // 默认 COMPAT 保证旧 ACC SDK 直接迁过来能用; 新客户对接可用 X-API-Sign-Mode: V2
+        String signMode = request.getHeader("X-API-Sign-Mode");
         Map<String, String> signedParams = new TreeMap<>();
-        signedParams.put("body", sha256Hex(cached.cachedBody()));
-        signedParams.put("time", time);
-        signedParams.put("user", accessKey);
-        signedParams.put("version", version);
+        if ("V2".equalsIgnoreCase(signMode)) {
+            signedParams.put("body", sha256Hex(cached.cachedBody()));
+            signedParams.put("time", time);
+            signedParams.put("user", accessKey);
+            signedParams.put("version", version);
+        } else {
+            // COMPAT: 把 body 的每个 top-level 字段单独入 signedParams, 模拟 ACC PHP $_POST 行为
+            // 支持 JSON body + form-urlencoded body
+            String bodyStr = cached.cachedBody() == null ? "" : new String(cached.cachedBody(), StandardCharsets.UTF_8);
+            try {
+                if (bodyStr.startsWith("{")) {
+                    com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                    Map<String, Object> bodyMap = mapper.readValue(bodyStr, Map.class);
+                    for (Map.Entry<String, Object> e : bodyMap.entrySet()) {
+                        if (e.getValue() == null) continue;
+                        // 数组/对象用 JSON stringify (对齐 ACC json_encode 行为)
+                        String v = (e.getValue() instanceof String) ? (String) e.getValue()
+                            : mapper.writeValueAsString(e.getValue());
+                        signedParams.put(e.getKey(), v);
+                    }
+                } else if (bodyStr.contains("=") && bodyStr.contains("&")) {
+                    // form-urlencoded
+                    for (String pair : bodyStr.split("&")) {
+                        int eq = pair.indexOf('=');
+                        if (eq > 0) signedParams.put(pair.substring(0, eq), java.net.URLDecoder.decode(pair.substring(eq + 1), StandardCharsets.UTF_8));
+                    }
+                }
+            } catch (Exception ignored) {
+                // 解析失败回退 V2 模式 (body 整体 hash)
+                signedParams.put("body", sha256Hex(cached.cachedBody()));
+            }
+            signedParams.put("time", time);
+            signedParams.put("user", accessKey);
+            signedParams.put("version", version);
+        }
         if (!signatureValidator.matches(signedParams, credential.secretKey(), sign)) {
             reject(response, HTTP_UNAUTHORIZED, AccErrorCode.SIGN_MISMATCH, "signature mismatch");
             logCall(request, accessKey, credential.credentialId(), HTTP_UNAUTHORIZED, AccErrorCode.SIGN_MISMATCH, startNs);

@@ -321,4 +321,254 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
         out.put("theDate", json.value(row.get("created_at")));
         return out;
     }
+
+    // ════════ P0-R1 + P0-R2 + P0-R3-R7 报表端点 ════════
+
+    /** R1 运营日报: 今日/本周/今日签收/异常单 4 个 KPI 一次返回 */
+    @GetMapping("/operations-daily")
+    public Map<String, Object> operationsDaily() {
+        try {
+            Map<String, Object> out = new LinkedHashMap<>();
+            // 今日提取 (今天创建)
+            out.put("todayPickup", jdbc.queryForObject(
+                "SELECT count(*) FROM shipments WHERE created_at::date = current_date", Long.class));
+            // 本周提取
+            out.put("weekPickup", jdbc.queryForObject(
+                "SELECT count(*) FROM shipments WHERE created_at >= date_trunc('week', current_date)", Long.class));
+            // 今日签收
+            out.put("todayDelivered", jdbc.queryForObject(
+                "SELECT count(*) FROM shipments WHERE delivered_at::date = current_date", Long.class));
+            // 异常单 (status IN EXCEPTION/DETAINED/RETURNING/CLAIMING)
+            out.put("abnormalCount", jdbc.queryForObject("""
+                SELECT count(*) FROM shipments
+                WHERE status IN ('EXCEPTION','DETAINED','RETURNING','CLAIMING')
+                """, Long.class));
+            // 在途
+            out.put("inTransit", jdbc.queryForObject(
+                "SELECT count(*) FROM shipments WHERE status = 'IN_TRANSIT'", Long.class));
+            return out;
+        } catch (DataAccessException ex) {
+            return Map.of("error", ex.getMessage());
+        }
+    }
+
+    /** R2+R4 客户分析: 按 customer 聚合 piece/weight/profit/利润率/主要国家 */
+    @GetMapping("/customer-analysis")
+    public Map<String, Object> customerAnalysis(
+        @RequestParam(required = false) String dateFrom,
+        @RequestParam(required = false) String dateTo,
+        @RequestParam(required = false, defaultValue = "20") Integer limit) {
+        try {
+            int lim = Math.max(1, Math.min(200, limit));
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT cu.id::text AS customer_id, cu.code AS customer_code, cu.name AS customer_name,
+                       count(DISTINCT s.id) AS order_count,
+                       coalesce(sum((SELECT count(*) FROM cartons WHERE shipment_id = s.id)), 0) AS piece_count,
+                       coalesce(sum((SELECT sum(actual_weight_kg) FROM cartons WHERE shipment_id = s.id)), 0) AS total_weight,
+                       coalesce(sum((SELECT sum(coalesce(snap.target_amount, ch.amount))
+                                     FROM charges ch
+                                     LEFT JOIN exchange_rate_snapshots snap
+                                       ON snap.entity_type='charges' AND snap.entity_id=ch.id::text AND snap.target_currency='CNY'
+                                     WHERE ch.shipment_id=s.id AND ch.side='AR' AND ch.settlement_status<>'VOID')), 0) AS revenue,
+                       coalesce(sum((SELECT sum(coalesce(snap.target_amount, ch.amount))
+                                     FROM charges ch
+                                     LEFT JOIN exchange_rate_snapshots snap
+                                       ON snap.entity_type='charges' AND snap.entity_id=ch.id::text AND snap.target_currency='CNY'
+                                     WHERE ch.shipment_id=s.id AND ch.side='AP' AND ch.settlement_status<>'VOID')), 0) AS cost,
+                       (SELECT s2.destination_country FROM shipments s2
+                          WHERE s2.customer_id = cu.id
+                          GROUP BY s2.destination_country
+                          ORDER BY count(*) DESC LIMIT 1) AS main_country
+                FROM shipments s
+                JOIN customers cu ON cu.id = s.customer_id
+                WHERE (?::date IS NULL OR s.created_at >= ?::date)
+                  AND (?::date IS NULL OR s.created_at < (?::date + 1))
+                GROUP BY cu.id, cu.code, cu.name
+                ORDER BY revenue DESC LIMIT ?
+                """, dateFrom, dateFrom, dateTo, dateTo, lim);
+            return Map.of("data", rows.stream().map(r -> {
+                Map<String, Object> o = new LinkedHashMap<>();
+                java.math.BigDecimal rev = (java.math.BigDecimal) r.get("revenue");
+                java.math.BigDecimal cost = (java.math.BigDecimal) r.get("cost");
+                java.math.BigDecimal profit = rev.subtract(cost);
+                java.math.BigDecimal profitRate = rev.signum() > 0
+                    ? profit.multiply(new java.math.BigDecimal("100")).divide(rev, 2, java.math.RoundingMode.HALF_UP)
+                    : java.math.BigDecimal.ZERO;
+                o.put("customerCode", r.get("customer_code"));
+                o.put("customerName", r.get("customer_name"));
+                o.put("orderCount", r.get("order_count"));
+                o.put("pieceCount", r.get("piece_count"));
+                o.put("totalWeight", r.get("total_weight"));
+                o.put("revenue", rev);
+                o.put("cost", cost);
+                o.put("profit", profit);
+                o.put("profitRate", profitRate);
+                o.put("mainCountry", r.get("main_country"));
+                return o;
+            }).toList(), "total", rows.size());
+        } catch (DataAccessException ex) {
+            return Map.of("data", List.of(), "total", 0, "error", ex.getMessage());
+        }
+    }
+
+    /** R3 业务员业绩 by 业务员×月 */
+    @GetMapping("/salesman-performance")
+    public Map<String, Object> salesmanPerformance(@RequestParam String month) {
+        if (month == null || !month.matches("\\d{4}-\\d{2}")) {
+            throw com.xqt.saas.common.ApiException.badRequest("month 格式 YYYY-MM");
+        }
+        String monthStart = month + "-01";
+        String monthEnd = java.time.LocalDate.parse(monthStart).plusMonths(1).toString();
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                WITH emp_sales AS (
+                  SELECT s.seller_id AS employee_id,
+                         count(DISTINCT s.id) AS order_count,
+                         coalesce(sum((SELECT count(*) FROM cartons c WHERE c.shipment_id = s.id)), 0) AS piece_count,
+                         coalesce(sum((SELECT coalesce(sum(coalesce(snap.target_amount, ch.amount)), 0)
+                                       FROM charges ch
+                                       LEFT JOIN exchange_rate_snapshots snap
+                                         ON snap.entity_type='charges' AND snap.entity_id=ch.id::text AND snap.target_currency='CNY'
+                                       WHERE ch.shipment_id=s.id AND ch.side='AR' AND ch.settlement_status<>'VOID')), 0) AS sales
+                  FROM shipments s
+                  WHERE s.seller_id IS NOT NULL
+                    AND s.created_at >= ?::date AND s.created_at < ?::date
+                  GROUP BY s.seller_id
+                ),
+                emp_com AS (
+                  SELECT employee_id, amount FROM acc_commissions WHERE the_month = ?
+                )
+                SELECT e.id::text AS employee_id, e.name AS employee_name,
+                       coalesce(es.order_count, 0) AS order_count,
+                       coalesce(es.piece_count, 0) AS piece_count,
+                       coalesce(es.sales, 0) AS sales,
+                       coalesce(ec.amount, 0) AS commission
+                FROM acc_employees e
+                LEFT JOIN emp_sales es ON es.employee_id = e.id
+                LEFT JOIN emp_com ec ON ec.employee_id = e.id
+                WHERE coalesce(es.order_count, 0) > 0 OR coalesce(ec.amount, 0) > 0
+                ORDER BY sales DESC
+                """, monthStart, monthEnd, month);
+            return Map.of("data", rows.stream().map(r -> {
+                Map<String, Object> o = new LinkedHashMap<>();
+                o.put("employeeName", r.get("employee_name"));
+                o.put("orderCount", r.get("order_count"));
+                o.put("pieceCount", r.get("piece_count"));
+                o.put("sales", r.get("sales"));
+                o.put("commission", r.get("commission"));
+                return o;
+            }).toList(), "month", month, "total", rows.size());
+        } catch (DataAccessException ex) {
+            return Map.of("data", List.of(), "total", 0, "error", ex.getMessage());
+        }
+    }
+
+    /** R5 账期已到客户列表 (按客户 settlement+payment_due_date) */
+    @GetMapping("/expired-bills")
+    public Map<String, Object> expiredBills() {
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT cu.code AS customer_code, cu.name AS customer_name,
+                       cu.settlement_type, cu.formula_bill,
+                       count(ci.id) AS invoice_count,
+                       coalesce(sum(ci.unpaid_amount), 0) AS total_unpaid,
+                       min(ci.due_date) AS earliest_due
+                FROM customer_invoices ci
+                JOIN customers cu ON cu.id = ci.customer_id
+                WHERE ci.due_date < current_date
+                  AND ci.unpaid_amount > 0
+                  AND ci.status NOT IN ('VOID','CLOSED')
+                GROUP BY cu.id, cu.code, cu.name, cu.settlement_type, cu.formula_bill
+                ORDER BY earliest_due
+                """);
+            return Map.of("data", rows.stream().map(r -> {
+                Map<String, Object> o = new LinkedHashMap<>();
+                o.put("customerCode", r.get("customer_code"));
+                o.put("customerName", r.get("customer_name"));
+                o.put("settlementType", r.get("settlement_type"));
+                o.put("invoiceCount", r.get("invoice_count"));
+                o.put("totalUnpaid", r.get("total_unpaid"));
+                o.put("earliestDue", json.value(r.get("earliest_due")));
+                o.put("daysOverdue", r.get("earliest_due") != null
+                    ? java.time.temporal.ChronoUnit.DAYS.between(
+                        ((java.sql.Date) r.get("earliest_due")).toLocalDate(),
+                        java.time.LocalDate.now())
+                    : 0);
+                return o;
+            }).toList(), "total", rows.size());
+        } catch (DataAccessException ex) {
+            return Map.of("data", List.of(), "total", 0, "error", ex.getMessage());
+        }
+    }
+
+    /** R6 应付账龄 by partner 排行 */
+    @GetMapping("/payable-aging-by-partner")
+    public Map<String, Object> payableAgingByPartner() {
+        try {
+            List<Map<String, Object>> rows = jdbc.queryForList("""
+                SELECT p.code AS partner_code, p.name AS partner_name,
+                       count(ch.id) AS charge_count,
+                       coalesce(sum(CASE WHEN ch.created_at >= current_date - 30 THEN ch.amount END), 0) AS d0_30,
+                       coalesce(sum(CASE WHEN ch.created_at >= current_date - 60 AND ch.created_at < current_date - 30 THEN ch.amount END), 0) AS d30_60,
+                       coalesce(sum(CASE WHEN ch.created_at >= current_date - 90 AND ch.created_at < current_date - 60 THEN ch.amount END), 0) AS d60_90,
+                       coalesce(sum(CASE WHEN ch.created_at < current_date - 90 THEN ch.amount END), 0) AS d90_plus,
+                       coalesce(sum(ch.amount), 0) AS total_unpaid
+                FROM charges ch
+                JOIN shipments s ON s.id = ch.shipment_id
+                JOIN channels c ON c.id = s.channel_id
+                JOIN partners p ON p.id = c.partner_id
+                WHERE ch.side = 'AP'
+                  AND ch.settlement_status IN ('UNSETTLED','PARTIAL')
+                  AND ch.audit_status = 'AUDITED'
+                GROUP BY p.id, p.code, p.name
+                ORDER BY total_unpaid DESC
+                """);
+            return Map.of("data", rows, "total", rows.size());
+        } catch (DataAccessException ex) {
+            return Map.of("data", List.of(), "total", 0, "error", ex.getMessage());
+        }
+    }
+
+    /** R7 异常率 KPI: 扣件/退件/赔偿率 */
+    @GetMapping("/abnormal-rate")
+    public Map<String, Object> abnormalRate(
+        @RequestParam(required = false) String dateFrom,
+        @RequestParam(required = false) String dateTo) {
+        try {
+            Long total = jdbc.queryForObject("""
+                SELECT count(*) FROM shipments
+                WHERE (?::date IS NULL OR created_at >= ?::date)
+                  AND (?::date IS NULL OR created_at < (?::date + 1))
+                """, Long.class, dateFrom, dateFrom, dateTo, dateTo);
+            Long detained = jdbc.queryForObject("""
+                SELECT count(DISTINCT shipment_id) FROM acc_detains
+                WHERE (?::date IS NULL OR created_at >= ?::date)
+                  AND (?::date IS NULL OR created_at < (?::date + 1))
+                """, Long.class, dateFrom, dateFrom, dateTo, dateTo);
+            Long returned = jdbc.queryForObject("""
+                SELECT count(*) FROM return_orders
+                WHERE (?::date IS NULL OR created_at >= ?::date)
+                  AND (?::date IS NULL OR created_at < (?::date + 1))
+                """, Long.class, dateFrom, dateFrom, dateTo, dateTo);
+            Long claimed = jdbc.queryForObject("""
+                SELECT count(*) FROM acc_reparations
+                WHERE (?::date IS NULL OR created_at >= ?::date)
+                  AND (?::date IS NULL OR created_at < (?::date + 1))
+                """, Long.class, dateFrom, dateFrom, dateTo, dateTo);
+            double t = total == null || total == 0 ? 1.0 : total.doubleValue();
+            return Map.of(
+                "totalShipments", total == null ? 0 : total,
+                "detained", detained == null ? 0 : detained,
+                "returned", returned == null ? 0 : returned,
+                "claimed", claimed == null ? 0 : claimed,
+                "detainedRate", String.format("%.2f%%", (detained == null ? 0 : detained) / t * 100),
+                "returnedRate", String.format("%.2f%%", (returned == null ? 0 : returned) / t * 100),
+                "claimedRate", String.format("%.2f%%", (claimed == null ? 0 : claimed) / t * 100),
+                "totalAbnormalRate", String.format("%.2f%%",
+                    ((detained == null ? 0 : detained) + (returned == null ? 0 : returned) + (claimed == null ? 0 : claimed)) / t * 100)
+            );
+        } catch (DataAccessException ex) {
+            return Map.of("error", ex.getMessage());
+        }
+    }
 }

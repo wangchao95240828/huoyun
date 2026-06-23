@@ -66,7 +66,9 @@ class CustomerApiContractTests {
         CustomerApiRequests.PreOrder body = new CustomerApiRequests.PreOrder(
             "ORDER-0001", "tok", "PROD-A", "US",
             new BigDecimal("1.5"), 1, new BigDecimal("0.001"),
-            "CNY", Map.of(), Map.of(), Map.of(), List.of(), List.of(), Map.of()
+            "CNY", Map.of(), Map.of(), Map.of(), List.of(), List.of(),
+            null, null, null, null, null, null, null, null,  // 新加 8 个 ACC 兼容字段
+            Map.of()
         );
         when(service.preOrder(principal, body)).thenReturn(new PreOrderResult(
             "00000000-0000-0000-0000-000000000001", "DOC-20260512000000000-ORDER-0001", "DRAFT", "DOC-DEMO"

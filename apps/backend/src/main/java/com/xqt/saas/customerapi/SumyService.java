@@ -169,6 +169,8 @@ public class SumyService {
             null,
             declare,
             null,
+            // P0-A2: 9 个 ACC 兼容字段 (sumy 调用没有这些, 全 null)
+            null, null, null, null, null, null, null, null,
             Map.of("source", "sumy")
         );
     }
