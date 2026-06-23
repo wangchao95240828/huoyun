@@ -1052,7 +1052,7 @@ public class AccOrdersController {
             ctx = jdbc.queryForMap(
                 "SELECT o.tenant_id::text AS tenant_id, o.customer_id::text AS customer_id,"
                 + " o.order_no, o.status AS order_status, c.code AS customer_code,"
-                + " coalesce(c.credit_amount, 0) AS credit_amount,"
+                + " coalesce(c.credit_limit, 0) AS credit_amount,"
                 + " coalesce(c.account_mode, 'PREPAY') AS account_mode"
                 + " FROM orders o JOIN customers c ON c.id=o.customer_id"
                 + " WHERE o.id = ?::uuid", id);
