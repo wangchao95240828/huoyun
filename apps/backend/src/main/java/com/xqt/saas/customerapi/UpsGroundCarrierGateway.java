@@ -166,7 +166,7 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
         shipToAddr.put("AddressLine", addrLines);
         shipToAddr.put("City", strOr(recv.get("city"), ""));
         shipToAddr.put("StateProvinceCode", strOr(recv.get("province"), recv.get("state"), ""));
-        shipToAddr.put("PostalCode", strOr(recv.get("postcode"), recv.get("zip"), ""));
+        shipToAddr.put("PostalCode", strOr(recv.get("postcode"), recv.get("zip"), recv.get("areaCode"), recv.get("postal_code"), ""));
         shipToAddr.put("CountryCode", strOr(recv.get("country"), ctx.country() == null ? "US" : ctx.country()));
         shipTo.put("Address", shipToAddr);
 
