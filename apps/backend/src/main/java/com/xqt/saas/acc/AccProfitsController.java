@@ -475,9 +475,10 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
                        min(ci.due_date) AS earliest_due
                 FROM customer_invoices ci
                 JOIN customers cu ON cu.id = ci.customer_id
-                WHERE ci.due_date < current_date
+                WHERE ci.due_date IS NOT NULL
+                  AND ci.due_date < current_date
                   AND ci.unpaid_amount > 0
-                  AND ci.status NOT IN ('VOID','CLOSED')
+                  AND ci.status IN ('DRAFT','PENDING','CONFIRMED')
                 GROUP BY cu.id, cu.code, cu.name, cu.settlement_type, cu.formula_bill
                 ORDER BY earliest_due
                 """);
@@ -488,11 +489,20 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
                 o.put("settlementType", r.get("settlement_type"));
                 o.put("invoiceCount", r.get("invoice_count"));
                 o.put("totalUnpaid", r.get("total_unpaid"));
-                o.put("earliestDue", json.value(r.get("earliest_due")));
-                o.put("daysOverdue", r.get("earliest_due") != null
-                    ? java.time.temporal.ChronoUnit.DAYS.between(
-                        ((java.sql.Date) r.get("earliest_due")).toLocalDate(),
-                        java.time.LocalDate.now())
+                Object due = r.get("earliest_due");
+                o.put("earliestDue", json.value(due));
+                java.time.LocalDate dueDate = null;
+                try {
+                    if (due instanceof java.sql.Date) dueDate = ((java.sql.Date) due).toLocalDate();
+                    else if (due instanceof java.time.LocalDate) dueDate = (java.time.LocalDate) due;
+                    else if (due instanceof java.sql.Timestamp) dueDate = ((java.sql.Timestamp) due).toLocalDateTime().toLocalDate();
+                    else if (due != null) {
+                        String s = due.toString();
+                        if (s.length() >= 10) dueDate = java.time.LocalDate.parse(s.substring(0, 10));
+                    }
+                } catch (Exception ignored) {}
+                o.put("daysOverdue", dueDate != null
+                    ? java.time.temporal.ChronoUnit.DAYS.between(dueDate, java.time.LocalDate.now())
                     : 0);
                 return o;
             }).toList(), "total", rows.size());
@@ -501,25 +511,22 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
         }
     }
 
-    /** R6 应付账龄 by partner 排行 */
+    /** R6 应付账龄 by partner 排行 (走 partner_invoices) */
     @GetMapping("/payable-aging-by-partner")
     public Map<String, Object> payableAgingByPartner() {
         try {
             List<Map<String, Object>> rows = jdbc.queryForList("""
                 SELECT p.code AS partner_code, p.name AS partner_name,
-                       count(ch.id) AS charge_count,
-                       coalesce(sum(CASE WHEN ch.created_at >= current_date - 30 THEN ch.amount END), 0) AS d0_30,
-                       coalesce(sum(CASE WHEN ch.created_at >= current_date - 60 AND ch.created_at < current_date - 30 THEN ch.amount END), 0) AS d30_60,
-                       coalesce(sum(CASE WHEN ch.created_at >= current_date - 90 AND ch.created_at < current_date - 60 THEN ch.amount END), 0) AS d60_90,
-                       coalesce(sum(CASE WHEN ch.created_at < current_date - 90 THEN ch.amount END), 0) AS d90_plus,
-                       coalesce(sum(ch.amount), 0) AS total_unpaid
-                FROM charges ch
-                JOIN shipments s ON s.id = ch.shipment_id
-                JOIN channels c ON c.id = s.channel_id
-                JOIN partners p ON p.id = c.partner_id
-                WHERE ch.side = 'AP'
-                  AND ch.settlement_status IN ('UNSETTLED','PARTIAL')
-                  AND ch.audit_status = 'AUDITED'
+                       count(pi.id) AS invoice_count,
+                       coalesce(sum(CASE WHEN pi.due_date >= current_date - 30 THEN pi.unpaid_amount END), 0) AS d0_30,
+                       coalesce(sum(CASE WHEN pi.due_date >= current_date - 60 AND pi.due_date < current_date - 30 THEN pi.unpaid_amount END), 0) AS d30_60,
+                       coalesce(sum(CASE WHEN pi.due_date >= current_date - 90 AND pi.due_date < current_date - 60 THEN pi.unpaid_amount END), 0) AS d60_90,
+                       coalesce(sum(CASE WHEN pi.due_date < current_date - 90 THEN pi.unpaid_amount END), 0) AS d90_plus,
+                       coalesce(sum(pi.unpaid_amount), 0) AS total_unpaid
+                FROM partner_invoices pi
+                JOIN partners p ON p.id = pi.partner_id
+                WHERE pi.unpaid_amount > 0
+                  AND pi.status NOT IN ('VOID','CLOSED')
                 GROUP BY p.id, p.code, p.name
                 ORDER BY total_unpaid DESC
                 """);
