@@ -652,6 +652,59 @@ public class AccOrdersController {
         if (orderNo == null || orderNo.isBlank()) {
             orderNo = orderNoGenerator.generate("ORDER");
         }
+        // P0-补 #8: 客户单号重复硬阻止 (ACC: 相同的制单单号已经存在)
+        Integer dupCount = jdbc.queryForObject(
+            "SELECT count(*) FROM orders WHERE order_no = ? AND status <> 'CANCELLED'",
+            Integer.class, orderNo);
+        if (dupCount != null && dupCount > 0) {
+            throw ApiException.badRequest("客户单号 " + orderNo + " 已存在 (ACC_216)");
+        }
+        // P0-补 #1: 客户产品权限校验 (ACC: LoginCustomer 限制可选 product)
+        String product = strOrNull(body.get("product"));
+        if (product != null && !product.isBlank()) {
+            // 先 information_schema 探测表, 避免 transaction abort
+            Boolean hasTable = jdbc.queryForObject("""
+                SELECT EXISTS (SELECT 1 FROM information_schema.tables
+                  WHERE table_schema='public' AND table_name='customer_products')
+                """, Boolean.class);
+            if (Boolean.TRUE.equals(hasTable)) {
+                Integer anyAuth = jdbc.queryForObject(
+                    "SELECT count(*) FROM customer_products WHERE customer_id = ?::uuid",
+                    Integer.class, customerId);
+                if (anyAuth != null && anyAuth > 0) {
+                    Integer authCount = jdbc.queryForObject("""
+                        SELECT count(*) FROM customer_products
+                        WHERE customer_id = ?::uuid AND product_code = ? AND active = true
+                        """, Integer.class, customerId, product);
+                    if (authCount == null || authCount == 0) {
+                        throw ApiException.badRequest("客户未授权使用产品 " + product + " (ACC_203)");
+                    }
+                }
+            }
+        }
+        // P0-补 #2: 渠道匹配兜底 (ACC: 没有合适的渠道可以发送该快件)
+        //   按重量/国家 校验 channel 是否满足
+        String country = strOrNull(body.get("country"));
+        Object weightRaw = body.get("weight");
+        if (product != null && country != null && weightRaw != null) {
+            try {
+                java.math.BigDecimal weight = new java.math.BigDecimal(weightRaw.toString());
+                List<Map<String, Object>> chRows = jdbc.queryForList("""
+                    SELECT min_weight_total, max_weight_kg FROM channels
+                    WHERE code = ? AND active = true
+                    LIMIT 1
+                    """, product);
+                if (!chRows.isEmpty()) {
+                    Map<String, Object> ch = chRows.get(0);
+                    java.math.BigDecimal minW = (java.math.BigDecimal) ch.get("min_weight_total");
+                    java.math.BigDecimal maxW = (java.math.BigDecimal) ch.get("max_weight_kg");
+                    if (minW != null && weight.compareTo(minW) < 0)
+                        throw ApiException.badRequest("重量 " + weight + "kg 低于渠道最低 " + minW + "kg (ACC_210)");
+                    if (maxW != null && maxW.signum() > 0 && weight.compareTo(maxW) > 0)
+                        throw ApiException.badRequest("重量 " + weight + "kg 超过渠道上限 " + maxW + "kg (ACC_210)");
+                }
+            } catch (NumberFormatException ignored) {}
+        }
         String customerRef = strOrDefault(body.get("customerRef"), orderNo);
         // 自定义字段校验 — 集成 AccCustomFieldsController
         Object customFieldsRaw = body.get("customFields");
@@ -998,7 +1051,7 @@ public class AccOrdersController {
         try {
             ctx = jdbc.queryForMap(
                 "SELECT o.tenant_id::text AS tenant_id, o.customer_id::text AS customer_id,"
-                + " o.order_no, c.code AS customer_code,"
+                + " o.order_no, o.status AS order_status, c.code AS customer_code,"
                 + " coalesce(c.credit_amount, 0) AS credit_amount,"
                 + " coalesce(c.account_mode, 'PREPAY') AS account_mode"
                 + " FROM orders o JOIN customers c ON c.id=o.customer_id"
@@ -1006,6 +1059,38 @@ public class AccOrdersController {
         } catch (DataAccessException ex) {
             throw ApiException.notFound("order not found: " + id);
         }
+        // P0-补 #7: 重提订单守卫 (ACC: 该订单已经有部分费用被人工审核, 无法重新提交)
+        String orderStatus = String.valueOf(ctx.get("order_status"));
+        if (!"DRAFT".equals(orderStatus)) {
+            // 已经 submit 过 - 检查关联 charges 是否已经被审核
+            try {
+                Integer auditedCount = jdbc.queryForObject("""
+                    SELECT count(*) FROM charges
+                    WHERE order_id = ?::uuid AND audit_status = 'AUDITED'
+                    """, Integer.class, id);
+                if (auditedCount != null && auditedCount > 0) {
+                    throw ApiException.badRequest(
+                        "该订单已经有 " + auditedCount + " 笔费用被人工审核, 无法重新提交 (ACC_237)");
+                }
+            } catch (DataAccessException ignored) {}
+            if (!"DRAFT".equals(orderStatus)) {
+                throw ApiException.badRequest("订单状态 " + orderStatus + " 不允许重新提交 (仅 DRAFT 可提交)");
+            }
+        }
+        // P0-补 #3: 国家签入冲突校验 (ACC: 该快件已签入的国家与您制单的国家不一致)
+        try {
+            Map<String, Object> orderRow = jdbc.queryForMap("""
+                SELECT recipient_country, country FROM orders WHERE id = ?::uuid
+                """, id);
+            String orderCountry = (String) orderRow.get("country");
+            String recipientCountry = (String) orderRow.get("recipient_country");
+            if (orderCountry != null && recipientCountry != null
+                && !orderCountry.isBlank() && !recipientCountry.isBlank()
+                && !orderCountry.equalsIgnoreCase(recipientCountry)) {
+                throw ApiException.badRequest(
+                    "目的国家 " + orderCountry + " 与收件人国家 " + recipientCountry + " 不一致, 请确认后再提交");
+            }
+        } catch (DataAccessException ignored) {}
         // P0-B7 修复 (ACC Online.php L1769-1771): 制单提交时校验客户余额+授信不足→拒绝.
         // account_mode='PREPAY' (预付) 必校验; CREDIT/MONTHLY 等放过.
         String accountMode = String.valueOf(ctx.get("account_mode"));

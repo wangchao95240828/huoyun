@@ -4305,13 +4305,16 @@ function validateFullOrder(): string | null {
   // 5. 装箱单 (ACC Online.php:1380-1396)
   const packageValid = fullOrderData.packageList.filter((r: any) => r.no || r.name);
   if (packageValid.length === 0) return '装箱单明细至少 1 行';
+  // P0-补 装箱单号去重 (ACC: 相同单号的装箱单已经存在)
+  const pkgNos = new Set<string>();
   for (let i = 0; i < packageValid.length; i++) {
     const r = packageValid[i];
     if (!r.no) return `装箱单第 ${i+1} 行: 装箱单号必填`;
+    if (pkgNos.has(r.no)) return `装箱单第 ${i+1} 行: 装箱单号 "${r.no}" 跟前面行重复`;
+    pkgNos.add(r.no);
     if (!r.weight || Number(r.weight) <= 0)
       return `装箱单第 ${i+1} 行: 货箱重量必须 > 0`;
     if (!r.name && !r.cnName) return `装箱单第 ${i+1} 行: 英文/中文品名至少填一个`;
-    // 长宽高三选一填则都必须 > 0
     const dims = [r.length, r.width, r.height].map(Number);
     const filled = dims.filter(v => v > 0).length;
     if (filled > 0 && filled < 3)
@@ -4319,6 +4322,17 @@ function validateFullOrder(): string | null {
     if (r.hsCode && !/^\d{6,10}(\.\d+)?$/.test(String(r.hsCode).replace(/\./g, '')))
       return `装箱单第 ${i+1} 行: HS 编码必须 6-10 位数字`;
   }
+  // P0-补 装箱总重 vs 货物重量 一致校验 (ACC: 填写的总重量[X]与货件重量合计[Y]不一致)
+  const pkgWeightSum = packageValid.reduce((s: number, r: any) => s + (Number(r.weight) || 0), 0);
+  const declared = Number(fullOrderData.weight) || 0;
+  if (Math.abs(pkgWeightSum - declared) > 0.01)
+    return `装箱单总重 ${pkgWeightSum.toFixed(2)}kg 与货物重量 ${declared.toFixed(2)}kg 不一致, 请检查`;
+  // P0-补 装箱单货件数量 vs 件数一致 (ACC: 装箱单货件数量【N】跟件数【M】不一致)
+  if (Number(fullOrderData.piece) > 0 && packageValid.length !== Number(fullOrderData.piece))
+    return `装箱单行数 ${packageValid.length} 跟件数 ${fullOrderData.piece} 不一致, 请检查`;
+  // P0-补 客户单号重复硬阻止 (基于 checkOrderNoUnique 已查到的提示)
+  if (fullOrderError.value?.includes('已存在'))
+    return fullOrderError.value;
   return null;
 }
 
