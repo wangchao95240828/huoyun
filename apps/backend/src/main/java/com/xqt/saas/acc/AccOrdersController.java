@@ -1053,7 +1053,7 @@ public class AccOrdersController {
                 "SELECT o.tenant_id::text AS tenant_id, o.customer_id::text AS customer_id,"
                 + " o.order_no, o.status AS order_status, c.code AS customer_code,"
                 + " coalesce(c.credit_limit, 0) AS credit_amount,"
-                + " coalesce(c.account_mode, 'PREPAY') AS account_mode"
+                + " coalesce(c.account_mode::text, 'PREPAID') AS account_mode"
                 + " FROM orders o JOIN customers c ON c.id=o.customer_id"
                 + " WHERE o.id = ?::uuid", id);
         } catch (DataAccessException ex) {
@@ -1099,7 +1099,7 @@ public class AccOrdersController {
         // P0-B7 修复 (ACC Online.php L1769-1771): 制单提交时校验客户余额+授信不足→拒绝.
         // account_mode='PREPAY' (预付) 必校验; CREDIT/MONTHLY 等放过.
         String accountMode = String.valueOf(ctx.get("account_mode"));
-        if ("PREPAY".equals(accountMode)) {
+        if ("PREPAID".equals(accountMode) || "PREPAY".equals(accountMode)) {
             try {
                 String customerId = (String) ctx.get("customer_id");
                 // 客户当前所有币种欠款合计 (charges AR 已审 - payments 已审) + 预扣账户余额
