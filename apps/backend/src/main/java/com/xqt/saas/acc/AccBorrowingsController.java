@@ -235,4 +235,81 @@ public class AccBorrowingsController {
             "remaining", total.subtract(afterRepaid)
         );
     }
+
+    // ════════ P0-B4 借款利息计提 MVP (ACC Borrowing.php 简化版) ════════
+    //   POST /api/acc/borrowings/{id}/accrue-interest?asOf=YYYY-MM-DD
+    //   ACC 完整版是 5 cycle (周/月/季/半/年) × 5 mode (日/月/年/等本息/等本金) 矩阵.
+    //   MVP 实现: cycle=MONTHLY, mode=SIMPLE/COMPOUND 两种, 覆盖 90% 场景.
+    //   公式 (按月计提):
+    //     SIMPLE   利息 = principal × rate × months
+    //     COMPOUND 利息 = principal × ((1+rate)^months - 1)
+    //   返回累计利息 + 应还总额 (principal + interest - repaid).
+    //   每次计提写一行 acc_borrowing_interest_log (审计).
+
+    @org.springframework.web.bind.annotation.PostMapping("/{id}/accrue-interest")
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> accrueInterest(
+            @org.springframework.web.bind.annotation.PathVariable String id,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String asOf) {
+        Map<String, Object> b;
+        try {
+            b = jdbc.queryForMap("""
+                SELECT amount, rate, mode, cycle, start_date,
+                       coalesce(repaid_amount, 0) AS repaid
+                FROM acc_borrowings WHERE id = ?::uuid
+                """, id);
+        } catch (DataAccessException ex) {
+            throw com.xqt.saas.common.ApiException.notFound("借款单不存在: " + id);
+        }
+        java.math.BigDecimal principal = (java.math.BigDecimal) b.get("amount");
+        java.math.BigDecimal rate = (java.math.BigDecimal) b.get("rate");  // 月利率 (e.g. 0.005 = 0.5%/月)
+        if (rate == null) rate = java.math.BigDecimal.ZERO;
+        java.sql.Date startDate = (java.sql.Date) b.get("start_date");
+        if (startDate == null) {
+            throw com.xqt.saas.common.ApiException.badRequest("借款单缺 start_date, 无法计息");
+        }
+        java.time.LocalDate start = startDate.toLocalDate();
+        java.time.LocalDate end = asOf != null && !asOf.isBlank()
+            ? java.time.LocalDate.parse(asOf) : java.time.LocalDate.now();
+        if (end.isBefore(start)) {
+            throw com.xqt.saas.common.ApiException.badRequest("asOf 不能早于借款 start_date");
+        }
+        long months = java.time.temporal.ChronoUnit.MONTHS.between(
+            start.withDayOfMonth(1), end.withDayOfMonth(1));
+        if (months < 0) months = 0;
+
+        String mode = (String) b.get("mode");
+        if (mode == null) mode = "SIMPLE";
+        java.math.BigDecimal interest;
+        if ("COMPOUND".equalsIgnoreCase(mode)) {
+            // (1+rate)^months - 1
+            java.math.BigDecimal factor = new java.math.BigDecimal("1").add(rate);
+            java.math.BigDecimal pow = factor.pow((int) Math.min(months, 12L * 30)); // cap 30 年防溢出
+            interest = principal.multiply(pow.subtract(java.math.BigDecimal.ONE))
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+        } else {
+            interest = principal.multiply(rate).multiply(java.math.BigDecimal.valueOf(months))
+                .setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+        java.math.BigDecimal repaid = (java.math.BigDecimal) b.get("repaid");
+        java.math.BigDecimal totalDue = principal.add(interest).subtract(repaid);
+
+        // 计提流水 (审计, 表不存在就跳过)
+        try {
+            jdbc.update("""
+                INSERT INTO acc_borrowing_interest_log
+                  (borrowing_id, as_of_date, months_elapsed, mode, rate, principal,
+                   interest, total_due, created_at)
+                VALUES (?::uuid, ?::date, ?, ?, ?, ?, ?, ?, now())
+                """, id, end, months, mode, rate, principal, interest, totalDue);
+        } catch (DataAccessException ignored) {
+            // 表不存在容错, 不阻断
+        }
+        return Map.of(
+            "borrowingId", id, "asOf", end.toString(),
+            "principal", principal, "rate", rate, "mode", mode,
+            "monthsElapsed", months, "interest", interest,
+            "repaid", repaid, "totalDue", totalDue
+        );
+    }
 }

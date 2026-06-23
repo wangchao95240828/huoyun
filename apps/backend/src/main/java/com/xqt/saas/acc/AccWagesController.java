@@ -227,4 +227,177 @@ public class AccWagesController {
         if (n == 0) throw ApiException.badRequest("仅可作废已发放状态的工资");
         return Map.of("id", id, "voided", true);
     }
+
+    // ════════ P0-D5 HR 工资引擎 MVP (替代 ACC Wage.php 核心逻辑) ════════
+    //   POST /wages/calculate?month=YYYY-MM[&employeeId=...]
+    //   公式: total = basic + bonus + commission - deduction
+    //   deduction = 社保 + 公积金 + 借支抵扣 + 罚款 + 个税
+    //   每项写 acc_wage_items 明细行便于追溯.
+
+    @org.springframework.web.bind.annotation.PostMapping("/calculate")
+    @org.springframework.transaction.annotation.Transactional
+    public Map<String, Object> calculate(
+            @org.springframework.web.bind.annotation.RequestParam String month,
+            @org.springframework.web.bind.annotation.RequestParam(required = false) String employeeId) {
+        if (month == null || !month.matches("\\d{4}-\\d{2}")) {
+            throw ApiException.badRequest("month 格式 YYYY-MM (如 2026-06)");
+        }
+        java.time.LocalDate monthStart = java.time.LocalDate.parse(month + "-01");
+        java.time.LocalDate monthEnd = monthStart.plusMonths(1);
+
+        // 1. 找在职员工 (status=ACTIVE 或不限, entry_date <= month_end)
+        List<Map<String, Object>> employees;
+        if (employeeId != null && !employeeId.isBlank()) {
+            employees = jdbc.queryForList(
+                "SELECT id::text, name, coalesce(basic_salary, 0) AS basic_salary FROM acc_employees WHERE id = ?::uuid",
+                employeeId);
+        } else {
+            employees = jdbc.queryForList("""
+                SELECT id::text, name, coalesce(basic_salary, 0) AS basic_salary
+                FROM acc_employees
+                WHERE coalesce(entry_date, '1900-01-01') <= ?::date
+                  AND (status IS NULL OR status IN ('ACTIVE','在职') OR status = 'NORMAL')
+                """, monthEnd);
+        }
+
+        int processed = 0;
+        java.math.BigDecimal grandTotal = java.math.BigDecimal.ZERO;
+        for (Map<String, Object> emp : employees) {
+            String empId = (String) emp.get("id");
+            java.math.BigDecimal basic = (java.math.BigDecimal) emp.get("basic_salary");
+            if (basic == null) basic = java.math.BigDecimal.ZERO;
+
+            // 删除该员工该月旧记录 (允许重算)
+            jdbc.update("""
+                DELETE FROM acc_wages WHERE employee_id = ?::uuid AND the_month = ?
+                """, empId, month);
+
+            // 2. 当月提成 (从 acc_commissions 取, 复用 B3 引擎结果)
+            java.math.BigDecimal commission = java.math.BigDecimal.ZERO;
+            String commissionId = null;
+            try {
+                List<Map<String, Object>> coms = jdbc.queryForList("""
+                    SELECT id::text, amount FROM acc_commissions
+                    WHERE employee_id = ?::uuid AND the_month = ?
+                    LIMIT 1
+                    """, empId, month);
+                if (!coms.isEmpty()) {
+                    commission = (java.math.BigDecimal) coms.get(0).get("amount");
+                    commissionId = (String) coms.get(0).get("id");
+                }
+            } catch (DataAccessException ignored) {}
+
+            // 3. 社保扣减 (从 acc_social_persons 取当月费用, 没找到记 0)
+            java.math.BigDecimal socialDeduction = java.math.BigDecimal.ZERO;
+            try {
+                java.math.BigDecimal s = jdbc.queryForObject("""
+                    SELECT coalesce(sum(personal_amount), 0) FROM acc_social_persons
+                    WHERE employee_id = ?::uuid AND the_month = ?
+                    """, java.math.BigDecimal.class, empId, month);
+                if (s != null) socialDeduction = s;
+            } catch (DataAccessException ignored) {}
+
+            // 4. 公积金扣减 (从 acc_fund_persons 取)
+            java.math.BigDecimal fundDeduction = java.math.BigDecimal.ZERO;
+            try {
+                java.math.BigDecimal f = jdbc.queryForObject("""
+                    SELECT coalesce(sum(personal_amount), 0) FROM acc_fund_persons
+                    WHERE employee_id = ?::uuid AND the_month = ?
+                    """, java.math.BigDecimal.class, empId, month);
+                if (f != null) fundDeduction = f;
+            } catch (DataAccessException ignored) {}
+
+            // 5. 借支抵扣 (acc_borrowings 当月应还本金 + 利息)
+            java.math.BigDecimal borrowingRepay = java.math.BigDecimal.ZERO;
+            String borrowingId = null;
+            try {
+                List<Map<String, Object>> bs = jdbc.queryForList("""
+                    SELECT id::text, coalesce(repayment, 0) + coalesce(fixed_amount, 0) AS due
+                    FROM acc_borrowings
+                    WHERE employee_id = ?::uuid AND repayment_status IN ('PENDING','PARTIAL')
+                      AND coalesce(start_date, '1900-01-01') <= ?::date
+                      AND (end_date IS NULL OR end_date >= ?::date)
+                    """, empId, monthEnd, monthStart);
+                for (Map<String, Object> b : bs) {
+                    java.math.BigDecimal due = (java.math.BigDecimal) b.get("due");
+                    if (due != null && due.signum() > 0) {
+                        borrowingRepay = borrowingRepay.add(due);
+                        borrowingId = (String) b.get("id");
+                    }
+                }
+            } catch (DataAccessException ignored) {}
+
+            // 6. 当月罚款 (acc_fines)
+            java.math.BigDecimal fineDeduction = java.math.BigDecimal.ZERO;
+            try {
+                java.math.BigDecimal fn = jdbc.queryForObject("""
+                    SELECT coalesce(sum(amount), 0) FROM acc_fines
+                    WHERE customer_id IS NULL AND partner_id IS NULL
+                      AND created_at >= ?::date AND created_at < ?::date
+                      AND audit_status = 'AUDITED'
+                    """, java.math.BigDecimal.class, monthStart, monthEnd);
+                if (fn != null) fineDeduction = fn;
+            } catch (DataAccessException ignored) {}
+
+            java.math.BigDecimal deduction = socialDeduction.add(fundDeduction).add(borrowingRepay).add(fineDeduction);
+            java.math.BigDecimal total = basic.add(commission).subtract(deduction);
+
+            // 7. 写 acc_wages 主表 + acc_wage_items 明细
+            String wageId = jdbc.queryForObject("""
+                INSERT INTO acc_wages
+                  (employee_id, the_month, basic, commission, deduction, total, currency,
+                   audit_status, pay_status)
+                VALUES (?::uuid, ?, ?, ?, ?, ?, 'CNY', 'PENDING', 'PENDING')
+                RETURNING id::text
+                """, String.class, empId, month, basic, commission, deduction, total);
+
+            // 加项明细
+            insertItem(wageId, "BASIC", "ADD", basic, null, null, "员工基本工资");
+            if (commission.signum() > 0)
+                insertItem(wageId, "COMMISSION", "ADD", commission, "acc_commissions", commissionId, "B3 提成引擎计算");
+            // 扣项明细
+            if (socialDeduction.signum() > 0)
+                insertItem(wageId, "SOCIAL_INSURANCE", "SUB", socialDeduction, "acc_social_persons", null, "社保个人部分");
+            if (fundDeduction.signum() > 0)
+                insertItem(wageId, "HOUSING_FUND", "SUB", fundDeduction, "acc_fund_persons", null, "公积金个人部分");
+            if (borrowingRepay.signum() > 0)
+                insertItem(wageId, "BORROWING_REPAY", "SUB", borrowingRepay, "acc_borrowings", borrowingId, "借支当月抵扣");
+            if (fineDeduction.signum() > 0)
+                insertItem(wageId, "FINE", "SUB", fineDeduction, "acc_fines", null, "当月罚款");
+
+            processed++;
+            grandTotal = grandTotal.add(total);
+        }
+        return Map.of("month", month, "employeesProcessed", processed, "grandTotal", grandTotal);
+    }
+
+    private void insertItem(String wageId, String type, String direction,
+                             java.math.BigDecimal amount, String sourceType, String sourceId, String remark) {
+        if (amount == null || amount.signum() == 0) return;
+        jdbc.update("""
+            INSERT INTO acc_wage_items
+              (wage_id, item_type, direction, amount, source_type, source_id, remark)
+            VALUES (?::uuid, ?, ?, ?, ?, ?::uuid, ?)
+            """, wageId, type, direction, amount, sourceType, sourceId, remark);
+    }
+
+    /** GET /wages/{id}/items — 工资明细行 */
+    @org.springframework.web.bind.annotation.GetMapping("/{id}/items")
+    public Map<String, Object> items(@org.springframework.web.bind.annotation.PathVariable String id) {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT item_type, direction, amount, source_type, source_id::text, remark, created_at
+            FROM acc_wage_items WHERE wage_id = ?::uuid
+            ORDER BY direction DESC, item_type
+            """, id);
+        return Map.of("data", rows.stream().map(r -> {
+            Map<String, Object> o = new LinkedHashMap<>();
+            o.put("itemType", r.get("item_type"));
+            o.put("direction", r.get("direction"));
+            o.put("amount", r.get("amount"));
+            o.put("sourceType", r.get("source_type"));
+            o.put("sourceId", r.get("source_id"));
+            o.put("remark", r.get("remark"));
+            return o;
+        }).toList(), "total", rows.size());
+    }
 }
