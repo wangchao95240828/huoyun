@@ -1020,7 +1020,8 @@ public class CustomerApiService {
                    AND ch.customer_id = ?::uuid
                    AND ch.side = 'AR'
                    AND ch.currency = ?
-                   AND ch.status NOT IN ('PAID', 'VOID')
+                   AND ch.status NOT IN ('VOID')
+                   AND coalesce(ch.settlement_status, 'UNSETTLED') <> 'SETTLED'
                 """, Object.class, tenantId, customerId, currency);
             unpaidAr = toBigDecimalOrNull(raw);
         } catch (org.springframework.dao.DataAccessException ex) {
