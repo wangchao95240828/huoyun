@@ -4063,9 +4063,21 @@ const hsCodeOptions = computed<HsCodeOpt[]>(() => {
   return out;
 });
 // 根据品名(中/英)推荐 HS code top-5 — 走前端 cats 关键词匹配 (不打后端 req)
-function suggestHsCodes(nameCN: string, nameEN: string): HsCodeOpt[] {
+function suggestHsCodes(nameCN: string, nameEN: string, currentInput: string = ''): HsCodeOpt[] {
+  // 优先按用户已经在 HS 输入框打的字过滤 (e.g. "61" 或 "T-shirt")
+  const userInput = (currentInput || '').toLowerCase().trim();
+  if (userInput.length >= 1) {
+    const filtered = hsCodeOptions.value.filter(h =>
+      h.code.toLowerCase().includes(userInput) ||
+      (h.nameCN && h.nameCN.toLowerCase().includes(userInput)) ||
+      (h.nameEN && h.nameEN.toLowerCase().includes(userInput)) ||
+      (h.cats || []).some(k => k.toLowerCase().includes(userInput))
+    );
+    if (filtered.length > 0) return filtered.slice(0, 12);
+  }
+  // 没输入时, 按品名推荐
   const q = ((nameCN || '') + ' ' + (nameEN || '')).toLowerCase().trim();
-  if (!q) return hsCodeOptions.value.slice(0, 8);
+  if (!q) return hsCodeOptions.value.slice(0, 12);
   const scored = hsCodeOptions.value.map(h => {
     let score = 0;
     for (const k of (h.cats || [])) {
@@ -4076,7 +4088,27 @@ function suggestHsCodes(nameCN: string, nameEN: string): HsCodeOpt[] {
     return { h, score };
   });
   const hits = scored.filter(x => x.score > 0).sort((a,b) => b.score - a.score);
-  return hits.length > 0 ? hits.slice(0, 5).map(x => x.h) : hsCodeOptions.value.slice(0, 8);
+  return hits.length > 0 ? hits.slice(0, 8).map(x => x.h) : hsCodeOptions.value.slice(0, 12);
+}
+
+// HS 下拉 popover 状态 (key = 'decl-' + i 或 'pkg-' + i)
+const hsPopoverOpen = ref<string | null>(null);
+function toggleHsPopover(key: string) {
+  hsPopoverOpen.value = hsPopoverOpen.value === key ? null : key;
+}
+function pickHs(rowRef: any, code: string) {
+  rowRef.hsCode = code;
+  hsPopoverOpen.value = null;
+}
+// 点 popover 外面自动关
+if (typeof document !== 'undefined') {
+  document.addEventListener('click', (e: any) => {
+    if (!hsPopoverOpen.value) return;
+    const t = e.target as HTMLElement;
+    if (t && t.closest && !t.closest('.hs-picker')) {
+      hsPopoverOpen.value = null;
+    }
+  });
 }
 async function fetchHsCodes() {
   try {
@@ -8134,12 +8166,26 @@ async function doDisableCustomerLogin(row: any) {
                   <td><input type="number" step="any" v-model.number="row.price" /></td>
                   <td>{{ ((row.quantity || 0) * (row.price || 0)).toFixed(2) }}</td>
                   <td>
-                    <input type="text" v-model="row.hsCode" :list="'hs-decl-' + i" placeholder="搜索/输入"
-                           style="width:110px" />
-                    <datalist :id="'hs-decl-' + i">
-                      <option v-for="opt in suggestHsCodes(row.cnName, row.name)" :key="opt.code"
-                              :value="opt.code">{{ opt.code }} — {{ opt.nameCN || opt.nameEN }}</option>
-                    </datalist>
+                    <div class="hs-picker" style="position:relative;display:inline-block">
+                      <input type="text" v-model="row.hsCode" placeholder="搜索/输入"
+                             @focus="hsPopoverOpen = 'decl-' + i"
+                             @input="hsPopoverOpen = 'decl-' + i"
+                             style="width:110px;padding-right:18px" />
+                      <button type="button" class="hs-arrow"
+                              @click="toggleHsPopover('decl-' + i)"
+                              style="position:absolute;right:0;top:0;height:100%;width:18px;border:none;background:transparent;cursor:pointer;font-size:10px;color:#64748b">▼</button>
+                      <div v-if="hsPopoverOpen === 'decl-' + i" class="hs-popover"
+                           style="position:absolute;top:100%;left:0;z-index:1000;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.1);min-width:280px;max-height:280px;overflow-y:auto;font-size:12px">
+                        <div v-for="opt in suggestHsCodes(row.cnName, row.name, row.hsCode)" :key="opt.code"
+                             @click="pickHs(row, opt.code)"
+                             style="padding:6px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9"
+                             onmouseover="this.style.background='#f1f5f9'"
+                             onmouseout="this.style.background=''">
+                          <span style="color:#3b82f6;font-family:monospace;font-weight:600">{{ opt.code }}</span>
+                          <span style="color:#64748b;margin-left:8px">{{ opt.nameCN || opt.nameEN }}</span>
+                        </div>
+                      </div>
+                    </div>
                   </td>
                   <td><input type="text" v-model="row.remark" /></td>
                   <td><button class="danger-btn sm" type="button" @click="removeDeclareRow(i)" v-if="fullOrderData.declare.length > 1"><X :size="13" /></button></td>
@@ -8166,12 +8212,26 @@ async function doDisableCustomerLogin(row: any) {
                   <td><input type="text" v-model="row.name" /></td>
                   <td><input type="text" v-model="row.cnName" /></td>
                   <td>
-                    <input type="text" v-model="row.hsCode" :list="'hs-pkg-' + i" placeholder="搜索/输入"
-                           style="width:110px" />
-                    <datalist :id="'hs-pkg-' + i">
-                      <option v-for="opt in suggestHsCodes(row.cnName, row.name)" :key="opt.code"
-                              :value="opt.code">{{ opt.code }} — {{ opt.nameCN || opt.nameEN }}</option>
-                    </datalist>
+                    <div class="hs-picker" style="position:relative;display:inline-block">
+                      <input type="text" v-model="row.hsCode" placeholder="搜索/输入"
+                             @focus="hsPopoverOpen = 'pkg-' + i"
+                             @input="hsPopoverOpen = 'pkg-' + i"
+                             style="width:110px;padding-right:18px" />
+                      <button type="button" class="hs-arrow"
+                              @click="toggleHsPopover('pkg-' + i)"
+                              style="position:absolute;right:0;top:0;height:100%;width:18px;border:none;background:transparent;cursor:pointer;font-size:10px;color:#64748b">▼</button>
+                      <div v-if="hsPopoverOpen === 'pkg-' + i" class="hs-popover"
+                           style="position:absolute;top:100%;left:0;z-index:1000;background:#fff;border:1px solid #cbd5e1;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.1);min-width:280px;max-height:280px;overflow-y:auto;font-size:12px">
+                        <div v-for="opt in suggestHsCodes(row.cnName, row.name, row.hsCode)" :key="opt.code"
+                             @click="pickHs(row, opt.code)"
+                             style="padding:6px 10px;cursor:pointer;border-bottom:1px solid #f1f5f9"
+                             onmouseover="this.style.background='#f1f5f9'"
+                             onmouseout="this.style.background=''">
+                          <span style="color:#3b82f6;font-family:monospace;font-weight:600">{{ opt.code }}</span>
+                          <span style="color:#64748b;margin-left:8px">{{ opt.nameCN || opt.nameEN }}</span>
+                        </div>
+                      </div>
+                    </div>
                   </td>
                   <td><input type="number" step="any" v-model.number="row.grossWeight" /></td>
                   <td><input type="number" step="any" v-model.number="row.length" /></td>
