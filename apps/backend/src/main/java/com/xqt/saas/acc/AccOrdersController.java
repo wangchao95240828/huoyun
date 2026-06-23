@@ -1077,20 +1077,25 @@ public class AccOrdersController {
                 throw ApiException.badRequest("订单状态 " + orderStatus + " 不允许重新提交 (仅 DRAFT 可提交)");
             }
         }
-        // P0-补 #3: 国家签入冲突校验 (ACC: 该快件已签入的国家与您制单的国家不一致)
+        // P0-补 #3: 国家签入冲突校验 (ACC: 该快件已签入的国家与制单国家不一致)
+        // 走 metadata.acc_compat.country 跟 metadata.recipient.country 比对
+        // (xqt-saas orders 表 country 字段在 metadata jsonb 里, 不是 column)
         try {
-            Map<String, Object> orderRow = jdbc.queryForMap("""
-                SELECT recipient_country, country FROM orders WHERE id = ?::uuid
-                """, id);
-            String orderCountry = (String) orderRow.get("country");
-            String recipientCountry = (String) orderRow.get("recipient_country");
+            String orderCountry = jdbc.queryForObject(
+                "SELECT metadata->'acc_compat'->>'country' FROM orders WHERE id = ?::uuid",
+                String.class, id);
+            String recipientCountry = jdbc.queryForObject(
+                "SELECT metadata->'receiver'->>'country' FROM orders WHERE id = ?::uuid",
+                String.class, id);
             if (orderCountry != null && recipientCountry != null
                 && !orderCountry.isBlank() && !recipientCountry.isBlank()
                 && !orderCountry.equalsIgnoreCase(recipientCountry)) {
                 throw ApiException.badRequest(
                     "目的国家 " + orderCountry + " 与收件人国家 " + recipientCountry + " 不一致, 请确认后再提交");
             }
-        } catch (DataAccessException ignored) {}
+        } catch (DataAccessException ignored) {
+            // metadata 字段不存在 / 解析失败 → 跳过
+        }
         // P0-B7 修复 (ACC Online.php L1769-1771): 制单提交时校验客户余额+授信不足→拒绝.
         // account_mode='PREPAY' (预付) 必校验; CREDIT/MONTHLY 等放过.
         String accountMode = String.valueOf(ctx.get("account_mode"));
