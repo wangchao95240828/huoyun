@@ -4111,14 +4111,26 @@ if (typeof document !== 'undefined') {
   });
 }
 async function fetchHsCodes() {
+  // 默认只拉 quick=true 的电商常用 (~1500 条), 全量 5613 条按需 search
   try {
-    const res = await apiFetch(`${API}/api/acc/hscodes?pageSize=200`);
+    const res = await apiFetch(`${API}/api/acc/hscodes?quick=true&pageSize=500`);
     const json = await res.json();
     const rows = (json?.data || []) as any[];
     hsCodesFetched.value = rows.map(r => ({
       code: r.code, nameCN: r.nameCN || '', nameEN: r.nameEN || '',
     })).filter(r => r.code);
   } catch (e) { /* 静默, 用 DEFAULTS */ }
+}
+// 用户在 HS 输入框打 3+ 字符时, 实时搜全量 5613 条
+async function searchHsCodes(keyword: string): Promise<HsCodeOpt[]> {
+  if (!keyword || keyword.length < 2) return [];
+  try {
+    const res = await apiFetch(`${API}/api/acc/hscodes?keyword=${encodeURIComponent(keyword)}&pageSize=20`);
+    const json = await res.json();
+    return (json?.data || []).map((r: any) => ({
+      code: r.code, nameCN: r.nameCN || '', nameEN: r.nameEN || '',
+    })).filter((r: any) => r.code);
+  } catch (e) { return []; }
 }
 const emptyPackageRow = () => ({ no: '', weight: 0, name: '', cnName: '', hsCode: '', grossWeight: 0, length: 0, width: 0, height: 0, quantity: 1, price: 0, material: '' });
 const fullOrderData = reactive<any>({
