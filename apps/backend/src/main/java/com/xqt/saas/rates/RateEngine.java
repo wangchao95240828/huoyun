@@ -51,6 +51,11 @@ public class RateEngine {
         this.carrierRules = carrierRules;
     }
 
+    /** 2 参兼容构造 (老测试用, CarrierRuleEngine 自建) */
+    public RateEngine(RateRepository repository, JdbcTemplate jdbc) {
+        this(repository, jdbc, new CarrierRuleEngine(jdbc));
+    }
+
     @Transactional(readOnly = true)
     public Quote quote(String tenantId, RateQuoteRequest request) {
         if (request == null) {
