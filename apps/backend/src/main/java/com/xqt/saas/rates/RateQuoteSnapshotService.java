@@ -24,13 +24,15 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class RateQuoteSnapshotService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RateQuoteSnapshotService.class);
     private final JdbcTemplate jdbc;
     private final RateEngine rateEngine;
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json;
 
-    public RateQuoteSnapshotService(JdbcTemplate jdbc, RateEngine rateEngine) {
+    public RateQuoteSnapshotService(JdbcTemplate jdbc, RateEngine rateEngine, ObjectMapper json) {
         this.jdbc = jdbc;
         this.rateEngine = rateEngine;
+        this.json = json;
     }
 
     /** 落 quote 快照, 返回 quoteId. */
@@ -61,6 +63,7 @@ public class RateQuoteSnapshotService {
                 java.sql.Timestamp.from(expiresAt), quote.fuelRate());
         } catch (Exception ex) {
             // 落盘失败不阻断报价主流程
+            LOGGER.warn("rate_quotes snapshot failed (non-blocking): {}", ex.getMessage());
             return null;
         }
     }
