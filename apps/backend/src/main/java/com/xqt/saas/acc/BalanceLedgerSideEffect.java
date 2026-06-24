@@ -232,7 +232,7 @@ public class BalanceLedgerSideEffect implements AuditSideEffect {
                 VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?::balance_ledger_biz_type, ?, ?,
                         (SELECT currency FROM financial_accounts WHERE id = ?::uuid),
                         ?::balance_ledger_direction, ?, ?, ?, ?, ?)
-                """, tenantId, bankId, ownerType, tenantId, "PAY",
+                """, tenantId, bankId, ownerType, tenantId, "PAYMENT",
                 sourceType, sourceRef, bankId,
                 delta.signum() >= 0 ? "CREDIT" : "DEBIT", delta.abs(),
                 before, after, actorName, remark);
