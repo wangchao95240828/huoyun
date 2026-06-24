@@ -41,15 +41,22 @@ public class RateQuoteSnapshotService {
             String requestJson = json.writeValueAsString(req);
             String responseJson = json.writeValueAsString(quote);
             Instant expiresAt = computeExpiry();
+            // PG 类型推断对 null::uuid 失败, 用 CASE 显式 cast
             return jdbc.queryForObject("""
                 INSERT INTO rate_quotes
                   (tenant_id, customer_id, order_id, request_json, response_json,
                    channel_code, currency, total_amount, expires_at, fuel_pct, status)
-                VALUES (?::uuid, ?::uuid, ?::uuid, ?::jsonb, ?::jsonb,
+                VALUES (?::uuid,
+                        CASE WHEN ? IS NULL THEN NULL ELSE ?::uuid END,
+                        CASE WHEN ? IS NULL THEN NULL ELSE ?::uuid END,
+                        ?::jsonb, ?::jsonb,
                         ?, ?, ?, ?, ?, 'ACTIVE')
                 RETURNING id::text
                 """, String.class,
-                tenantId, customerId, orderId, requestJson, responseJson,
+                tenantId,
+                customerId, customerId,
+                orderId, orderId,
+                requestJson, responseJson,
                 quote.channelCode(), req.currency(), quote.totalAmount(),
                 java.sql.Timestamp.from(expiresAt), quote.fuelRate());
         } catch (Exception ex) {
