@@ -172,16 +172,15 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
     @GetMapping("/{id}/items")
     public List<Map<String, Object>> items(@PathVariable String id) {
         try {
+            // customer_invoice_lines schema: id/invoice_id/shipment_id/charge_id/amount (无 line_no/description)
             return jdbc.queryForList("""
                 SELECT
                   cil.id::text                           AS "id",
-                  cil.line_no                            AS "lineNo",
                   o.order_no                             AS "expressNo",
                   cu.name                                AS "customerName",
                   ci.name                                AS "lineType",
-                  cil.line_total                         AS "amount",
+                  cil.amount                             AS "amount",
                   ch.paid_amount                         AS "paid",
-                  cil.description                        AS "description",
                   to_char(ch.created_at, 'YYYY-MM-DD')   AS "theDate"
                 FROM customer_invoice_lines cil
                 LEFT JOIN charges ch ON ch.id = cil.charge_id
@@ -189,7 +188,7 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
                 LEFT JOIN customers cu ON cu.id = ch.customer_id
                 LEFT JOIN charge_items ci ON ci.id = ch.charge_item_id
                 WHERE cil.invoice_id = ?::uuid
-                ORDER BY cil.line_no
+                ORDER BY ch.created_at
                 """, id);
         } catch (DataAccessException ex) {
             return List.of();
