@@ -196,14 +196,14 @@ public class CarrierRuleEngine {
             return jdbc.queryForMap("""
                 SELECT value_json, effective_from FROM carrier_rules
                  WHERE carrier = ?
-                   AND (? IS NULL OR product_class = ? OR product_class IS NULL)
+                   AND (?::text IS NULL OR product_class = ?::text OR product_class IS NULL)
                    AND rule_type = ?
-                   AND (? IS NULL OR key = ? OR key IS NULL)
+                   AND (?::text IS NULL OR key = ?::text OR key IS NULL)
                    AND active = true
                    AND (effective_from IS NULL OR effective_from <= now())
                    AND (effective_to IS NULL OR effective_to >= now())
                  ORDER BY
-                   CASE WHEN product_class = ? THEN 0 ELSE 1 END,
+                   CASE WHEN product_class = ?::text THEN 0 ELSE 1 END,
                    priority DESC,
                    effective_from DESC
                  LIMIT 1
