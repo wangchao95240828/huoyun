@@ -272,10 +272,12 @@ public class AccOrderBatchController {
         if (actor == null || actor.isBlank()) actor = "system";
         int approved = 0, skipped = 0;
         for (String id : ids) {
-            // 先检查是否有 void_request, 没有就跳
+            // 申请作废写 metadata.acc_compat.void_request_reason (跟 OrdersController.requestVoid 对齐)
+            // 兼容旧 batchVoid 写的 metadata.void_request
             Integer ok = jdbc.queryForObject("""
                 SELECT count(*) FROM orders WHERE id = ?::uuid
-                  AND metadata->'void_request' IS NOT NULL
+                  AND (metadata->'void_request' IS NOT NULL
+                       OR metadata #>> '{acc_compat,void_request_reason}' IS NOT NULL)
                   AND audit_status <> 'AUDITED'
                 """, Integer.class, id);
             if (ok == null || ok == 0) { skipped++; continue; }
