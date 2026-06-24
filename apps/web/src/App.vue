@@ -1112,12 +1112,19 @@ const accFinanceTabs = [
   accTabs.find(t => t.key === "borrowings")!,             // 资金借贷
   accTabs.find(t => t.key === "account-transactions")!,   // 往来账户
   accTabs.find(t => t.key === "currencies")!,             // 币种管理
-  // 应收 (5)
-  accTabs.find(t => t.key === "charges")!,                // 应收款项
+  // 应收 (6)
+  accTabs.find(t => t.key === "customer-receivables")!,   // ⭐ 应收款项目 (按客户聚合欠款) — 之前漏了
+  accTabs.find(t => t.key === "charges")!,                // 应收款项 (charges 明细)
   accTabs.find(t => t.key === "receiveds")!,              // 收款记录
   accTabs.find(t => t.key === "receiveds-pending")!,      // 待审收款
   accTabs.find(t => t.key === "customer-refunds")!,       // 退款记录
   accTabs.find(t => t.key === "customer-refunds-pending")!, // 待审退款
+  // 账单 + 账期
+  accTabs.find(t => t.key === "bills")!,                  // 客户账单
+  accTabs.find(t => t.key === "fwb-prepay")!,             // 预扣明细
+  accTabs.find(t => t.key === "fwb-pending")!,            // 待财务审核
+  accTabs.find(t => t.key === "fwb-invoiced")!,           // 已出账
+  accTabs.find(t => t.key === "fwb-needs-verify")!,       // 待二审账单
   // 应付 (5)
   accTabs.find(t => t.key === "costs")!,                  // 应付款项
   accTabs.find(t => t.key === "payments")!,               // 付款记录
