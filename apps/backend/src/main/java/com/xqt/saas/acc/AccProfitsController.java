@@ -102,7 +102,7 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
                     SELECT sum(coalesce(snap.target_amount, ch.amount))
                     FROM charges ch
                     LEFT JOIN exchange_rate_snapshots snap
-                      ON snap.entity_type = 'charges' AND snap.entity_id = ch.id
+                      ON snap.entity_type = 'charges' AND snap.entity_id = ch.id::text
                        AND snap.target_currency = 'CNY'
                     WHERE ch.shipment_id = s.id AND ch.side = 'AR'
                       AND ch.settlement_status <> 'VOID'
@@ -111,7 +111,7 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
                     SELECT sum(coalesce(snap.target_amount, ch.amount))
                     FROM charges ch
                     LEFT JOIN exchange_rate_snapshots snap
-                      ON snap.entity_type = 'charges' AND snap.entity_id = ch.id
+                      ON snap.entity_type = 'charges' AND snap.entity_id = ch.id::text
                        AND snap.target_currency = 'CNY'
                     WHERE ch.shipment_id = s.id AND ch.side = 'AP'
                       AND ch.settlement_status <> 'VOID'
