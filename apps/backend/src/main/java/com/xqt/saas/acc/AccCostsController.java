@@ -204,7 +204,7 @@ public class AccCostsController {
     private static String buildCostsStatusFilter(String status) {
         if (status == null || status.isBlank()) return "";
         return switch (status) {
-            case "UNAUDITED" -> " AND ch.audit_status = 'UNAUDITED'";
+            case "UNAUDITED" -> " AND ch.audit_status IN ('UNAUDITED', 'PENDING')";
             case "ESTIMATE"  -> " AND ch.status = 'DRAFT'";
             case "RECENT"    -> " AND ch.created_at >= (current_date - interval '7 days')";
             case "HISTORY"   -> " AND ch.created_at < date_trunc('month', current_date)";
