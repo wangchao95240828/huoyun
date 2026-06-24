@@ -241,12 +241,13 @@ public class BalanceLedgerSideEffect implements AuditSideEffect {
         }
     }
 
-    /** charges.AP 找供应商: 经由 shipments.channel_id → channels.partner_id */
+    /** charges.AP 找供应商: 经由 shipments.channel_id → channels.bound_supplier_id */
     private String findPartnerFromChannel(String channelId) {
         if (channelId == null) return null;
         try {
             return jdbc.queryForObject(
-                "SELECT partner_id::text FROM channels WHERE id = ?::uuid", String.class, channelId);
+                "SELECT bound_supplier_id::text FROM channels WHERE id = ?::uuid",
+                String.class, channelId);
         } catch (DataAccessException ex) { return null; }
     }
 }
