@@ -45,13 +45,14 @@ public class RateEngine {
     private final JdbcTemplate jdbc;
     private final CarrierRuleEngine carrierRules;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public RateEngine(RateRepository repository, JdbcTemplate jdbc, CarrierRuleEngine carrierRules) {
         this.repository = repository;
         this.jdbc = jdbc;
         this.carrierRules = carrierRules;
     }
 
-    /** 2 参兼容构造 (老测试用, CarrierRuleEngine 自建) */
+    /** 2 参兼容构造 (老测试用, CarrierRuleEngine 自建). Spring 不走这个. */
     public RateEngine(RateRepository repository, JdbcTemplate jdbc) {
         this(repository, jdbc, new CarrierRuleEngine(jdbc));
     }
