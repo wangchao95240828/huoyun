@@ -314,12 +314,14 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
     /** 核算中心 子页过滤. */
     private static String buildChargesStatusFilter(String status) {
         if (status == null || status.isBlank()) return "";
+        // PENDING (新建默认) 和 UNAUDITED 都算"待核": 新提交订单 charges 是 PENDING,
+        // 手动反审过的 charges 是 UNAUDITED; 用户角度都是要审核的.
         return switch (status) {
-            case "UNAUDITED"           -> " AND ch.audit_status = 'UNAUDITED'";
+            case "UNAUDITED"           -> " AND ch.audit_status IN ('UNAUDITED', 'PENDING')";
             case "HISTORY"             -> " AND ch.created_at < date_trunc('month', current_date)";
-            case "RETURN_PENDING"      -> " AND ch.audit_status = 'UNAUDITED'"
+            case "RETURN_PENDING"      -> " AND ch.audit_status IN ('UNAUDITED', 'PENDING')"
                 + " AND EXISTS (SELECT 1 FROM acc_returns r WHERE r.shipment_id = ch.shipment_id)";
-            case "REPARATION_PENDING"  -> " AND ch.audit_status = 'UNAUDITED'"
+            case "REPARATION_PENDING"  -> " AND ch.audit_status IN ('UNAUDITED', 'PENDING')"
                 + " AND EXISTS (SELECT 1 FROM acc_reparations r WHERE r.shipment_id = ch.shipment_id)";
             default                     -> "";
         };
