@@ -58,12 +58,16 @@ public class DocumentChargeRepository {
             WHERE ch.tenant_id = ?::uuid
               AND ch.side = 'AR'
               AND ch.audit_status = 'AUDITED'
-              AND ch.settlement_status <> 'VOID'
-              AND ch.settlement_status <> 'SETTLED'
+              AND ch.settlement_status NOT IN ('VOID','SETTLED')
               AND (sh.customer_id = ?::uuid OR ch.customer_id = ?::uuid)
               AND (?::char(3) IS NULL OR ch.currency = ?)
               AND ch.created_at >= ?
               AND ch.created_at < ? + interval '1 day'
+              AND NOT EXISTS (
+                SELECT 1 FROM customer_invoice_lines cil
+                JOIN customer_invoices ci ON ci.id = cil.invoice_id
+                WHERE cil.charge_id = ch.id AND ci.status <> 'VOID'
+              )
             ORDER BY ch.created_at
             """, tenantId, customerId, customerId, currency, currency, dateFrom, dateTo);
     }
@@ -117,6 +121,8 @@ public class DocumentChargeRepository {
         params[1] = tenantId;
         for (int i = 0; i < chargeIds.size(); i++) params[i + 2] = chargeIds.get(i);
         return jdbc.update(
+            // source_ref 留存 invoice_no 链路.
+            // 防重复开票靠 findBillableArCharges 里 NOT EXISTS (customer_invoice_lines) 子查询.
             "UPDATE charges SET source_ref = ? "
             + "WHERE tenant_id = ?::uuid AND id IN " + inList, params);
     }
