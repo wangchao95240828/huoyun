@@ -53,6 +53,23 @@ public final class RateQuoteResponse {
         public Quote {
             if (charges == null) charges = List.of();
         }
+
+        /** 26 参兼容构造 (旧 callsite 不传 charges) */
+        public Quote(String channelCode, String channelName, String currency, String remoteLevel,
+                     BigDecimal actualWeightKg, BigDecimal volumetricWeightKg, BigDecimal chargeableWeightKg,
+                     BigDecimal freight, BigDecimal fuelAmount, BigDecimal surchargeAmount,
+                     BigDecimal insuranceAmount, BigDecimal batteryAmount, BigDecimal processingAmount,
+                     BigDecimal commission, BigDecimal totalAmount,
+                     BigDecimal costFreight, BigDecimal costFuel, BigDecimal costSurcharge,
+                     BigDecimal costInsurance, BigDecimal costBattery, BigDecimal costProcessing,
+                     BigDecimal costTotal, BigDecimal fuelRate, MatchEvidence matched,
+                     List<BreakdownLine> breakdown, List<String> blockers) {
+            this(channelCode, channelName, currency, remoteLevel, actualWeightKg, volumetricWeightKg,
+                 chargeableWeightKg, freight, fuelAmount, surchargeAmount, insuranceAmount,
+                 batteryAmount, processingAmount, commission, totalAmount,
+                 costFreight, costFuel, costSurcharge, costInsurance, costBattery, costProcessing,
+                 costTotal, fuelRate, matched, breakdown, blockers, List.of());
+        }
     }
 
     /**
