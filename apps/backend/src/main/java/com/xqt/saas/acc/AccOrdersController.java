@@ -659,6 +659,35 @@ public class AccOrdersController {
         if (dupCount != null && dupCount > 0) {
             throw ApiException.badRequest("客户单号 " + orderNo + " 已存在 (ACC_216)");
         }
+        // P0-补 (xqt-saas 比 ACC 严): HS 编码 6-10 位 hard-block (ACC 只在前端 alert)
+        // 防 ToB 客户绕过前端 modal 直接调 API 落非法 HS 单
+        java.util.regex.Pattern hsPattern = java.util.regex.Pattern.compile("^\\d{6,10}(\\.\\d+)?$");
+        Object declareRaw = body.get("declare");
+        if (declareRaw instanceof java.util.List<?> declareList) {
+            for (int i = 0; i < declareList.size(); i++) {
+                Object row = declareList.get(i);
+                if (row instanceof java.util.Map<?, ?> r) {
+                    String hs = r.get("hsCode") != null ? r.get("hsCode").toString().trim() : "";
+                    if (!hs.isEmpty() && !hsPattern.matcher(hs.replace(".", "")).matches()) {
+                        throw ApiException.badRequest(
+                            "申报明细第 " + (i + 1) + " 行: HS 编码必须 6-10 位数字 (现 \"" + hs + "\") (ACC_219)");
+                    }
+                }
+            }
+        }
+        Object packageRaw = body.get("packageList");
+        if (packageRaw instanceof java.util.List<?> packageList) {
+            for (int i = 0; i < packageList.size(); i++) {
+                Object row = packageList.get(i);
+                if (row instanceof java.util.Map<?, ?> r) {
+                    String hs = r.get("hsCode") != null ? r.get("hsCode").toString().trim() : "";
+                    if (!hs.isEmpty() && !hsPattern.matcher(hs.replace(".", "")).matches()) {
+                        throw ApiException.badRequest(
+                            "装箱单第 " + (i + 1) + " 行: HS 编码必须 6-10 位数字 (现 \"" + hs + "\") (ACC_219)");
+                    }
+                }
+            }
+        }
         // P0-补 #1: 客户产品权限校验 (ACC: LoginCustomer 限制可选 product)
         String product = strOrNull(body.get("product"));
         if (product != null && !product.isBlank()) {
