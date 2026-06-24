@@ -248,10 +248,11 @@ public class BalanceLedgerSideEffect implements AuditSideEffect {
     private String findPartnerFromChannel(String channelId) {
         if (channelId == null) return null;
         try {
+            // ACC 历史命名: partners 表 (供应商). 通过 acc_channel_accounts.provider_code 关联.
             return jdbc.queryForObject("""
-                SELECT s.id::text FROM suppliers s
-                JOIN acc_channel_accounts aca ON aca.provider_code = s.code
-                WHERE aca.channel_id = ?::uuid AND s.deleted_at IS NULL
+                SELECT p.id::text FROM partners p
+                JOIN acc_channel_accounts aca ON aca.provider_code = p.code
+                WHERE aca.channel_id = ?::uuid
                 LIMIT 1
                 """, String.class, channelId);
         } catch (DataAccessException ex) {
