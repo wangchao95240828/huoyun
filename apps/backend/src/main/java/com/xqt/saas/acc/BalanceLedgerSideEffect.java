@@ -99,7 +99,7 @@ public class BalanceLedgerSideEffect implements AuditSideEffect {
             // 找供应商 id (从 shipment.channel_id → channels.partner_id)
             String partnerId = findPartnerFromChannel((String) ch.get("channel_id"));
             if (partnerId == null) return;
-            writeLedger("SUPPLIER", partnerId, currency,
+            writeLedger("PARTNER", partnerId, currency,
                 reverse ? amount.negate() : amount, reverse ? "VOID" : "ADJUST",
                 "charges", chargeId, tenantId, actorName,
                 reverse ? "反审应付: " + chargeId : "应付审核: 应付物流商 +" + amount);
@@ -154,7 +154,7 @@ public class BalanceLedgerSideEffect implements AuditSideEffect {
         String bankId = (String) p.get("financial_account_id");
 
         if (partnerId != null) {
-            writeLedger("SUPPLIER", partnerId, currency,
+            writeLedger("PARTNER", partnerId, currency,
                 reverse ? amount : amount.negate(), reverse ? "VOID" : "PAYMENT",
                 "partner_payments", pid, tenantId, actorName,
                 reverse ? "反审付款" : "付款审核: 应付物流商 -" + amount);
