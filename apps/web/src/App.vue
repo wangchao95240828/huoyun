@@ -6412,19 +6412,19 @@ async function executeBizDialog() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_id: bizDialogData.customer_id,
+          customerId: bizDialogData.customer_id,
           currency: bizDialogData.currency || 'CNY',
-          date_from: bizDialogData.date_from,
-          date_to: bizDialogData.date_to,
+          dateFrom: bizDialogData.date_from,
+          dateTo: bizDialogData.date_to,
         }),
       });
       const json = await res.json().catch(() => ({}));
-      if (res.ok) {
-        bizMessage.value = `账单生成成功：${json.invoice_no}，总额 ${json.total_amount}`;
+      if (res.ok && json.ok !== false) {
+        bizMessage.value = `账单生成成功: ${json.invoiceNo || json.billId}, 共 ${json.lineCount} 笔, 总额 ${json.totalAmount} ${bizDialogData.currency || 'CNY'}`;
         showBizDialog.value = false;
         fetchAccData();
       } else {
-        bizMessage.value = '生成失败: ' + (json.error ?? json.message ?? '');
+        bizMessage.value = '生成失败: ' + (json.error ?? json.message ?? '未知错误');
       }
     } else if (bizDialogType.value === 'quick-payment') {
       const res = await apiFetch(`${API}/api/acc/receiveds/settle`, {
