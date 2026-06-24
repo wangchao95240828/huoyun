@@ -17,10 +17,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class DocumentRateController {
     private final RateEngine engine;
     private final RequestContext context;
+    private final RateQuoteSnapshotService snapshotService;
 
-    public DocumentRateController(RateEngine engine, RequestContext context) {
+    public DocumentRateController(RateEngine engine, RequestContext context,
+                                  RateQuoteSnapshotService snapshotService) {
         this.engine = engine;
         this.context = context;
+        this.snapshotService = snapshotService;
     }
 
     @PostMapping("/quote")
@@ -28,6 +31,23 @@ public class DocumentRateController {
     public ApiResponse<ItemResponse<Quote>> quote(Authentication authentication,
                                                   @RequestBody RateQuoteRequest request) {
         AuthPrincipal principal = context.principal(authentication);
-        return ApiResponse.ok(new ItemResponse<>(engine.quote(principal.tenantId(), request)));
+        Quote quote = engine.quote(principal.tenantId(), request);
+        // W3: 落 quote 快照 (不阻断主流程, 失败静默)
+        snapshotService.snapshot(principal.tenantId(),
+            request.customerId(), null, request, quote);
+        return ApiResponse.ok(new ItemResponse<>(quote));
+    }
+
+    /**
+     * W3 rerate: 用同 request 重算, 旧 quote 标 RE_RATED 链到新 quote.
+     * 客户使用场景: 报价 24h 后下单, 发现 fuel 调了, 重报最新价.
+     */
+    @PostMapping("/quotes/{id}/rerate")
+    @PreAuthorize("hasAuthority('flow.document.read')")
+    public ApiResponse<ItemResponse<Quote>> rerate(Authentication authentication,
+                                                    @org.springframework.web.bind.annotation.PathVariable String id) {
+        AuthPrincipal principal = context.principal(authentication);
+        Quote quote = snapshotService.rerate(principal.tenantId(), id);
+        return ApiResponse.ok(new ItemResponse<>(quote));
     }
 }

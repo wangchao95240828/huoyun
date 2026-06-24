@@ -310,6 +310,21 @@ public class RateEngine {
             (String) channel.get("code"), request, freight, fuelAmount, surchargeAmount,
             insuranceAmount, batteryAmount, processingAmount, commission);
 
+        // ════════ W2 fix: total = sum(charges where billable=true) ════════
+        // 之前 total 只汇总 freight+fuel+surcharge+insurance+battery+processing,
+        // 漏掉 W2 indicators 新生成的 RESIDENTIAL/SIGNATURE/SATURDAY 等附加费.
+        // 改 total 真等 charges[] billable=true 累加, 跟 UPS 真账单一致.
+        BigDecimal chargesTotal = charges.stream()
+            .filter(c -> Boolean.TRUE.equals(c.billable()))
+            .map(RateQuoteResponse.ChargeItem::amount)
+            .filter(java.util.Objects::nonNull)
+            .reduce(BigDecimal.ZERO, BigDecimal::add)
+            .setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+        // 用 charges 累加值覆盖 total (如果 charges 非空)
+        if (!charges.isEmpty() && chargesTotal.signum() > 0) {
+            total = chargesTotal;
+        }
+
         return new Quote(
             (String) channel.get("code"),
             (String) channel.get("name"),
