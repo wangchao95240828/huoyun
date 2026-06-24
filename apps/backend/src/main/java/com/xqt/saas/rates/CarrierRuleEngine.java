@@ -207,7 +207,7 @@ public class CarrierRuleEngine {
                    priority DESC,
                    effective_from DESC
                  LIMIT 1
-                """, productClass, productClass, ruleType, key, key, productClass);
+                """, carrier, productClass, productClass, ruleType, key, key, productClass);
         } catch (org.springframework.dao.DataAccessException ex) {
             return null;
         }
