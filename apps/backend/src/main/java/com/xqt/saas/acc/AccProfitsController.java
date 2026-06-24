@@ -136,7 +136,10 @@ public AccProfitsController(JdbcTemplate jdbc, JsonSupport json,
             return AccPaging.result(rows.stream().map(this::project).toList(),
                 total == null ? 0 : total);
         } catch (DataAccessException ex) {
-            return AccPaging.result(List.of(), 0);
+            // 不再静默吞 — 让前端看到具体错误, 不然 SQL bug 永远被掩盖
+            org.slf4j.LoggerFactory.getLogger(AccProfitsController.class)
+                .error("profits SQL failed: {}", ex.getMessage(), ex);
+            throw ApiException.badRequest("利润查询失败: " + ex.getMessage());
         }
     }
 
