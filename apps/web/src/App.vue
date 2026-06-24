@@ -6540,7 +6540,9 @@ async function viewDetail(row: any) {
     detailType.value = 'shipment-items';
   } else if (accTab.value === 'bills') {
     const res = await apiFetch(`${API}/api/acc/bills/${row.id}/items`);
-    detailData.value = await res.json();
+    const j = await res.json();
+    // 后端返 {data: [...]}, 前端表格期望直接 array, 解包一下
+    detailData.value = Array.isArray(j) ? j : (j.data || []);
     detailType.value = 'bill-items';
   } else if (accTab.value === 'stowages') {
     const res = await apiFetch(`${API}/api/acc/stowages/${row.id}/packages`);

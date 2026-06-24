@@ -168,18 +168,31 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
         return rows.isEmpty() ? Map.of() : json.row(rows.get(0));
     }
 
-    /** 对应前端 "查看账单明细" — bills/{id}/items 拉 customer_invoice_lines。 */
+    /** 对应前端 "查看账单明细" — bills/{id}/items 拉 customer_invoice_lines + 关联 charges + orders. */
     @GetMapping("/{id}/items")
-    public Map<String, Object> items(@PathVariable String id) {
+    public List<Map<String, Object>> items(@PathVariable String id) {
         try {
-            List<Map<String, Object>> lines = jdbc.queryForList("""
-                SELECT id::text AS id, line_no, description, quantity, unit_price, line_total
-                FROM customer_invoice_lines WHERE invoice_id = ?::uuid
-                ORDER BY line_no
+            return jdbc.queryForList("""
+                SELECT
+                  cil.id::text                           AS "id",
+                  cil.line_no                            AS "lineNo",
+                  o.order_no                             AS "expressNo",
+                  cu.name                                AS "customerName",
+                  ci.name                                AS "lineType",
+                  cil.line_total                         AS "amount",
+                  ch.paid_amount                         AS "paid",
+                  cil.description                        AS "description",
+                  to_char(ch.created_at, 'YYYY-MM-DD')   AS "theDate"
+                FROM customer_invoice_lines cil
+                LEFT JOIN charges ch ON ch.id = cil.charge_id
+                LEFT JOIN orders o ON o.id = ch.order_id
+                LEFT JOIN customers cu ON cu.id = ch.customer_id
+                LEFT JOIN charge_items ci ON ci.id = ch.charge_item_id
+                WHERE cil.invoice_id = ?::uuid
+                ORDER BY cil.line_no
                 """, id);
-            return Map.of("data", json.rows(lines));
         } catch (DataAccessException ex) {
-            return Map.of("data", List.of());
+            return List.of();
         }
     }
 
