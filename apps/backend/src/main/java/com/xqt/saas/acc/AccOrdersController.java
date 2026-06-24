@@ -677,15 +677,54 @@ public class AccOrdersController {
         }
         Object packageRaw = body.get("packageList");
         if (packageRaw instanceof java.util.List<?> packageList) {
+            java.util.Set<String> seenPkgNo = new java.util.HashSet<>();    // Case 7: 装箱号去重
+            int pkgRowCount = 0;                                              // Case 6: 实际行数 (过滤空行)
+            java.math.BigDecimal pkgWeightSum = java.math.BigDecimal.ZERO;    // Case 5: 装箱总重
             for (int i = 0; i < packageList.size(); i++) {
                 Object row = packageList.get(i);
                 if (row instanceof java.util.Map<?, ?> r) {
                     String hs = r.get("hsCode") != null ? r.get("hsCode").toString().trim() : "";
+                    String pkgNo = r.get("no") != null ? r.get("no").toString().trim() : "";
+                    String pkgName = r.get("name") != null ? r.get("name").toString().trim() : "";
+                    // Case 4 (已有): HS 6-10 位
                     if (!hs.isEmpty() && !hsPattern.matcher(hs.replace(".", "")).matches()) {
                         throw ApiException.badRequest(
                             "装箱单第 " + (i + 1) + " 行: HS 编码必须 6-10 位数字 (现 \"" + hs + "\") (ACC_219)");
                     }
+                    // 跳空行 (跟前端 filter(r => r.no || r.name) 一致)
+                    if (pkgNo.isEmpty() && pkgName.isEmpty()) continue;
+                    pkgRowCount++;
+                    // Case 7: 装箱单号同行内去重 (ACC: 相同单号的装箱单已经存在)
+                    if (!pkgNo.isEmpty()) {
+                        if (seenPkgNo.contains(pkgNo)) {
+                            throw ApiException.badRequest(
+                                "装箱单第 " + (i + 1) + " 行: 装箱单号 \"" + pkgNo + "\" 跟前面行重复 (ACC_222)");
+                        }
+                        seenPkgNo.add(pkgNo);
+                    }
+                    // Case 5: 累计装箱总重 (sum weight × quantity)
+                    java.math.BigDecimal w = toBigDecimalOrZero(r.get("weight"));
+                    java.math.BigDecimal q = toBigDecimalOrZero(r.get("quantity"));
+                    if (q.signum() == 0) q = java.math.BigDecimal.ONE;
+                    pkgWeightSum = pkgWeightSum.add(w.multiply(q));
                 }
+            }
+            // Case 5: 装箱总重 vs 货物重量 (ACC: 填写的总重量[X]与货件重量合计[Y]不一致)
+            java.math.BigDecimal declaredWeight = toBigDecimalOrZero(body.get("weight"));
+            if (pkgRowCount > 0 && declaredWeight.signum() > 0
+                && pkgWeightSum.subtract(declaredWeight).abs().compareTo(new java.math.BigDecimal("0.01")) > 0) {
+                throw ApiException.badRequest(
+                    "装箱单总重 " + pkgWeightSum.setScale(2, java.math.RoundingMode.HALF_UP) +
+                    "kg 与货物重量 " + declaredWeight.setScale(2, java.math.RoundingMode.HALF_UP) +
+                    "kg 不一致, 请检查 (ACC_221)");
+            }
+            // Case 6: 装箱单行数 vs 件数 (ACC: 装箱单的货件数量【N】跟件数【M】不一致)
+            Integer piece = body.get("piece") != null
+                ? Integer.valueOf(body.get("piece").toString())
+                : null;
+            if (piece != null && piece > 0 && pkgRowCount > 0 && pkgRowCount != piece) {
+                throw ApiException.badRequest(
+                    "装箱单行数 " + pkgRowCount + " 跟件数 " + piece + " 不一致, 请检查 (ACC_220)");
             }
         }
         // P0-补 #1: 客户产品权限校验 (ACC: LoginCustomer 限制可选 product)
@@ -853,6 +892,13 @@ public class AccOrdersController {
 
     private static String strOrNull(Object o) {
         return o == null || o.toString().isBlank() ? null : o.toString();
+    }
+
+    private static java.math.BigDecimal toBigDecimalOrZero(Object o) {
+        if (o == null) return java.math.BigDecimal.ZERO;
+        if (o instanceof Number n) return new java.math.BigDecimal(n.toString());
+        try { return new java.math.BigDecimal(o.toString().trim()); }
+        catch (Exception ex) { return java.math.BigDecimal.ZERO; }
     }
 
     /** "a,b,c" → [a,b,c]，空/null 返回空表。trim 每个 item 并丢空。 */
