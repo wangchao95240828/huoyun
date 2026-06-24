@@ -43,10 +43,12 @@ public class RateEngine {
 
     private final RateRepository repository;
     private final JdbcTemplate jdbc;
+    private final CarrierRuleEngine carrierRules;
 
-    public RateEngine(RateRepository repository, JdbcTemplate jdbc) {
+    public RateEngine(RateRepository repository, JdbcTemplate jdbc, CarrierRuleEngine carrierRules) {
         this.repository = repository;
         this.jdbc = jdbc;
+        this.carrierRules = carrierRules;
     }
 
     @Transactional(readOnly = true)
@@ -334,8 +336,14 @@ public class RateEngine {
     }
 
     /**
-     * W1: 构造 itemized charges[] 数组.
+     * W1+W2: 构造 itemized charges[] 数组.
      * 跟 UPS Surcharges / FedEx Surcharges / DHL Charges 同构, 月底对账逐行比对.
+     *
+     * W2 增强:
+     *   - Indicators (residential/signature/saturday/etc) 真触发 CarrierRuleEngine
+     *     拉数据驱动的 ACCESSORIAL 规则 (Residential 5.65 USD/Signature 7.50/etc)
+     *   - 燃油走 CarrierRuleEngine.computeFuel (UPS 公式: (base+白名单 accessorials)×fuel_pct)
+     *     替代旧 rate_card 静态 fuelRate
      */
     private List<RateQuoteResponse.ChargeItem> buildChargesItemized(
             String channelCode, RateQuoteRequest req,
@@ -344,16 +352,50 @@ public class RateEngine {
             BigDecimal commission) {
         List<RateQuoteResponse.ChargeItem> out = new ArrayList<>();
         String currency = req.currency();
+
+        // 1. 基础运费
         if (freight != null && freight.signum() > 0) {
             out.add(RateQuoteResponse.ChargeItem.of(
                 "BASE", "FREIGHT", "基础运费", freight, currency,
                 "rate_card_lines × chargeable_weight"));
         }
-        if (fuel != null && fuel.signum() > 0) {
+
+        // 2. W2: Indicator 触发 → CarrierRuleEngine 真算
+        // channel.code "UPS-GROUND-US" → carrier "UPS" + productClass "GROUND_US"
+        String carrier = inferCarrier(channelCode);
+        String productClass = inferProductClass(channelCode);
+        List<RateQuoteResponse.ChargeItem> indicatorSurcharges = List.of();
+        if (carrier != null) {
+            try {
+                indicatorSurcharges = carrierRules.computeSurcharges(carrier, productClass, req);
+                out.addAll(indicatorSurcharges);
+            } catch (Exception ex) {
+                // CarrierRuleEngine 失败不阻断, 走 rate_card 老路径
+            }
+        }
+
+        // 3. W2: 燃油 — 优先用 CarrierRuleEngine, fallback 用 rate_card 静态
+        BigDecimal carrierFuel = BigDecimal.ZERO;
+        if (carrier != null && freight != null && freight.signum() > 0) {
+            try {
+                RateQuoteResponse.ChargeItem fuelItem = carrierRules.computeFuel(
+                    carrier, productClass, freight, indicatorSurcharges, currency);
+                if (fuelItem != null && fuelItem.amount() != null && fuelItem.amount().signum() > 0) {
+                    out.add(fuelItem);
+                    carrierFuel = fuelItem.amount();
+                }
+            } catch (Exception ex) {
+                // 失败回退用 rate_card 老 fuelRate
+            }
+        }
+        // Fallback: 如果 CarrierRuleEngine 没出燃油, 用 rate_card 的 fuel
+        if (carrierFuel.signum() == 0 && fuel != null && fuel.signum() > 0) {
             out.add(RateQuoteResponse.ChargeItem.of(
                 "FUEL", "FUEL", "燃油附加费", fuel, currency,
-                "freight × fuel_pct (RateRepository.findFuelRate)"));
+                "rate_card 静态 fuelRate fallback"));
         }
+
+        // 4. 其它金额
         if (surcharge != null && surcharge.signum() > 0) {
             out.add(RateQuoteResponse.ChargeItem.of(
                 "SURCHARGE", "MISC", "杂项附加费", surcharge, currency,
@@ -374,23 +416,43 @@ public class RateEngine {
                 "OTHER", "PROC", "操作费", processing, currency,
                 "channel_account.processing_fee"));
         }
-        // W1: 按 indicators 加附加费 (Residential/Signature/Saturday/etc)
-        // 注意: 此处不重复计费 (rate_card 已含 surcharge 字段), 只是把已计入金额拆 itemized
-        // 实际外部对账时, charges[] 才是对接 UPS Surcharges[] 的事实表
-        if (Boolean.TRUE.equals(req.residentialAddress())) {
-            // 标记触发 (具体金额若 rate_card 已含, 不重复加)
-            out.add(new RateQuoteResponse.ChargeItem(
-                "RESIDENTIAL", "RES", "住宅派送 (触发)", BigDecimal.ZERO, currency,
-                "indicator=true, 实际金额已含 surcharge",
-                List.of(), false, false));
-        }
         if (commission != null && commission.signum() > 0) {
             out.add(new RateQuoteResponse.ChargeItem(
                 "OTHER", "COMMISSION", "佣金", commission, currency,
                 "rate_card commission rule",
-                List.of(), false, false));   // 不对客户收 (内部成本)
+                List.of(), false, false));
         }
         return out;
+    }
+
+    /**
+     * 从 xqt-saas channel.code 推断 carrier (CarrierRuleEngine 用)
+     *   UPS-GROUND-US / UPS-GROUND-US-RES / EU-AIR-UPS → UPS
+     *   US-GROUND-FEDEX / US-HOMEDELIVERY-FEDEX-A → FEDEX
+     *   EU-DHL-EXPRESS → DHL
+     */
+    private String inferCarrier(String channelCode) {
+        if (channelCode == null) return null;
+        String upper = channelCode.toUpperCase();
+        if (upper.contains("UPS")) return "UPS";
+        if (upper.contains("FEDEX")) return "FEDEX";
+        if (upper.contains("DHL")) return "DHL";
+        if (upper.contains("EMS")) return "EMS";
+        return null;
+    }
+
+    /**
+     * 推断 product_class
+     *   UPS-GROUND-US / UPS-GROUND-US-RES → GROUND_US
+     *   EU-AIR-UPS → INTERNATIONAL
+     *   FedEx 同理
+     */
+    private String inferProductClass(String channelCode) {
+        if (channelCode == null) return null;
+        String upper = channelCode.toUpperCase();
+        if (upper.contains("GROUND") && (upper.contains("-US") || upper.contains("US-"))) return "GROUND_US";
+        if (upper.contains("AIR") || upper.contains("EU-") || upper.contains("INTL")) return "INTERNATIONAL";
+        return null;
     }
 
     // ───────────────────── helpers ─────────────────────
