@@ -43,21 +43,23 @@ public class RateQuoteSnapshotService {
             String requestJson = json.writeValueAsString(req);
             String responseJson = json.writeValueAsString(quote);
             Instant expiresAt = computeExpiry();
-            // PG 类型推断对 null::uuid 失败, 用 CASE 显式 cast
+            // PG 类型推断对 null::uuid 失败, 用 NULLIF + 字符串占位
+            // 传 "00000000-0000-0000-0000-000000000000" 当 null sentinel, SQL 端 NULLIF 转 NULL
+            String SENTINEL = "00000000-0000-0000-0000-000000000000";
             return jdbc.queryForObject("""
                 INSERT INTO rate_quotes
                   (tenant_id, customer_id, order_id, request_json, response_json,
                    channel_code, currency, total_amount, expires_at, fuel_pct, status)
                 VALUES (?::uuid,
-                        CASE WHEN ? IS NULL THEN NULL ELSE ?::uuid END,
-                        CASE WHEN ? IS NULL THEN NULL ELSE ?::uuid END,
+                        NULLIF(?, ?)::uuid,
+                        NULLIF(?, ?)::uuid,
                         ?::jsonb, ?::jsonb,
                         ?, ?, ?, ?, ?, 'ACTIVE')
                 RETURNING id::text
                 """, String.class,
                 tenantId,
-                customerId, customerId,
-                orderId, orderId,
+                customerId == null ? SENTINEL : customerId, SENTINEL,
+                orderId == null ? SENTINEL : orderId, SENTINEL,
                 requestJson, responseJson,
                 quote.channelCode(), req.currency(), quote.totalAmount(),
                 java.sql.Timestamp.from(expiresAt), quote.fuelRate());
