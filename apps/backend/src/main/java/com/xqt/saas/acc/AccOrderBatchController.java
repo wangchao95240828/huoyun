@@ -35,12 +35,15 @@ public class AccOrderBatchController {
     private final JdbcTemplate jdbc;
     private final JsonSupport json;
     private final com.xqt.saas.framework.audit.AuditService auditService;
+    private final AccOrdersController ordersController;
 
     public AccOrderBatchController(JdbcTemplate jdbc, JsonSupport json,
-                                    com.xqt.saas.framework.audit.AuditService auditService) {
+                                    com.xqt.saas.framework.audit.AuditService auditService,
+                                    @org.springframework.context.annotation.Lazy AccOrdersController ordersController) {
         this.jdbc = jdbc;
         this.json = json;
         this.auditService = auditService;
+        this.ordersController = ordersController;
     }
 
     /**
@@ -174,18 +177,35 @@ public class AccOrderBatchController {
 
     @PostMapping("/batch-submit")
     @SuppressWarnings("unchecked")
-    @Transactional
     public Map<String, Object> batchSubmit(@RequestBody Map<String, Object> body) {
+        // ⚠ 旧版只 UPDATE status='SUBMITTED' 是 silent bug, 不调 UPS, 不建 shipment/charges/label.
+        // 修复: 逐单走真 submit 流程 (跟单个 /orders/{id}/submit 同, 调 UPS API + 建 shipment + charges)
         List<String> ids = (List<String>) body.getOrDefault("ids", List.of());
         if (ids.isEmpty()) throw ApiException.badRequest("请至少选择一项");
-        int updated = 0, skipped = 0;
+        int submitted = 0, skipped = 0;
+        java.util.List<Map<String, Object>> results = new java.util.ArrayList<>();
+        java.util.List<Map<String, Object>> failures = new java.util.ArrayList<>();
         for (String id : ids) {
-            int n = jdbc.update(
-                "UPDATE orders SET status='SUBMITTED', submitted_at=now(), updated_at=now()"
-                + " WHERE id = ?::uuid AND status='DRAFT'", id);
-            if (n > 0) updated++; else skipped++;
+            try {
+                @SuppressWarnings("rawtypes")
+                Map r = (Map) ordersController.submit(id);
+                results.add(r);
+                submitted++;
+            } catch (com.xqt.saas.common.ApiException ex) {
+                failures.add(Map.of("id", id, "error", ex.getMessage(), "errorCode", "BAD_REQUEST"));
+                skipped++;
+            } catch (RuntimeException ex) {
+                failures.add(Map.of("id", id, "error", ex.getMessage(), "errorCode", "INTERNAL_ERROR"));
+                skipped++;
+            }
         }
-        return Map.of("submitted", updated, "skipped", skipped, "total", ids.size());
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("submitted", submitted);
+        out.put("skipped", skipped);
+        out.put("total", ids.size());
+        out.put("results", results);
+        out.put("failures", failures);
+        return out;
     }
 
     @PostMapping("/batch-query")
