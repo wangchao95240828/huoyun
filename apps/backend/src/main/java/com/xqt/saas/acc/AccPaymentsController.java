@@ -137,7 +137,8 @@ public AccPaymentsController(JdbcTemplate jdbc, JsonSupport json,
 
     @PostMapping
     public Map<String, Object> create(@RequestBody Map<String, Object> body) {
-        String paymentNo = (String) body.get("payment_no");
+        // 前端通用 createImpl 发 'no', backward-compat 接收 'payment_no'.
+        String paymentNo = (String) (body.get("payment_no") != null ? body.get("payment_no") : body.get("no"));
         Object partnerId = body.get("partner_id");
         // ACC Pay.php L1519/L1555: 找不到该供应商
         if (partnerId == null || partnerId.toString().isBlank()) {
