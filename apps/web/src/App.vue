@@ -6556,6 +6556,12 @@ async function viewDetail(row: any) {
     const res = await apiFetch(`${API}/api/acc/stowage/plan/${row.id}`);
     detailData.value = await res.json();
     detailType.value = 'stowage-3d';
+  } else if (accTab.value === 'customer-receivables') {
+    // 应收款项目: 点行展开看该客户该币种全部 charges 明细
+    const url = `${API}/api/acc/customer-receivables/details?customerCode=${encodeURIComponent(row.code)}&currency=${encodeURIComponent(row.currency)}`;
+    const res = await apiFetch(url);
+    detailData.value = await res.json();
+    detailType.value = 'customer-receivables-details';
   } else {
     const res = await apiFetch(`${API}/api/acc/${tab.api}/${row.id}/raw`);
     detailData.value = await res.json();
@@ -8702,7 +8708,7 @@ async function doDisableCustomerLogin(row: any) {
     <div class="modal-backdrop" v-if="showDetail" @click.self="showDetail = false">
       <div class="modal-dialog" :style="detailType === 'order-detail' ? 'max-width: 1200px;' : detailType === 'stowage-3d' ? 'max-width: 1400px;' : 'max-width: 900px;'">
         <div class="modal-header">
-          <h3>{{ detailType === 'shipment-items' ? '出货明细' : detailType === 'bill-items' ? '账单明细' : detailType === 'stowage-packages' ? '配载包裹' : detailType === 'commission-result' ? '提成计算结果' : detailType === 'profit-summary' ? '利润汇总报表' : detailType === 'order-detail' ? '订单详情' : detailType === 'stowage-3d' ? '3D 配载方案立体视图' : '记录详情' }}</h3>
+          <h3>{{ detailType === 'shipment-items' ? '出货明细' : detailType === 'bill-items' ? '账单明细' : detailType === 'stowage-packages' ? '配载包裹' : detailType === 'commission-result' ? '提成计算结果' : detailType === 'profit-summary' ? '利润汇总报表' : detailType === 'order-detail' ? '订单详情' : detailType === 'stowage-3d' ? '3D 配载方案立体视图' : detailType === 'customer-receivables-details' ? '应收款明细' : '记录详情' }}</h3>
           <button class="modal-close" @click="showDetail = false"><X :size="18" /></button>
         </div>
         <div class="modal-body">
@@ -8783,6 +8789,35 @@ async function doDisableCustomerLogin(row: any) {
               <tr v-if="detailData.length === 0"><td colspan="6" class="empty-cell">无明细</td></tr>
             </tbody>
           </table>
+          <!-- Customer receivables details -->
+          <div v-if="detailType === 'customer-receivables-details' && detailData">
+            <div style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;margin-bottom:12px">
+              <strong>{{ detailData.customerCode }}</strong> · 币种 {{ detailData.currency }} ·
+              共 <strong>{{ detailData.total }}</strong> 笔 ·
+              未付合计 <strong style="color:#dc2626">{{ fmt(detailData.sumUnpaid) }} {{ detailData.currency }}</strong>
+            </div>
+            <table class="data-table">
+              <thead><tr>
+                <th>订单号</th><th>客户单号</th><th>费用项</th><th>金额</th><th>已付</th><th>未付</th>
+                <th>charge 状态</th><th>审核状态</th><th>结算状态</th><th>创建</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="item in detailData.data" :key="item.chargeId">
+                  <td>{{ item.orderNo }}</td>
+                  <td>{{ item.customerRef }}</td>
+                  <td>{{ item.chargeItemName }}</td>
+                  <td class="money-cell">{{ fmt(item.amount) }}</td>
+                  <td class="money-cell">{{ fmt(item.paidAmount) }}</td>
+                  <td class="money-cell" style="color:#dc2626">{{ fmt(item.unpaid) }}</td>
+                  <td>{{ item.status }}</td>
+                  <td>{{ item.auditStatus }}</td>
+                  <td>{{ item.settlementStatus }}</td>
+                  <td>{{ item.chargedAt ? new Date(item.chargedAt).toLocaleString('zh-CN') : '' }}</td>
+                </tr>
+                <tr v-if="!detailData.data || detailData.data.length === 0"><td colspan="10" class="empty-cell">无明细</td></tr>
+              </tbody>
+            </table>
+          </div>
           <!-- Stowage packages -->
           <table class="data-table" v-if="detailType === 'stowage-packages' && Array.isArray(detailData)">
             <thead><tr><th>单号</th><th>客户</th><th>收件人</th><th>国家</th><th>件数</th><th>重量</th><th>申报价值</th><th>邮编</th></tr></thead>

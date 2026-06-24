@@ -89,4 +89,54 @@ public class AccCustomerReceivablesController {
 
         return Map.of("data", rows, "total", total == null ? 0 : total);
     }
+
+    /**
+     * 应收款项目明细 - 点击客户行后展示具体 charges 列表
+     * GET /api/acc/customer-receivables/details?customerCode=SELLER-DEMO&currency=USD
+     */
+    @GetMapping("/details")
+    public Map<String, Object> details(
+        @RequestParam String customerCode,
+        @RequestParam String currency
+    ) {
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT
+              ch.id::text                AS chargeId,
+              o.order_no                 AS orderNo,
+              o.customer_ref             AS customerRef,
+              o.created_at               AS orderDate,
+              ci.code                    AS chargeItem,
+              ci.name                    AS chargeItemName,
+              ch.amount                  AS amount,
+              ch.paid_amount             AS paidAmount,
+              (ch.amount - ch.paid_amount) AS unpaid,
+              ch.currency                AS currency,
+              ch.status::text            AS status,
+              ch.audit_status            AS auditStatus,
+              ch.settlement_status       AS settlementStatus,
+              ch.created_at              AS chargedAt,
+              ch.audited_at              AS auditedAt
+            FROM charges ch
+            JOIN customers c ON c.id = ch.customer_id
+            LEFT JOIN orders o ON o.id = ch.order_id
+            LEFT JOIN charge_items ci ON ci.id = ch.charge_item_id
+            WHERE c.code = ? AND ch.currency = ?
+              AND ch.side = 'AR' AND ch.settlement_status <> 'VOID'
+            ORDER BY ch.created_at DESC
+            LIMIT 200
+            """, customerCode, currency);
+
+        java.math.BigDecimal sumUnpaid = rows.stream()
+            .map(r -> (java.math.BigDecimal) r.get("unpaid"))
+            .filter(java.util.Objects::nonNull)
+            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+
+        return Map.of(
+            "data", rows,
+            "total", rows.size(),
+            "sumUnpaid", sumUnpaid,
+            "customerCode", customerCode,
+            "currency", currency
+        );
+    }
 }
