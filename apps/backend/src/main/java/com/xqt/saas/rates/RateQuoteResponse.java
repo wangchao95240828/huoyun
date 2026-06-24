@@ -46,8 +46,55 @@ public final class RateQuoteResponse {
         BigDecimal fuelRate,
         MatchEvidence matched,
         List<BreakdownLine> breakdown,
-        List<String> blockers
+        List<String> blockers,
+        // W1: itemized charges (跟 UPS/FedEx/DHL Rate API 响应同构, 月底对账用)
+        List<ChargeItem> charges
     ) {
+        public Quote {
+            if (charges == null) charges = List.of();
+        }
+    }
+
+    /**
+     * 单一费用项 (跟 carrier API 响应里的 Surcharges[] 同构).
+     *
+     * UPS Surcharge {Code, Description, Amount}
+     * FedEx Surcharge {SurchargeType, Description, Amount, Level}
+     * DHL Charge {ChargeType, ChargeAmount}
+     *
+     * 字段映射:
+     *   type: BASE / FUEL / RESIDENTIAL / OVERSIZE / LARGE_PACKAGE / ADDITIONAL_HANDLING
+     *         / SIGNATURE / SATURDAY / REMOTE / DEMAND / DDU / VAT / INSURANCE / BATTERY / OTHER
+     *   code: 承运商原始码 (UPS '270' = Large Package, FedEx 'FUEL', DHL 'FF')
+     *   basis: 计算依据 (e.g. "freight × 17.5%" / "fixed 5.95 USD" / "weight 1.5kg × 0.42/kg")
+     *   appliedTo: 如果 fuel surcharge, 列举叠加在哪些 charge 上 (审计用)
+     */
+    public record ChargeItem(
+        String type,                  // 大类
+        String code,                  // carrier 原始码 (留空表示 xqt-saas 自定义)
+        String name,                  // 显示名 ("燃油附加费" / "Residential Surcharge")
+        BigDecimal amount,            // 金额
+        String currency,
+        String basis,                 // 计算依据 (人读, 调试用)
+        java.util.List<String> appliedTo,  // 燃油叠加在哪些 charge codes 上
+        Boolean billable,             // 是否对客户收费 (false = 内部成本)
+        Boolean taxable               // 是否计税基数
+    ) {
+        public ChargeItem {
+            if (appliedTo == null) appliedTo = java.util.List.of();
+            if (billable == null) billable = true;
+            if (taxable == null) taxable = false;
+        }
+
+        /** 简便构造 (大部分简单 surcharge 用) */
+        public static ChargeItem of(String type, String name, BigDecimal amount, String currency) {
+            return new ChargeItem(type, null, name, amount, currency, null, java.util.List.of(), true, false);
+        }
+
+        /** 带 carrier 原始码的构造 */
+        public static ChargeItem of(String type, String code, String name, BigDecimal amount, String currency, String basis) {
+            return new ChargeItem(type, code, name, amount, currency, basis, java.util.List.of(), true, false);
+        }
     }
 
     /**

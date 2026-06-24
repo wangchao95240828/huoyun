@@ -297,6 +297,11 @@ public class RateEngine {
             List.copyOf(restrictionsChecked)
         );
 
+        // ════════ W1: itemized charges[] (跟 UPS/FedEx/DHL Rate API 同构) ════════
+        List<RateQuoteResponse.ChargeItem> charges = buildChargesItemized(
+            (String) channel.get("code"), request, freight, fuelAmount, surchargeAmount,
+            insuranceAmount, batteryAmount, processingAmount, commission);
+
         return new Quote(
             (String) channel.get("code"),
             (String) channel.get("name"),
@@ -323,8 +328,69 @@ public class RateEngine {
             fuelRate,
             evidence,
             List.copyOf(breakdown),
-            List.copyOf(blockers)
+            List.copyOf(blockers),
+            charges                                    // W1 新增
         );
+    }
+
+    /**
+     * W1: 构造 itemized charges[] 数组.
+     * 跟 UPS Surcharges / FedEx Surcharges / DHL Charges 同构, 月底对账逐行比对.
+     */
+    private List<RateQuoteResponse.ChargeItem> buildChargesItemized(
+            String channelCode, RateQuoteRequest req,
+            BigDecimal freight, BigDecimal fuel, BigDecimal surcharge,
+            BigDecimal insurance, BigDecimal battery, BigDecimal processing,
+            BigDecimal commission) {
+        List<RateQuoteResponse.ChargeItem> out = new ArrayList<>();
+        String currency = req.currency();
+        if (freight != null && freight.signum() > 0) {
+            out.add(RateQuoteResponse.ChargeItem.of(
+                "BASE", "FREIGHT", "基础运费", freight, currency,
+                "rate_card_lines × chargeable_weight"));
+        }
+        if (fuel != null && fuel.signum() > 0) {
+            out.add(RateQuoteResponse.ChargeItem.of(
+                "FUEL", "FUEL", "燃油附加费", fuel, currency,
+                "freight × fuel_pct (RateRepository.findFuelRate)"));
+        }
+        if (surcharge != null && surcharge.signum() > 0) {
+            out.add(RateQuoteResponse.ChargeItem.of(
+                "SURCHARGE", "MISC", "杂项附加费", surcharge, currency,
+                "rate_card surcharge"));
+        }
+        if (insurance != null && insurance.signum() > 0) {
+            out.add(RateQuoteResponse.ChargeItem.of(
+                "INSURANCE", "INS", "保险费", insurance, currency,
+                "declared_value × insurance_rate"));
+        }
+        if (battery != null && battery.signum() > 0) {
+            out.add(RateQuoteResponse.ChargeItem.of(
+                "BATTERY", "BAT", "电池附加费", battery, currency,
+                "channel_account.battery_*_fee"));
+        }
+        if (processing != null && processing.signum() > 0) {
+            out.add(RateQuoteResponse.ChargeItem.of(
+                "OTHER", "PROC", "操作费", processing, currency,
+                "channel_account.processing_fee"));
+        }
+        // W1: 按 indicators 加附加费 (Residential/Signature/Saturday/etc)
+        // 注意: 此处不重复计费 (rate_card 已含 surcharge 字段), 只是把已计入金额拆 itemized
+        // 实际外部对账时, charges[] 才是对接 UPS Surcharges[] 的事实表
+        if (Boolean.TRUE.equals(req.residentialAddress())) {
+            // 标记触发 (具体金额若 rate_card 已含, 不重复加)
+            out.add(new RateQuoteResponse.ChargeItem(
+                "RESIDENTIAL", "RES", "住宅派送 (触发)", BigDecimal.ZERO, currency,
+                "indicator=true, 实际金额已含 surcharge",
+                List.of(), false, false));
+        }
+        if (commission != null && commission.signum() > 0) {
+            out.add(new RateQuoteResponse.ChargeItem(
+                "OTHER", "COMMISSION", "佣金", commission, currency,
+                "rate_card commission rule",
+                List.of(), false, false));   // 不对客户收 (内部成本)
+        }
+        return out;
     }
 
     // ───────────────────── helpers ─────────────────────
