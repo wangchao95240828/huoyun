@@ -4706,6 +4706,8 @@ const bizAuditTabs = new Set([
   'charges', 'costs', 'bills', 'receiveds', 'payments', 'commissions',
   'expenses', 'transfers', 'dividends', 'borrowings', 'wages', 'reparations', 'returns',
   // 财务待审 sub-tab(共享 api 但需要行内审核按钮)
+  'charges-pending', 'charges-pending-return', 'charges-pending-reparation',
+  'costs-pending', 'costs-estimate',
   'receiveds-pending', 'payments-pending',
   'customer-refunds-pending', 'supplier-refunds-pending',
   // 调账 / 罚款 / 退款 / 返利
