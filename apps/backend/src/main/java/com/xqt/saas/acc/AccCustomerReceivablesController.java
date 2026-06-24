@@ -101,21 +101,21 @@ public class AccCustomerReceivablesController {
     ) {
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT
-              ch.id::text                AS chargeId,
-              o.order_no                 AS orderNo,
-              o.customer_ref             AS customerRef,
-              o.created_at               AS orderDate,
-              ci.code                    AS chargeItem,
-              ci.name                    AS chargeItemName,
-              ch.amount                  AS amount,
-              ch.paid_amount             AS paidAmount,
-              (ch.amount - ch.paid_amount) AS unpaid,
-              ch.currency                AS currency,
-              ch.status::text            AS status,
-              ch.audit_status            AS auditStatus,
-              ch.settlement_status       AS settlementStatus,
-              ch.created_at              AS chargedAt,
-              ch.audited_at              AS auditedAt
+              ch.id::text                AS "chargeId",
+              o.order_no                 AS "orderNo",
+              o.customer_ref             AS "customerRef",
+              o.created_at               AS "orderDate",
+              ci.code                    AS "chargeItem",
+              ci.name                    AS "chargeItemName",
+              ch.amount                  AS "amount",
+              ch.paid_amount             AS "paidAmount",
+              (ch.amount - ch.paid_amount) AS "unpaid",
+              ch.currency                AS "currency",
+              ch.status::text            AS "status",
+              ch.audit_status            AS "auditStatus",
+              ch.settlement_status       AS "settlementStatus",
+              ch.created_at              AS "chargedAt",
+              ch.audited_at              AS "auditedAt"
             FROM charges ch
             JOIN customers c ON c.id = ch.customer_id
             LEFT JOIN orders o ON o.id = ch.order_id
