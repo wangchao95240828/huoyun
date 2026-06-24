@@ -186,6 +186,44 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
             "Weight", wLbs.toPlainString()
         ));
 
+        // ════════ Package.Dimensions (cm → in, 让 UPS 自己算体积重 vs 实重) ════════
+        // 从 packageList 第一行 (或汇总) 取长宽高 cm
+        java.util.List<Map<String, Object>> pkgList =
+            ctx.packageList() == null ? java.util.List.of() : ctx.packageList();
+        BigDecimal maxL = BigDecimal.ZERO, maxW = BigDecimal.ZERO, maxH = BigDecimal.ZERO;
+        for (Map<String, Object> p : pkgList) {
+            BigDecimal L = asBigDecimal(p.get("length"));
+            BigDecimal W = asBigDecimal(p.get("width"));
+            BigDecimal H = asBigDecimal(p.get("height"));
+            if (L != null && L.signum() > 0) maxL = maxL.max(L);
+            if (W != null && W.signum() > 0) maxW = maxW.max(W);
+            if (H != null && H.signum() > 0) maxH = maxH.max(H);
+        }
+        if (maxL.signum() > 0 && maxW.signum() > 0 && maxH.signum() > 0) {
+            // cm → in (1 in = 2.54 cm)
+            BigDecimal lIn = maxL.divide(new BigDecimal("2.54"), 1, java.math.RoundingMode.HALF_UP);
+            BigDecimal wIn = maxW.divide(new BigDecimal("2.54"), 1, java.math.RoundingMode.HALF_UP);
+            BigDecimal hIn = maxH.divide(new BigDecimal("2.54"), 1, java.math.RoundingMode.HALF_UP);
+            // UPS Ground 超大件校验:
+            //   单边 ≤ 108 in (~274 cm), girth(2W+2H) + length ≤ 165 in (~419 cm)
+            BigDecimal longest = lIn.max(wIn).max(hIn);
+            if (longest.compareTo(new BigDecimal("108")) > 0) {
+                throw com.xqt.saas.common.ApiException.badRequest(
+                    "包裹最长边 " + longest + " in > UPS Ground 上限 108 in (~274 cm), 请拆分");
+            }
+            BigDecimal girthPlusLength = lIn.add(wIn.multiply(new BigDecimal("2"))).add(hIn.multiply(new BigDecimal("2")));
+            if (girthPlusLength.compareTo(new BigDecimal("165")) > 0) {
+                throw com.xqt.saas.common.ApiException.badRequest(
+                    "包裹长 + 2(宽+高) = " + girthPlusLength + " in > UPS Ground 上限 165 in (~419 cm), 请拆分");
+            }
+            pkg.put("Dimensions", Map.of(
+                "UnitOfMeasurement", Map.of("Code", "IN"),
+                "Length", lIn.toPlainString(),
+                "Width", wIn.toPlainString(),
+                "Height", hIn.toPlainString()
+            ));
+        }
+
         // Shipment
         Map<String, Object> shipment = new LinkedHashMap<>();
         shipment.put("Description", "XQT export");
@@ -379,6 +417,13 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
             if (o != null && !o.toString().isBlank()) return o.toString();
         }
         return "";
+    }
+
+    private static BigDecimal asBigDecimal(Object o) {
+        if (o == null) return null;
+        if (o instanceof Number n) return new BigDecimal(n.toString());
+        if (o instanceof String s) try { return new BigDecimal(s.trim()); } catch (Exception ignored) {}
+        return null;
     }
 
     static class TokenCache {

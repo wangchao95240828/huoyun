@@ -4429,16 +4429,49 @@ const totalDeclaredValue = computed(() =>
   fullOrderData.declare.reduce((sum: number, r: any) =>
     sum + (Number(r.quantity) || 0) * (Number(r.price) || 0), 0));
 
+// ════════ 体积重 / 计费重 (对齐 ACC Express.php cal($Extent,'*',$Width,'*',$Height,'/',1000000) ) ════════
+// dim_factor: cm³ / dim_factor = kg (UPS/FedEx=5000-6000, 邮政=6000, 航空=5000)
+// 从 channels 拉, 没拉到默认 6000 (UPS Ground 国际标准)
+const channelDimFactor = computed((): number => {
+  const ch = (selectOptions.value?.channels || []).find((c: any) =>
+    c.code === fullOrderData.product || c.id === fullOrderData.product);
+  return Number((ch as any)?.dimFactor) || 6000;
+});
+// 装箱单总体积 (CBM = m³)
+const totalVolumeCbm = computed((): number =>
+  fullOrderData.packageList.reduce((sum: number, r: any) => {
+    const L = Number(r.length) || 0, W = Number(r.width) || 0, H = Number(r.height) || 0;
+    return sum + (L * W * H * (Number(r.quantity) || 1)) / 1000000;  // cm³ → m³
+  }, 0));
+// 装箱单总实重 (sum of weights × quantity)
+const totalPackageWeight = computed((): number =>
+  fullOrderData.packageList.reduce((sum: number, r: any) =>
+    sum + (Number(r.weight) || 0) * (Number(r.quantity) || 1), 0));
+// 材积重 (kg) = sum(L×W×H) / dim_factor
+const totalDimWeight = computed((): number => {
+  const cm3 = totalVolumeCbm.value * 1000000;
+  return cm3 / channelDimFactor.value;
+});
+// 计费重 (kg) = max(实重, 材积重)
+const totalChargeableWeight = computed((): number =>
+  Math.max(totalPackageWeight.value, totalDimWeight.value));
+// 装箱单是否有完整尺寸 (任意 1 行 3 个尺寸全填了)
+const hasDimensions = computed((): boolean =>
+  fullOrderData.packageList.some((r: any) =>
+    Number(r.length) > 0 && Number(r.width) > 0 && Number(r.height) > 0));
+
 async function saveFullOrder() {
   fullOrderError.value = '';
   const err = validateFullOrder();
   if (err) { fullOrderError.value = err; return; }
   fullOrderSaving.value = true;
   try {
-    // 货值自动覆盖为申报明细汇总, 跟 ACC 一致
+    // 货值 + 体积 自动从子表汇总 (对齐 ACC Online.php doChange 1268+1632)
     const body = {
       ...fullOrderData,
       declaredValue: Number(totalDeclaredValue.value.toFixed(2)),
+      volume: Number(totalVolumeCbm.value.toFixed(6)),  // CBM (m³)
+      chargeableWeight: Number(totalChargeableWeight.value.toFixed(3)),  // 计费重 kg
       declare: fullOrderData.declare.filter((r: any) => r.name || r.cnName),
       packageList: fullOrderData.packageList.filter((r: any) => r.no || r.name),
     };
@@ -8477,6 +8510,16 @@ async function doDisableCustomerLogin(row: any) {
                 </tr>
               </tbody>
             </table>
+            <!-- ACC Collect.php 风格: 实重 / 材积重 / 计费重 汇总行 -->
+            <div style="background:#f8fafc;padding:10px 14px;margin-top:8px;border-radius:6px;font-size:12px;display:flex;gap:24px;flex-wrap:wrap">
+              <span><b>装箱总实重:</b> <span style="color:#0f172a">{{ totalPackageWeight.toFixed(2) }} kg</span></span>
+              <span v-if="hasDimensions"><b>装箱总体积:</b> <span style="color:#0f172a">{{ totalVolumeCbm.toFixed(4) }} m³</span></span>
+              <span v-if="hasDimensions"><b>材积重:</b> <span style="color:#0f172a">{{ totalDimWeight.toFixed(2) }} kg</span> <span style="color:#94a3b8">(÷{{ channelDimFactor }})</span></span>
+              <span><b>计费重:</b> <span style="color:#dc2626;font-weight:600">{{ totalChargeableWeight.toFixed(2) }} kg</span> <span v-if="totalDimWeight > totalPackageWeight" style="color:#dc2626;font-size:11px">⚠ 按材积重计费</span></span>
+              <span v-if="totalPackageWeight > 0 && Math.abs(totalPackageWeight - (Number(fullOrderData.weight) || 0)) > 0.01" style="color:#dc2626">
+                ⚠ 装箱总实重 ≠ 货物重量({{ (Number(fullOrderData.weight) || 0).toFixed(2) }})
+              </span>
+            </div>
           </div>
         </div>
         <div class="modal-footer">

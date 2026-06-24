@@ -39,8 +39,16 @@ public interface CarrierGateway {
         String country,
         BigDecimal weightKg,
         Integer piece,
-        Map<String, Object> receiver
+        Map<String, Object> receiver,
+        // 装箱单 (含 length/width/height cm) - UPS/FedEx 发 Package.Dimensions 用
+        java.util.List<Map<String, Object>> packageList
     ) {
+        // 兼容老 callsite (不传 packageList)
+        public SubmitContext(String tenantId, String customerCode, String orderNo, String customerRef,
+                             String channelCode, String country, BigDecimal weightKg, Integer piece,
+                             Map<String, Object> receiver) {
+            this(tenantId, customerCode, orderNo, customerRef, channelCode, country, weightKg, piece, receiver, java.util.List.of());
+        }
     }
 
     record Issuance(

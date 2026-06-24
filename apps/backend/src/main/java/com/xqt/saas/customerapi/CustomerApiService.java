@@ -532,10 +532,16 @@ public class CustomerApiService {
 
         CarrierGateway.Issuance issuance;
         try {
+            // 提取 packageList 供 UPS gateway 算 Dimensions
+            @SuppressWarnings("unchecked")
+            java.util.List<Map<String, Object>> pkgList = accCompat.get("packageList") instanceof java.util.List
+                ? (java.util.List<Map<String, Object>>) accCompat.get("packageList")
+                : java.util.List.of();
             issuance = gateway.submit(new CarrierGateway.SubmitContext(
                 principal.tenantId(), principal.customerCode(), orderNo, customerRef,
                 channelCode, country, weight, piece,
-                mapOrEmpty(accCompat.get("receiver"))
+                mapOrEmpty(accCompat.get("receiver")),
+                pkgList
             ));
         } catch (RuntimeException ex) {
             // 取号失败回滚预扣（事务也会回滚，但显式语义更清楚）
