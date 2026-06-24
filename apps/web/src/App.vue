@@ -4466,12 +4466,14 @@ async function saveFullOrder() {
   if (err) { fullOrderError.value = err; return; }
   fullOrderSaving.value = true;
   try {
-    // 货值 + 体积 自动从子表汇总 (对齐 ACC Online.php doChange 1268+1632)
+    // 货值 + 材积 (跟 ACC 对齐): 用户手填材积优先, 否则装箱单累加
+    const userVolume = Number(fullOrderData.volume) || 0;
+    const finalVolume = userVolume > 0 ? userVolume : Number(totalVolumeCbm.value.toFixed(6));
     const body = {
       ...fullOrderData,
       declaredValue: Number(totalDeclaredValue.value.toFixed(2)),
-      volume: Number(totalVolumeCbm.value.toFixed(6)),  // CBM (m³)
-      chargeableWeight: Number(totalChargeableWeight.value.toFixed(3)),  // 计费重 kg
+      volume: finalVolume,                              // CBM (m³) - 跟 ACC 材积一致
+      chargeableWeight: Number(totalChargeableWeight.value.toFixed(3)),
       declare: fullOrderData.declare.filter((r: any) => r.name || r.cnName),
       packageList: fullOrderData.packageList.filter((r: any) => r.no || r.name),
     };
@@ -8297,7 +8299,7 @@ async function doDisableCustomerLogin(row: any) {
               <div class="form-field full-width"><label>中文品名 <span class="required">*</span></label><input type="text" v-model="fullOrderData.materialsCn" placeholder="中文品名 (ACC MaterialsCN)" maxlength="200" /></div>
               <div class="form-field"><label>件数 <span class="required">*</span></label><input type="number" min="1" v-model.number="fullOrderData.piece" /></div>
               <div class="form-field"><label>重量 (kg) <span class="required">*</span></label><input type="number" step="any" min="0.01" v-model.number="fullOrderData.weight" /></div>
-              <div class="form-field"><label>体积 (m³)</label><input type="number" step="any" v-model.number="fullOrderData.volume" /></div>
+              <div class="form-field"><label>材积 (m³) <span style="color:#94a3b8;font-size:11px">(对齐 ACC, 跟装箱单二选一)</span></label><input type="number" step="any" v-model.number="fullOrderData.volume" placeholder="留空时自动取装箱单累加" /></div>
               <div class="form-field">
                 <label>电池代码</label>
                 <select v-model="fullOrderData.batteryCode">

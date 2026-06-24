@@ -93,7 +93,17 @@ public class RateEngine {
         }
 
         // ─── 计算可计费重量 ───
-        BigDecimal volumetric = volumetricWeight(request.volumeCbm(), toBigDecimal(channel.get("dim_factor")));
+        // 材积重: dim_factor 是 channels 主表的 cm³/kg 系数 (UPS=6000, DHL 国际=5000)
+        // Fallback: 老 schema 用 volume_modulus (跟 dim_factor 同义), 兼容历史数据
+        BigDecimal dimFactor = toBigDecimal(channel.get("dim_factor"));
+        if (dimFactor == null || dimFactor.signum() == 0) {
+            dimFactor = toBigDecimal(channel.get("volume_modulus"));
+        }
+        // 最终兜底: UPS 国际标准 6000 cm³/kg
+        if (dimFactor == null || dimFactor.signum() == 0) {
+            dimFactor = new BigDecimal("6000");
+        }
+        BigDecimal volumetric = volumetricWeight(request.volumeCbm(), dimFactor);
         BigDecimal chargeable = request.weightKg().max(volumetric).setScale(3, RoundingMode.HALF_UP);
 
         // ─── 渠道账号限额检查 ───
