@@ -1108,32 +1108,26 @@ public class AccOrdersController {
 
         // R-1: 同单+同 charge_item 去重检查 (除非 overwrite=true 强制覆盖)
         boolean overwrite = Boolean.TRUE.equals(body.get("overwrite"));
-        try {
-            Map<String, Object> existing = jdbc.queryForMap("""
-                SELECT id::text AS id, amount, audit_status, status::text AS status
-                  FROM charges
-                 WHERE order_id = ?::uuid AND charge_item_id = ?::uuid
-                   AND side='AP' AND status::text <> 'VOID'
-                 LIMIT 1
-                """, id, chargeItemId);
-            if (existing != null) {
-                if (!overwrite) {
-                    // 返 409, 让前端弹"继续/覆盖/取消"
-                    throw ApiException.conflict(
-                        "该订单已有同类型成本: " + existing.get("amount") + " " + currency
-                        + " (charge_id=" + existing.get("id") + ", audit=" + existing.get("audit_status") + ")"
-                        + " — 选择覆盖会作废原成本");
-                }
-                // overwrite=true: 把原 charge VOID, 触发反向 balance_ledger 如果已审核
-                String oldChargeId = (String) existing.get("id");
-                if ("AUDITED".equals(existing.get("audit_status"))) {
-                    // 反审会触发 BalanceLedgerSideEffect.onUndone, 反向 CREDIT
-                    auditService.undoAudit("charges", oldChargeId, tenantId, "admin");
-                }
-                jdbc.update("UPDATE charges SET status='VOID'::charge_status WHERE id=?::uuid", oldChargeId);
+        List<Map<String, Object>> existingRows = jdbc.queryForList("""
+            SELECT id::text AS id, amount, audit_status, status::text AS status
+              FROM charges
+             WHERE order_id = ?::uuid AND charge_item_id = ?::uuid
+               AND side='AP' AND status::text <> 'VOID'
+             LIMIT 1
+            """, id, chargeItemId);
+        if (!existingRows.isEmpty()) {
+            Map<String, Object> existing = existingRows.get(0);
+            if (!overwrite) {
+                throw ApiException.conflict(
+                    "该订单已有同类型成本: " + existing.get("amount") + " " + currency
+                    + " (charge_id=" + existing.get("id") + ", audit=" + existing.get("audit_status") + ")"
+                    + " — 选择覆盖会作废原成本");
             }
-        } catch (DataAccessException ignored) {
-            // 没找到 existing, 正常新增
+            String oldChargeId = (String) existing.get("id");
+            if ("AUDITED".equals(existing.get("audit_status"))) {
+                auditService.undoAudit("charges", oldChargeId, tenantId, "admin");
+            }
+            jdbc.update("UPDATE charges SET status='VOID'::charge_status WHERE id=?::uuid", oldChargeId);
         }
 
         String chargeId = jdbc.queryForObject("""

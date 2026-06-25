@@ -110,18 +110,24 @@ public class AccChannelAccountsController {
     public Map<String, Object> update(@PathVariable String id, @RequestBody Map<String, Object> body) {
         String currentAudit = jdbc.queryForObject(
             "SELECT audit_status FROM acc_channel_accounts WHERE id = ?::uuid", String.class, id);
-        FieldGate.FilterResult gate = fieldGate.filterAllowedFields(TABLE, currentAudit, body);
-        if (!gate.rejected().isEmpty() && gate.allowed().isEmpty()) {
+        // R-5: processing_fee 即使账号已审核也可改 (业务上需求动态调整)
+        // 从 body 把 processing_fee 提前抠出来, 不进 fieldGate 锁定检查
+        Object processingFeeRaw = body.containsKey("processing_fee") ? body.get("processing_fee")
+                                                                       : body.get("processingFee");
+        Map<String, Object> bodyWithoutPF = new java.util.LinkedHashMap<>(body);
+        bodyWithoutPF.remove("processing_fee");
+        bodyWithoutPF.remove("processingFee");
+        FieldGate.FilterResult gate = fieldGate.filterAllowedFields(TABLE, currentAudit, bodyWithoutPF);
+        if (!gate.rejected().isEmpty() && gate.allowed().isEmpty() && processingFeeRaw == null) {
             throw ApiException.badRequest("渠道账号已审核，字段不可修改: " + String.join(",", gate.rejected())
                 + "；请先反审");
         }
         Map<String, Object> allowed = gate.allowed();
         // R-5: 操作费 processing_fee 支持编辑 (允许 0, 不能负数)
         java.math.BigDecimal processingFee = null;
-        if (allowed.get("processingFee") != null || body.get("processing_fee") != null) {
-            Object raw = allowed.getOrDefault("processingFee", body.get("processing_fee"));
+        if (processingFeeRaw != null) {
             try {
-                processingFee = new java.math.BigDecimal(raw.toString());
+                processingFee = new java.math.BigDecimal(processingFeeRaw.toString());
                 if (processingFee.signum() < 0) throw ApiException.badRequest("操作费不能为负数");
             } catch (NumberFormatException ex) {
                 throw ApiException.badRequest("操作费必须为数字");

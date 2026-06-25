@@ -332,19 +332,19 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
         }
         String remark = body.get("remark") == null ? null : body.get("remark").toString();
 
-        Map<String, Object> orig;
-        try {
-            orig = jdbc.queryForMap("""
-                SELECT id::text, amount, currency, audit_status, side::text, shipment_id::text AS shipment_id,
-                       charge_item_id::text AS charge_item_id, customer_id::text AS customer_id, order_id::text AS order_id
-                  FROM charges WHERE id = ?::uuid
-                """, id);
-        } catch (org.springframework.dao.DataAccessException ex) {
-            throw ApiException.notFound("找不到 charge: " + id);
-        }
+        java.util.List<Map<String, Object>> origs = jdbc.queryForList("""
+            SELECT id::text AS id_t, amount, currency, audit_status, side::text AS side_t,
+                   shipment_id::text AS shipment_id,
+                   charge_item_id::text AS charge_item_id,
+                   customer_id::text AS customer_id,
+                   order_id::text AS order_id
+              FROM charges WHERE id = ?::uuid
+            """, id);
+        if (origs.isEmpty()) throw ApiException.notFound("找不到 charge: " + id);
+        Map<String, Object> orig = origs.get(0);
         java.math.BigDecimal oldAmount = (java.math.BigDecimal) orig.get("amount");
         String currency = (String) orig.get("currency");
-        String side = (String) orig.get("side");
+        String side = (String) orig.get("side_t");
         String shipmentId = (String) orig.get("shipment_id");
         String chargeItemId = (String) orig.get("charge_item_id");
         String customerId = (String) orig.get("customer_id");
