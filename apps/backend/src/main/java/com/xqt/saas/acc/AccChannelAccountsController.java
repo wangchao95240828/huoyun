@@ -116,6 +116,17 @@ public class AccChannelAccountsController {
                 + "；请先反审");
         }
         Map<String, Object> allowed = gate.allowed();
+        // R-5: 操作费 processing_fee 支持编辑 (允许 0, 不能负数)
+        java.math.BigDecimal processingFee = null;
+        if (allowed.get("processingFee") != null || body.get("processing_fee") != null) {
+            Object raw = allowed.getOrDefault("processingFee", body.get("processing_fee"));
+            try {
+                processingFee = new java.math.BigDecimal(raw.toString());
+                if (processingFee.signum() < 0) throw ApiException.badRequest("操作费不能为负数");
+            } catch (NumberFormatException ex) {
+                throw ApiException.badRequest("操作费必须为数字");
+            }
+        }
         jdbc.update("""
             UPDATE acc_channel_accounts SET
               account_name = coalesce(?, account_name),
@@ -123,11 +134,12 @@ public class AccChannelAccountsController {
               api_secret = coalesce(?::text, api_secret),
               endpoint_url = coalesce(?::text, endpoint_url),
               is_active = coalesce(?::boolean, is_active),
+              processing_fee = coalesce(?::numeric, processing_fee),
               remark = coalesce(?::text, remark)
             WHERE id = ?::uuid
             """, (String) allowed.get("accountName"), (String) allowed.get("apiKey"),
             (String) allowed.get("apiSecret"), (String) allowed.get("endpointUrl"),
-            allowed.get("isActive"), (String) allowed.get("remark"), id);
+            allowed.get("isActive"), processingFee, (String) allowed.get("remark"), id);
         return Map.of("id", id, "rejectedFields", gate.rejected());
     }
 

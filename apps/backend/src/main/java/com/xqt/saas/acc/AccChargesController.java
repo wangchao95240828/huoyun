@@ -311,6 +311,93 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
         return Map.of("id", id, "deleted", true);
     }
 
+    /**
+     * R-8: AR 补收 — 改 charge 金额, 支持 DELTA (写差值) 或 OVERWRITE (作废原写新).
+     * PATCH /api/acc/charges/{id}/restate  body: { newAmount, mode: DELTA|OVERWRITE, remark }
+     */
+    @org.springframework.web.bind.annotation.PatchMapping("/{id}/restate")
+    @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> restate(@org.springframework.web.bind.annotation.PathVariable String id,
+                                         @org.springframework.web.bind.annotation.RequestBody Map<String, Object> body) {
+        java.math.BigDecimal newAmount;
+        try {
+            newAmount = new java.math.BigDecimal(body.get("newAmount").toString());
+        } catch (Exception ex) {
+            throw ApiException.badRequest("newAmount 必填且必须为数字");
+        }
+        if (newAmount.signum() <= 0) throw ApiException.badRequest("newAmount 必须大于零");
+        String mode = String.valueOf(body.getOrDefault("mode", "DELTA")).toUpperCase();
+        if (!"DELTA".equals(mode) && !"OVERWRITE".equals(mode)) {
+            throw ApiException.badRequest("mode 必须是 DELTA 或 OVERWRITE");
+        }
+        String remark = body.get("remark") == null ? null : body.get("remark").toString();
+
+        Map<String, Object> orig;
+        try {
+            orig = jdbc.queryForMap("""
+                SELECT id::text, amount, currency, audit_status, side::text, shipment_id::text AS shipment_id,
+                       charge_item_id::text AS charge_item_id, customer_id::text AS customer_id, order_id::text AS order_id
+                  FROM charges WHERE id = ?::uuid
+                """, id);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            throw ApiException.notFound("找不到 charge: " + id);
+        }
+        java.math.BigDecimal oldAmount = (java.math.BigDecimal) orig.get("amount");
+        String currency = (String) orig.get("currency");
+        String side = (String) orig.get("side");
+        String shipmentId = (String) orig.get("shipment_id");
+        String chargeItemId = (String) orig.get("charge_item_id");
+        String customerId = (String) orig.get("customer_id");
+        String orderId = (String) orig.get("order_id");
+
+        Map<String, Object> evidence = new java.util.LinkedHashMap<>();
+        evidence.put("source_charge_id", id);
+        evidence.put("mode", mode);
+        evidence.put("old_amount", oldAmount);
+        evidence.put("new_amount", newAmount);
+        evidence.put("remark", remark);
+        evidence.put("via", "restate");
+
+        if ("OVERWRITE".equals(mode)) {
+            // 已审核需先反审 (反向 ledger), 否则不能 VOID
+            if ("AUDITED".equals(orig.get("audit_status"))) {
+                throw ApiException.badRequest("已审核 charge 不能 OVERWRITE, 请先反审或用 DELTA 模式");
+            }
+            jdbc.update("UPDATE charges SET status='VOID'::charge_status WHERE id=?::uuid", id);
+            String newId = jdbc.queryForObject("""
+                INSERT INTO charges (
+                  tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
+                  evidence, customer_id, order_id
+                ) VALUES (
+                  current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,
+                  ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid
+                ) RETURNING id::text
+                """, String.class, shipmentId, chargeItemId, side, currency, newAmount,
+                json.toJson(evidence), customerId, orderId);
+            return Map.of("mode", "OVERWRITE", "voidedChargeId", id, "newChargeId", newId,
+                "oldAmount", oldAmount, "newAmount", newAmount);
+        } else {
+            // DELTA 模式: 写差值 charge
+            java.math.BigDecimal delta = newAmount.subtract(oldAmount);
+            if (delta.signum() == 0) {
+                return Map.of("mode", "DELTA", "delta", java.math.BigDecimal.ZERO,
+                    "note", "金额相同, 无需补收");
+            }
+            String deltaId = jdbc.queryForObject("""
+                INSERT INTO charges (
+                  tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
+                  evidence, customer_id, order_id
+                ) VALUES (
+                  current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,
+                  ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid
+                ) RETURNING id::text
+                """, String.class, shipmentId, chargeItemId, side, currency, delta,
+                json.toJson(evidence), customerId, orderId);
+            return Map.of("mode", "DELTA", "sourceChargeId", id, "deltaChargeId", deltaId,
+                "oldAmount", oldAmount, "newAmount", newAmount, "delta", delta);
+        }
+    }
+
     /** 核算中心 子页过滤. */
     private static String buildChargesStatusFilter(String status) {
         if (status == null || status.isBlank()) return "";
