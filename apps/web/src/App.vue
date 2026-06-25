@@ -3233,6 +3233,57 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'processing_fee', label: '操作费', type: 'number' },  // R-5 操作费
     { col: 'isOpen', label: '启用', type: 'boolean' },
   ],
+  // R-13 费用类目 form
+  'charge-items': [
+    { col: 'code', label: '代码', type: 'text', required: true },
+    { col: 'name', label: '名称', type: 'text', required: true },
+    { col: 'category', label: '类别', type: 'select', options: [
+      { id: 'FREIGHT', name: 'FREIGHT 运费' },
+      { id: 'SURCHARGE', name: 'SURCHARGE 附加费' },
+      { id: 'TAX', name: 'TAX 税费' },
+      { id: 'DISCOUNT', name: 'DISCOUNT 折扣' },
+      { id: 'CUSTOMS', name: 'CUSTOMS 报关' },
+      { id: 'DELIVERY', name: 'DELIVERY 派送' },
+      { id: 'INSURANCE', name: 'INSURANCE 保险' },
+      { id: 'OTHER', name: 'OTHER 其他' },
+    ], required: true },
+    { col: 'defaultSide', label: '默认方向', type: 'select', options: [
+      { id: 'AR', name: 'AR 应收 (向客户收)' },
+      { id: 'AP', name: 'AP 应付 (付供应商)' },
+      { id: 'SELLER_COST', name: 'SELLER_COST 销售成本' },
+      { id: 'SELLER_COMMISSION', name: 'SELLER_COMMISSION 销售提成' },
+    ], required: true },
+    { col: 'defaultUom', label: '计费单位', type: 'select', options: [
+      { id: 'SHIPMENT', name: 'SHIPMENT 整票' },
+      { id: 'KG', name: 'KG 千克' },
+      { id: 'LB', name: 'LB 磅' },
+      { id: 'CBM', name: 'CBM 立方米' },
+      { id: 'PIECE', name: 'PIECE 件' },
+      { id: 'CARTON', name: 'CARTON 箱' },
+      { id: 'PERCENT', name: 'PERCENT 百分比' },
+    ], required: true },
+  ],
+  // R-12 客户价格策略 form
+  'customer-rate-strategies': [
+    { col: 'customerCode', label: '客户编码', type: 'text', required: true },
+    { col: 'channelCode', label: '渠道编码', type: 'text', required: true },
+    { col: 'commissionRate', label: '佣金率 (1=原价, 0.9=9折)', type: 'number', required: true },
+    { col: 'floorAmount', label: '底价 (兜底, 可空)', type: 'number' },
+    { col: 'remark', label: '备注', type: 'textarea' },
+  ],
+  // R-6 预估报价池 form
+  'cost-pre-estimates': [
+    { col: 'channelCode', label: '渠道编码', type: 'text', required: true },
+    { col: 'customerCode', label: '客户编码 (可空=通用)', type: 'text' },
+    { col: 'qty', label: '件数', type: 'number', required: true },
+    { col: 'unitPrice', label: '单价', type: 'number', required: true },
+    { col: 'currency', label: '币种', type: 'select', options: [
+      { id: 'USD', name: 'USD' }, { id: 'CNY', name: 'CNY' },
+      { id: 'EUR', name: 'EUR' }, { id: 'JPY', name: 'JPY' }, { id: 'GBP', name: 'GBP' },
+    ], required: true },
+    { col: 'targetWeightKg', label: '目标重(kg)', type: 'number' },
+    { col: 'remark', label: '备注', type: 'textarea' },
+  ],
   products: [
     { col: 'Name', label: '产品名称', type: 'text', required: true },
     { col: 'Code', label: '编号', type: 'text' },
@@ -6877,6 +6928,36 @@ async function doSyncStowage(id: number) {
   }
 }
 
+// R-4 上传渠道账单 xlsx — 简易 prompt 收集 partnerCode + currency, 然后开 file picker
+async function openCarrierInvoiceUpload() {
+  const partner = prompt('供应商代码 (e.g. UPS / FEDEX / DHL):', 'UPS');
+  if (!partner) return;
+  const currency = prompt('币种:', 'USD') || 'USD';
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls';
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    bizLoading.value = true;
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await apiFetch(`${API}/api/acc/reconciliation/carrier-invoice/import?partnerCode=${encodeURIComponent(partner)}&currency=${encodeURIComponent(currency)}`,
+        { method: 'POST', body: fd });
+      const j = await res.json();
+      if (res.ok) {
+        setBizOk(`渠道账单上传成功: ${j.invoiceNo} 共 ${j.inserted} 行, 合计 ${j.total} ${currency}`);
+        fetchAccData();
+      } else {
+        setBizError('上传失败: ' + (j.error ?? res.status));
+      }
+    } catch (e: any) { setBizError('上传异常: ' + e.message); }
+    finally { bizLoading.value = false; }
+  };
+  input.click();
+}
+
 async function doExportBillXlsx(id: any) {
   try {
     bizLoading.value = true;
@@ -7418,6 +7499,11 @@ async function doDisableCustomerLogin(row: any) {
           <button class="secondary sm" v-if="accTab === 'charges' || accTab === 'charges-pending'"
                   @click="openXlsxImport('restate-ar')" style="color:#0ea5e9">
             <Upload :size="13" /> 📤 xlsx 批量补收
+          </button>
+          <!-- R-4: 渠道账单对比页 加 xlsx 上传按钮 -->
+          <button class="secondary sm" v-if="accTab === 'carrier-invoice-recon'"
+                  @click="openCarrierInvoiceUpload" style="color:#0ea5e9">
+            <Upload :size="13" /> 📥 上传渠道账单 xlsx
           </button>
           <!-- ACC 核算中心「导入费用/导入成本」: tab 即上传入口 -->
           <label class="primary sm" v-if="accTab === 'charges-import'" style="cursor:pointer">
