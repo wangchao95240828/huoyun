@@ -211,9 +211,45 @@ public class AccBatchImportController {
         }
         if (raw.size() < 2) throw ApiException.badRequest("xlsx 至少需要 header + 1 行数据");
 
+        // 中文表头 → 字段 key 映射 (兼容英文)
+        Map<String, String> ZH_MAP = Map.ofEntries(
+            // R-2 orders
+            Map.entry("客户编码", "customer_code"),
+            Map.entry("客户", "customer_code"),
+            Map.entry("渠道产品", "product"),
+            Map.entry("产品", "product"),
+            Map.entry("发货产品", "product"),
+            Map.entry("制单账号", "account"),
+            Map.entry("账号", "account"),
+            Map.entry("重量(kg)", "weight"),
+            Map.entry("重量", "weight"),
+            Map.entry("国家", "country"),
+            Map.entry("邮编", "postcode"),
+            Map.entry("地址", "address"),
+            Map.entry("收件人", "name"),
+            Map.entry("姓名", "name"),
+            Map.entry("电话", "phone"),
+            Map.entry("申报品名", "declare_name"),
+            Map.entry("品名", "declare_name"),
+            Map.entry("数量", "declare_qty"),
+            Map.entry("单价", "declare_price"),
+            Map.entry("hs编码", "hs_code"),
+            Map.entry("海关编码", "hs_code"),
+            // R-7 restate
+            Map.entry("运单号", "tracking_no"),
+            Map.entry("跟踪号", "tracking_no"),
+            Map.entry("追踪号", "tracking_no"),
+            Map.entry("新金额", "new_amount"),
+            Map.entry("新运费", "new_amount"),
+            Map.entry("备注", "remark"),
+            Map.entry("说明", "remark")
+        );
         String[] headers = raw.get(0);
         for (int i = 0; i < headers.length; i++) {
-            headers[i] = headers[i] == null ? "col" + i : headers[i].trim().toLowerCase();
+            String h = headers[i] == null ? ("col" + i) : headers[i].trim();
+            String lower = h.toLowerCase();
+            // 先看英文 lowercase, 再查中文映射
+            headers[i] = ZH_MAP.getOrDefault(lower, ZH_MAP.getOrDefault(h, lower));
         }
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int r = 1; r < raw.size(); r++) {
