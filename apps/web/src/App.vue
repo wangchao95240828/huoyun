@@ -3230,6 +3230,7 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'Code', label: '编号', type: 'text' },
     { col: 'Channel', label: '渠道', type: 'select', ref: 'channels', required: true },
     { col: 'Supplier', label: '物流商', type: 'select', ref: 'suppliers' },
+    { col: 'processing_fee', label: '操作费', type: 'number' },  // R-5 操作费
     { col: 'isOpen', label: '启用', type: 'boolean' },
   ],
   products: [
