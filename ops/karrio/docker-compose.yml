@@ -1,0 +1,97 @@
+version: '3.8'
+
+# Karrio 多承运商网关 - xqt-saas 集成
+#
+# 启动:
+#   cd /opt/xqt-saas/karrio
+#   docker compose up -d
+#
+# 验证:
+#   curl http://localhost:5002/health
+#   open http://localhost:5001  (Karrio Dashboard, admin@example.com / demo)
+#
+# 端口:
+#   5001 = Karrio Dashboard (Web UI - 配 carrier connection 用)
+#   5002 = Karrio API (xqt-saas 调用这个)
+#   5432 = PG (内部, 不暴露公网)
+#
+# xqt-saas 配置:
+#   karrio:
+#     base-url: http://karrio-server:5002
+#     api-token: <去 Dashboard 创建 token>
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: karrio
+      POSTGRES_PASSWORD: karrio_change_me
+      POSTGRES_DB: karrio
+    volumes:
+      - karrio_pg:/var/lib/postgresql/data
+    networks: [karrio_net]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [karrio_net]
+
+  server:
+    image: karrio/server:latest
+    restart: unless-stopped
+    depends_on: [db, redis]
+    environment:
+      DEBUG_MODE: "False"
+      ALLOWED_HOSTS: "*"
+      SECRET_KEY: "change_me_in_prod_xxxxxxxxxxxxxxxxxx"
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: demo
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: karrio
+      DATABASE_USERNAME: karrio
+      DATABASE_PASSWORD: karrio_change_me
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KARRIO_HOSTNAME: http://localhost:5002
+      DASHBOARD_URL: http://localhost:5001
+    ports:
+      - "5002:5002"
+    networks: [karrio_net]
+
+  worker:
+    image: karrio/server:latest
+    restart: unless-stopped
+    depends_on: [server, db, redis]
+    command: ["python", "-m", "purplship.workers"]
+    environment:
+      DEBUG_MODE: "False"
+      SECRET_KEY: "change_me_in_prod_xxxxxxxxxxxxxxxxxx"
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      DATABASE_NAME: karrio
+      DATABASE_USERNAME: karrio
+      DATABASE_PASSWORD: karrio_change_me
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    networks: [karrio_net]
+
+  dashboard:
+    image: karrio/dashboard:latest
+    restart: unless-stopped
+    depends_on: [server]
+    environment:
+      KARRIO_HOSTNAME: http://server:5002
+      NEXTAUTH_SECRET: "change_me_in_prod_xxxxxxxxxxxxxxxxxx"
+      NEXTAUTH_URL: http://localhost:5001
+    ports:
+      - "5001:3000"
+    networks: [karrio_net]
+
+volumes:
+  karrio_pg:
+
+networks:
+  karrio_net:
+    driver: bridge

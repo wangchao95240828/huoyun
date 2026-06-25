@@ -102,3 +102,8 @@ mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+# Karrio 多承运商网关 (可选 — 不配置时 KARRIO provider 渠道会拒错)
+karrio:
+  base-url: ${KARRIO_BASE_URL:http://localhost:5002}
+  api-token: ${KARRIO_API_TOKEN:}
+  timeout-sec: 30
