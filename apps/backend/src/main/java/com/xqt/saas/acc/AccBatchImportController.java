@@ -146,21 +146,23 @@ public class AccBatchImportController {
             String currency = (String) origCharge.get("currency");
 
             if ("OVERWRITE".equalsIgnoreCase(mode)) {
-                // 标原 VOID, 写新
                 jdbc.update("UPDATE charges SET status='VOID'::charge_status WHERE id=?::uuid", origChargeId);
                 insertCharge(shipmentId, chargeItemId, "AR", newAmount, currency, customerId, orderId,
                     origChargeId, "OVERWRITE: " + (remark == null ? "" : remark));
                 details.add(Map.of("row", i + 2, "tracking", trackingNo,
                     "mode", "OVERWRITE", "old", oldAmount, "new", newAmount));
             } else {
-                // DELTA: 写差值 charge
                 BigDecimal delta = newAmount.subtract(oldAmount);
                 if (delta.signum() == 0) {
                     details.add(Map.of("row", i + 2, "tracking", trackingNo, "skip", "金额相同 0 差值"));
                     skipped++;
                     continue;
                 }
-                insertCharge(shipmentId, chargeItemId, "AR", delta, currency, customerId, orderId,
+                // DELTA 用 ADJUST charge_item 避免撞 unique key
+                String adjustItemId = jdbc.queryForList(
+                    "SELECT id::text FROM charge_items WHERE code='ADJUST' LIMIT 1", String.class)
+                    .stream().findFirst().orElse(chargeItemId);
+                insertCharge(shipmentId, adjustItemId, "AR", delta, currency, customerId, orderId,
                     origChargeId, "DELTA: " + (remark == null ? "" : remark));
                 details.add(Map.of("row", i + 2, "tracking", trackingNo,
                     "mode", "DELTA", "old", oldAmount, "new", newAmount, "delta", delta));

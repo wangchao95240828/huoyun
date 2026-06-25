@@ -377,11 +377,21 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
             return Map.of("mode", "OVERWRITE", "voidedChargeId", id, "newChargeId", newId,
                 "oldAmount", oldAmount, "newAmount", newAmount);
         } else {
-            // DELTA 模式: 写差值 charge
+            // DELTA 模式: 写差值 charge — 用 ADJUST charge_item 避免撞 unique key
+            // (uq_charges_shipment_item_side 同 shipment 同 charge_item_id 只能 1 笔非 VOID)
             java.math.BigDecimal delta = newAmount.subtract(oldAmount);
             if (delta.signum() == 0) {
                 return Map.of("mode", "DELTA", "delta", java.math.BigDecimal.ZERO,
                     "note", "金额相同, 无需补收");
+            }
+            // 找 ADJUST 类目, 找不到走 FREIGHT (但会撞 unique key, 此时建议用 OVERWRITE)
+            String adjustItemId;
+            java.util.List<String> adjustRows = jdbc.queryForList(
+                "SELECT id::text FROM charge_items WHERE code='ADJUST' LIMIT 1", String.class);
+            if (!adjustRows.isEmpty()) {
+                adjustItemId = adjustRows.get(0);
+            } else {
+                throw ApiException.badRequest("找不到 ADJUST 调账类目, 请联系管理员配置 charge_items");
             }
             String deltaId = jdbc.queryForObject("""
                 INSERT INTO charges (
@@ -391,10 +401,11 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                   current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,
                   ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid
                 ) RETURNING id::text
-                """, String.class, shipmentId, chargeItemId, side, currency, delta,
+                """, String.class, shipmentId, adjustItemId, side, currency, delta,
                 json.toJson(evidence), customerId, orderId);
             return Map.of("mode", "DELTA", "sourceChargeId", id, "deltaChargeId", deltaId,
-                "oldAmount", oldAmount, "newAmount", newAmount, "delta", delta);
+                "oldAmount", oldAmount, "newAmount", newAmount, "delta", delta,
+                "chargeItem", "ADJUST");
         }
     }
 
