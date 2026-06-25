@@ -278,9 +278,11 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
         java.time.LocalDate from = parseDate(body.get("dateFrom"));
         java.time.LocalDate to = parseDate(body.get("dateTo"));
         String currency = (String) body.getOrDefault("currency", "CNY");
+        @SuppressWarnings("unchecked")
+        List<String> chargeIds = body.get("chargeIds") instanceof List ? (List<String>) body.get("chargeIds") : null;
         com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice req =
             new com.xqt.saas.documentcharges.DocumentChargeRequests.GenerateCustomerInvoice(
-                customerId, from, to, currency, "STANDARD", null);
+                customerId, from, to, currency, "STANDARD", chargeIds);
         try {
             com.xqt.saas.documentcharges.DocumentChargeResponses.InvoiceResult r =
                 docService.generateCustomerInvoice(currentPrincipal(), req);
@@ -289,6 +291,101 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
         } catch (com.xqt.saas.common.ApiException ex) {
             return Map.of("ok", false, "error", ex.getMessage());
         }
+    }
+
+    /**
+     * R-10: 账单生成前预览 — 列出所有 charges, 标"可开账/已开账/已作废", 让用户精选.
+     * GET /api/acc/bills/billable-preview?customerId=&currency=&dateFrom=&dateTo=&orderNo=
+     */
+    @GetMapping("/billable-preview")
+    public Map<String, Object> billablePreview(
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String customerId,
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String currency,
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String dateFrom,
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String dateTo,
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String orderNo
+    ) {
+        String cust = resolveCustomerId(customerId);
+        if (cust == null || cust.isBlank()) {
+            throw com.xqt.saas.common.ApiException.badRequest("customerId 必填");
+        }
+        java.time.LocalDate from = parseDate(dateFrom);
+        java.time.LocalDate to = parseDate(dateTo);
+        if (from == null) from = java.time.LocalDate.now().minusDays(30);
+        if (to == null) to = java.time.LocalDate.now();
+        String curr = (currency == null || currency.isBlank()) ? null : currency;
+        String orderPat = (orderNo == null || orderNo.isBlank()) ? null : "%" + orderNo + "%";
+
+        // 返每笔 AR charge + 状态标 (BILLABLE/BILLED/VOIDED/UNAUDITED)
+        List<Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT
+              ch.id::text                                        AS "chargeId",
+              o.order_no                                         AS "orderNo",
+              o.customer_ref                                     AS "customerRef",
+              ci.code                                            AS "chargeItemCode",
+              ci.name                                            AS "chargeItemName",
+              ch.amount                                          AS "amount",
+              ch.currency                                        AS "currency",
+              ch.audit_status                                    AS "auditStatus",
+              ch.status::text                                    AS "status",
+              ch.settlement_status                               AS "settlementStatus",
+              to_char(ch.created_at, 'YYYY-MM-DD HH24:MI')       AS "chargedAt",
+              -- 已开账时返关联的 invoice_no
+              (SELECT ci2.invoice_no FROM customer_invoice_lines cil
+                 JOIN customer_invoices ci2 ON ci2.id = cil.invoice_id
+                 WHERE cil.charge_id = ch.id AND ci2.status <> 'VOID' LIMIT 1) AS "invoiceNo",
+              CASE
+                WHEN ch.status::text = 'VOID' THEN 'VOIDED'
+                WHEN ch.audit_status <> 'AUDITED' THEN 'UNAUDITED'
+                WHEN EXISTS (SELECT 1 FROM customer_invoice_lines cil
+                  JOIN customer_invoices ci2 ON ci2.id = cil.invoice_id
+                  WHERE cil.charge_id = ch.id AND ci2.status <> 'VOID')
+                THEN 'BILLED'
+                WHEN ch.settlement_status = 'SETTLED' THEN 'BILLED'
+                ELSE 'BILLABLE'
+              END                                                AS "billStatus"
+            FROM charges ch
+            LEFT JOIN orders o ON o.id = ch.order_id
+            LEFT JOIN charge_items ci ON ci.id = ch.charge_item_id
+            WHERE ch.customer_id = ?::uuid
+              AND ch.side = 'AR'
+              AND (?::char(3) IS NULL OR ch.currency = ?::char(3))
+              AND ch.created_at >= ?::date
+              AND ch.created_at < (?::date + interval '1 day')
+              AND (?::text IS NULL OR o.order_no ILIKE ?::text OR o.customer_ref ILIKE ?::text)
+            ORDER BY ch.created_at DESC, o.order_no
+            LIMIT 500
+            """, cust, curr, curr, from, to, orderPat, orderPat, orderPat);
+
+        // 汇总
+        java.math.BigDecimal billableTotal = java.math.BigDecimal.ZERO;
+        int billableCount = 0, billedCount = 0, voidedCount = 0, unauditedCount = 0;
+        for (Map<String, Object> r : rows) {
+            String st = String.valueOf(r.get("billStatus"));
+            switch (st) {
+                case "BILLABLE" -> {
+                    billableCount++;
+                    java.math.BigDecimal amt = (java.math.BigDecimal) r.get("amount");
+                    if (amt != null) billableTotal = billableTotal.add(amt);
+                }
+                case "BILLED" -> billedCount++;
+                case "VOIDED" -> voidedCount++;
+                case "UNAUDITED" -> unauditedCount++;
+            }
+        }
+
+        return Map.of(
+            "data", rows,
+            "total", rows.size(),
+            "billableCount", billableCount,
+            "billableTotal", billableTotal,
+            "billedCount", billedCount,
+            "voidedCount", voidedCount,
+            "unauditedCount", unauditedCount,
+            "dateFrom", from.toString(),
+            "dateTo", to.toString(),
+            "currency", curr == null ? "" : curr
+        );
     }
 
     /**

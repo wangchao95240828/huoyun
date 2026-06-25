@@ -765,6 +765,56 @@ const showBizDialog = ref(false);
 const bizDialogType = ref('');
 const bizDialogData = reactive<Record<string, any>>({});
 
+// R-10: 账单生成明细预览 (生成账单 modal 内显示所有 charges)
+const billPreviewRows = ref<any[]>([]);
+const billPreviewLoading = ref(false);
+const billPreviewSummary = ref<any>({});
+const billPreviewSelectedIds = ref<Set<string>>(new Set());
+const billPreviewShowOnlyBillable = ref(true);
+async function loadBillablePreview() {
+  if (!bizDialogData.customer_id) { setBizError('请先选客户'); return; }
+  billPreviewLoading.value = true;
+  try {
+    const params = new URLSearchParams({
+      customerId: bizDialogData.customer_id,
+      currency: bizDialogData.currency || '',
+      dateFrom: bizDialogData.date_from || '',
+      dateTo: bizDialogData.date_to || '',
+    });
+    if (bizDialogData.order_no) params.set('orderNo', bizDialogData.order_no);
+    const res = await apiFetch(`${API}/api/acc/bills/billable-preview?${params}`);
+    const j = await res.json();
+    if (!res.ok) { setBizError('预览失败: ' + (j.error ?? res.status)); return; }
+    billPreviewRows.value = j.data || [];
+    billPreviewSummary.value = {
+      total: j.total, billableCount: j.billableCount, billedCount: j.billedCount,
+      voidedCount: j.voidedCount, unauditedCount: j.unauditedCount, billableTotal: j.billableTotal,
+    };
+    // 默认全选 BILLABLE 行
+    billPreviewSelectedIds.value = new Set(
+      billPreviewRows.value.filter(r => r.billStatus === 'BILLABLE').map(r => r.chargeId)
+    );
+  } catch (e: any) { setBizError('预览失败: ' + e.message); }
+  finally { billPreviewLoading.value = false; }
+}
+function toggleBillPreviewSelect(id: string) {
+  const s = new Set(billPreviewSelectedIds.value);
+  if (s.has(id)) s.delete(id); else s.add(id);
+  billPreviewSelectedIds.value = s;
+}
+const billPreviewVisibleRows = computed(() =>
+  billPreviewShowOnlyBillable.value
+    ? billPreviewRows.value.filter(r => r.billStatus === 'BILLABLE')
+    : billPreviewRows.value
+);
+const billPreviewSelectedTotal = computed(() => {
+  let sum = 0;
+  for (const r of billPreviewRows.value) {
+    if (billPreviewSelectedIds.value.has(r.chargeId)) sum += Number(r.amount) || 0;
+  }
+  return sum;
+});
+
 // Audit history drawer state (审核流转抽屉)
 const showAuditHistory = ref(false);
 const auditHistoryRows = ref<Array<any>>([]);
@@ -6380,6 +6430,11 @@ async function openBizDialog(type: string) {
     bizDialogData.currency = 'CNY';
     bizDialogData.date_from = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
     bizDialogData.date_to = new Date().toISOString().slice(0, 10);
+    bizDialogData.order_no = '';
+    // reset preview state
+    billPreviewRows.value = [];
+    billPreviewSelectedIds.value = new Set();
+    billPreviewSummary.value = {};
   } else if (type === 'quick-payment') {
     bizDialogData.customer_id = '';
     bizDialogData.currency = 'CNY';
@@ -6408,20 +6463,31 @@ async function executeBizDialog() {
   bizMessage.value = '';
   try {
     if (bizDialogType.value === 'generate-bill') {
+      // 如果已经预览, 用选中的 chargeIds; 否则走旧 dateFrom/dateTo 范围
+      const chargeIds = Array.from(billPreviewSelectedIds.value);
+      if (billPreviewRows.value.length > 0 && chargeIds.length === 0) {
+        setBizError('请至少选择一笔 charge');
+        bizLoading.value = false;
+        return;
+      }
+      const body: any = {
+        customerId: bizDialogData.customer_id,
+        currency: bizDialogData.currency || 'CNY',
+        dateFrom: bizDialogData.date_from,
+        dateTo: bizDialogData.date_to,
+      };
+      if (chargeIds.length > 0) body.chargeIds = chargeIds;
       const res = await apiFetch(`${API}/api/acc/bills/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: bizDialogData.customer_id,
-          currency: bizDialogData.currency || 'CNY',
-          dateFrom: bizDialogData.date_from,
-          dateTo: bizDialogData.date_to,
-        }),
+        body: JSON.stringify(body),
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.ok !== false) {
         bizMessage.value = `账单生成成功: ${json.invoiceNo || json.billId}, 共 ${json.lineCount} 笔, 总额 ${json.totalAmount} ${bizDialogData.currency || 'CNY'}`;
         showBizDialog.value = false;
+        billPreviewRows.value = [];  // 清预览状态
+        billPreviewSelectedIds.value = new Set();
         fetchAccData();
       } else {
         bizMessage.value = '生成失败: ' + (json.error ?? json.message ?? '未知错误');
@@ -8654,6 +8720,82 @@ async function doDisableCustomerLogin(row: any) {
               </div>
               <div class="form-field"><label>起始日期</label><input type="date" v-model="bizDialogData.date_from" /></div>
               <div class="form-field"><label>截止日期</label><input type="date" v-model="bizDialogData.date_to" /></div>
+              <div class="form-field"><label>订单号 (可选)</label><input type="text" v-model="bizDialogData.order_no" placeholder="留空 = 所有订单" /></div>
+              <div class="form-field" style="grid-column:1/-1">
+                <button type="button" class="btn-primary" @click="loadBillablePreview" :disabled="billPreviewLoading || !bizDialogData.customer_id">
+                  {{ billPreviewLoading ? '加载中...' : '🔍 预览可开账明细' }}
+                </button>
+              </div>
+              <!-- 明细预览 -->
+              <div v-if="billPreviewRows.length > 0" style="grid-column:1/-1;border:1px solid #e2e8f0;border-radius:6px;padding:12px;background:#f8fafc">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                  <div>
+                    <strong style="color:#16a34a">{{ billPreviewSummary.billableCount }} 笔可开</strong>
+                    /
+                    <span style="color:#94a3b8">{{ billPreviewSummary.billedCount }} 已开账</span>
+                    /
+                    <span style="color:#ef4444">{{ billPreviewSummary.voidedCount }} 已作废</span>
+                    /
+                    <span style="color:#f59e0b">{{ billPreviewSummary.unauditedCount }} 未审核</span>
+                  </div>
+                  <label style="font-size:12px;color:#64748b">
+                    <input type="checkbox" v-model="billPreviewShowOnlyBillable" style="vertical-align:middle" />
+                    只显示可开账
+                  </label>
+                </div>
+                <div style="max-height:300px;overflow:auto;background:#fff;border-radius:4px">
+                  <table class="data-table" style="font-size:12px">
+                    <thead style="position:sticky;top:0;background:#f1f5f9">
+                      <tr>
+                        <th style="width:36px">
+                          <input type="checkbox"
+                                 :checked="billPreviewVisibleRows.filter(r=>r.billStatus==='BILLABLE').every(r=>billPreviewSelectedIds.has(r.chargeId))"
+                                 @change="(e: any) => {
+                                   const ids = billPreviewVisibleRows.filter(r=>r.billStatus==='BILLABLE').map(r=>r.chargeId);
+                                   const s = new Set(billPreviewSelectedIds);
+                                   if (e.target.checked) ids.forEach(id => s.add(id)); else ids.forEach(id => s.delete(id));
+                                   billPreviewSelectedIds = s;
+                                 }" />
+                        </th>
+                        <th>订单号</th>
+                        <th>费用项</th>
+                        <th style="text-align:right">金额</th>
+                        <th>状态</th>
+                        <th>已开账单</th>
+                        <th>创建时间</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="r in billPreviewVisibleRows" :key="r.chargeId"
+                          :style="{ opacity: r.billStatus !== 'BILLABLE' ? 0.5 : 1, background: billPreviewSelectedIds.has(r.chargeId) ? '#dbeafe' : '' }">
+                        <td>
+                          <input type="checkbox" :disabled="r.billStatus !== 'BILLABLE'"
+                                 :checked="billPreviewSelectedIds.has(r.chargeId)"
+                                 @change="toggleBillPreviewSelect(r.chargeId)" />
+                        </td>
+                        <td><strong>{{ r.orderNo }}</strong></td>
+                        <td>{{ r.chargeItemName }}</td>
+                        <td style="text-align:right">{{ r.amount }} {{ r.currency }}</td>
+                        <td>
+                          <span v-if="r.billStatus === 'BILLABLE'" style="color:#16a34a;font-weight:600">✅ 可开</span>
+                          <span v-else-if="r.billStatus === 'BILLED'" style="color:#94a3b8">📋 已开</span>
+                          <span v-else-if="r.billStatus === 'VOIDED'" style="color:#ef4444">❌ 作废</span>
+                          <span v-else-if="r.billStatus === 'UNAUDITED'" style="color:#f59e0b">⏳ 待审</span>
+                        </td>
+                        <td><small>{{ r.invoiceNo || '-' }}</small></td>
+                        <td><small>{{ r.chargedAt }}</small></td>
+                      </tr>
+                      <tr v-if="billPreviewVisibleRows.length === 0">
+                        <td colspan="7" style="text-align:center;color:#94a3b8;padding:16px">无可显示的 charges</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style="margin-top:8px;text-align:right;font-size:13px">
+                  已选 <strong style="color:#16a34a">{{ billPreviewSelectedIds.size }}</strong> 笔 ·
+                  合计 <strong style="color:#16a34a;font-size:15px">{{ billPreviewSelectedTotal.toFixed(2) }} {{ bizDialogData.currency }}</strong>
+                </div>
+              </div>
             </template>
             <template v-if="bizDialogType === 'quick-payment'">
               <div class="form-field">
