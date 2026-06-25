@@ -54,7 +54,7 @@ public class AccSprint1RemainingController {
         try {
             String id = jdbc.queryForObject("""
                 INSERT INTO charge_items (tenant_id, code, name, category, default_side, default_uom)
-                VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?)
+                VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?::charge_side, ?::charge_uom)
                 RETURNING id::text
                 """, String.class, code, name, category, defaultSide, defaultUom);
             return Map.of("id", id, "code", code, "ok", true);
@@ -123,8 +123,9 @@ public class AccSprint1RemainingController {
         // 默认基础表 = 渠道下 AR 主表
         String baseRateCardId = null;
         try {
+            // rate_cards 用 status 不是 active
             baseRateCardId = jdbc.queryForObject(
-                "SELECT id::text FROM rate_cards WHERE channel_id = ?::uuid AND side = 'AR' AND active = true LIMIT 1",
+                "SELECT id::text FROM rate_cards WHERE channel_id = ?::uuid AND side = 'AR'::charge_side AND status = 'ACTIVE' LIMIT 1",
                 String.class, channelId);
         } catch (DataAccessException ignored) {}
         String id = jdbc.queryForObject("""
