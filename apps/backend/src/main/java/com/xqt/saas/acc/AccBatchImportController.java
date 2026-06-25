@@ -248,9 +248,12 @@ public class AccBatchImportController {
         int n = 0;
         // 显式设 tenant context (前端没自动设)
         try {
+            // 从 customers 反查 tenant (任何 customer 都行)
             String tenantId = jdbc.queryForObject(
-                "SELECT id::text FROM tenants WHERE deleted_at IS NULL LIMIT 1", String.class);
-            jdbc.execute("SELECT set_config('app.current_tenant_id', '" + tenantId + "', false)");
+                "SELECT tenant_id::text FROM customers LIMIT 1", String.class);
+            if (tenantId != null) {
+                jdbc.execute("SELECT set_config('app.current_tenant_id', '" + tenantId + "', false)");
+            }
         } catch (DataAccessException ignored) {}
         for (Map<String, Object> row : rows) {
             // 简化版: 只插 orders + 1 行 declaration 进 metadata.acc_compat
