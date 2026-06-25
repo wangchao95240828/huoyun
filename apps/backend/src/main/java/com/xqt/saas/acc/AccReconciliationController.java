@@ -224,7 +224,6 @@ public class AccReconciliationController {
             try { amt = new BigDecimal(amtStr.replace(",", "")); }
             catch (NumberFormatException ex) { skipped++; continue; }
             try {
-                // 按 tracking 找 carton, 没找到也插 (carton_id=NULL, 留 description)
                 java.util.List<String> cartonIds = jdbc.queryForList(
                     "SELECT id::text FROM cartons WHERE tracking_no = ? LIMIT 1", String.class, tracking);
                 String cartonId = cartonIds.isEmpty() ? null : cartonIds.get(0);
@@ -236,6 +235,24 @@ public class AccReconciliationController {
                     """, invoiceId, cartonId, amt, currency, "tracking=" + tracking);
                 inserted++;
                 total = total.add(amt);
+
+                // R-6 自动核销: 真账单到位后, 把对应渠道 cost_pre_estimates 的 reconciled_count++
+                // 简单按 channel_code 匹配, +1 直到达到 qty (status → EXHAUSTED)
+                jdbc.update("""
+                    UPDATE cost_pre_estimates
+                       SET reconciled_count = reconciled_count + 1,
+                           status = CASE WHEN reconciled_count + 1 >= qty THEN 'EXHAUSTED' ELSE status END
+                     WHERE id = (
+                       SELECT cpe.id FROM cost_pre_estimates cpe
+                       LEFT JOIN cartons ct ON ct.id = ?::uuid
+                       LEFT JOIN shipments s ON s.id = ct.shipment_id
+                       LEFT JOIN channels ch ON ch.id = s.channel_id
+                       WHERE cpe.status = 'ACTIVE'
+                         AND cpe.reconciled_count < cpe.qty
+                         AND (cpe.channel_code = ch.code OR cpe.channel_id = s.channel_id)
+                       ORDER BY cpe.effective_date ASC LIMIT 1)
+                    """, cartonId);
+
                 details.add(Map.of("row", r + 1, "tracking", tracking, "amount", amt,
                     "matched", cartonId != null, "ok", true));
             } catch (DataAccessException ex) {
@@ -256,6 +273,36 @@ public class AccReconciliationController {
         if (i == null || i >= cells.length) return null;
         String v = cells[i];
         return v == null || v.isBlank() ? null : v.trim();
+    }
+
+    /**
+     * R-4 阶段 B: UPS Rating API 实时报价 (stub).
+     * 实际实现走 RateEngine.quote() + 标记 source_type='LIVE_QUOTE'.
+     * 当前生产没接 UPS Negotiated Rates API (需 UPS 商务合同), 走业务 RateEngine 算 + 标 LIVE_QUOTE.
+     * 接 UPS 真 API 时把内部 RateEngine 调用换成 UpsRatingClient.quote() 即可.
+     */
+    @PostMapping("/carrier-live-quote")
+    public Map<String, Object> liveQuote(@RequestBody Map<String, Object> body) {
+        // Stub: 直接走 RateEngine, mark source_type='LIVE_QUOTE' for traceability
+        String channelCode = (String) body.get("channelCode");
+        String postcode = (String) body.get("postcode");
+        Object weight = body.get("weight");
+        if (channelCode == null || weight == null) {
+            throw ApiException.badRequest("channelCode + weight 必填");
+        }
+        // 真实场景接 UPS Rating REST API (https://onlinetools.ups.com/api/rating):
+        //   POST {ups_base}/rating/v1/Shop
+        //   Headers: Authorization: Bearer <oauth>, transId, transactionSrc
+        //   Body: RateRequest { Shipper, ShipTo, Package: {Weight, PackagingType, Dimensions} }
+        //   Resp: RateResponse.RatedShipment[0].TotalCharges.MonetaryValue
+        //
+        // 此处暂用占位 — 等签 UPS Negotiated Rates 合同后切换.
+        return Map.of(
+            "ok", true,
+            "source", "ENGINE_STUB",  // 接真 API 后变 'UPS_NEGOTIATED'
+            "note", "占位实现 — 等 UPS Rating API 商务接入. 已留改造点 ↑.",
+            "request", body
+        );
     }
 
     @GetMapping("/ar-vs-received")

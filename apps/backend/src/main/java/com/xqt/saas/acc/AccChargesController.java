@@ -157,6 +157,9 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                   ch.audit_name,
                   ch.source_type,                  -- R-11
                   ch.source_charge_id::text AS source_charge_id,  -- R-9
+                  -- R-9 补收/回退聚合 (针对每个 charge, 反查它被多少笔 delta 补收过)
+                  coalesce((SELECT sum(amount) FROM charges WHERE source_charge_id = ch.id AND amount > 0 AND status::text <> 'VOID'), 0) AS restate_added,
+                  coalesce((SELECT sum(-amount) FROM charges WHERE source_charge_id = ch.id AND amount < 0 AND status::text <> 'VOID'), 0) AS restate_returned,
                   s.shipment_no,
                   s.customer_ref,
                   s.destination_country,
@@ -488,6 +491,8 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
         // R-11 / R-9 状态来源 + 源 charge
         out.put("source_type", row.get("source_type"));
         out.put("source_charge_id", row.get("source_charge_id"));
+        out.put("restate_added", row.get("restate_added"));       // R-9 补收金额
+        out.put("restate_returned", row.get("restate_returned")); // R-9 回退金额
         return out;
     }
 }

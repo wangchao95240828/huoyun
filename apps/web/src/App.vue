@@ -1676,8 +1676,9 @@ Object.assign(accColumns, {
     { key: "type", label: "类型" },
     { key: "amount", label: "应收金额", fmt: "money" },
     { key: "paid", label: "实收金额", fmt: "money" },
-    { key: "source_type", label: "来源" },           // R-11 状态来源 (ESTIMATE/MANUAL/RESTATE...)
-    { key: "source_charge_id", label: "源 charge" }, // R-9 补收/回退关联
+    { key: "source_type", label: "来源", fmt: "source_badge" },  // R-11 状态来源 badge
+    { key: "restate_added", label: "补收 +", fmt: "money" },      // R-9 补收聚合
+    { key: "restate_returned", label: "回退 -", fmt: "money" },   // R-9 回退聚合
     { key: "theDate", label: "日期" },
     { key: "auditName", label: "审核人" },
   ],
@@ -3782,6 +3783,16 @@ function toggleLang() {
   localStorage.setItem('xqt.lang', useEnglish.value ? 'en' : 'zh');
 }
 
+// R-11 source_type 配色 badge — 不同来源不同颜色
+const SOURCE_BADGE: Record<string, { color: string; bg: string; emoji: string }> = {
+  ESTIMATE:     { color: '#0369a1', bg: '#dbeafe', emoji: '🤖' }, // 系统预估 蓝
+  MANUAL:       { color: '#16a34a', bg: '#dcfce7', emoji: '✋' }, // 手动添加 绿
+  INVOICE:      { color: '#7e22ce', bg: '#f3e8ff', emoji: '📄' }, // 真账单 紫
+  LIVE_QUOTE:   { color: '#ea580c', bg: '#ffedd5', emoji: '⚡' }, // 实时报价 橙
+  RESTATE:      { color: '#f59e0b', bg: '#fef3c7', emoji: '🔁' }, // 补收差值 黄
+  BATCH_IMPORT: { color: '#0891b2', bg: '#cffafe', emoji: '📥' }, // 批量导入 青
+};
+
 function fmtCell(value: any, format?: string): string {
   if (value === null || value === undefined) return "-";
   if (format === "money") return "¥" + fmt(Number(value));
@@ -3792,6 +3803,15 @@ function fmtCell(value: any, format?: string): string {
   }
   if (format === "bool") return value ? (useEnglish.value ? 'Yes' : '是') : (useEnglish.value ? 'No' : '否');
   if (format === "date" && typeof value === "string") return value.slice(0, 19).replace("T", " ");
+  // R-11 source_badge: 不翻 emoji, 但翻文本, 模板用 v-html 渲染
+  if (format === "source_badge" && typeof value === "string") {
+    const b = SOURCE_BADGE[value];
+    if (b) {
+      const text = i18n(value);
+      return `${b.emoji} ${text}`;
+    }
+    return i18n(value);
+  }
   // i18n: 检查 enum 映射, 命中就翻译, 否则原样
   if (typeof value === 'string' && ENUM_ZH[value]) {
     return i18n(value);

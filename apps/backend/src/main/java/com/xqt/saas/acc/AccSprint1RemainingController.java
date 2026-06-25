@@ -42,6 +42,8 @@ public class AccSprint1RemainingController {
     }
 
     @PostMapping("/api/acc/charge-items")
+    @org.springframework.security.access.prepost.PreAuthorize(
+        "hasAnyAuthority('finance.charge_item.write', 'ROLE_ADMIN', 'ROLE_FINANCE_MANAGER')")
     public Map<String, Object> createChargeItem(@RequestBody Map<String, Object> body) {
         String code = str(body.get("code"));
         String name = str(body.get("name"));
@@ -70,6 +72,8 @@ public class AccSprint1RemainingController {
     }
 
     @DeleteMapping("/api/acc/charge-items/{id}")
+    @org.springframework.security.access.prepost.PreAuthorize(
+        "hasAnyAuthority('finance.charge_item.write', 'ROLE_ADMIN', 'ROLE_FINANCE_MANAGER')")
     public Map<String, Object> deleteChargeItem(@PathVariable String id) {
         Integer using = jdbc.queryForObject(
             "SELECT count(*) FROM charges WHERE charge_item_id = ?::uuid", Integer.class, id);

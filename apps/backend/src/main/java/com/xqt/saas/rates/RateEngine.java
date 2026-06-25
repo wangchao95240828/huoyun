@@ -177,6 +177,36 @@ public class RateEngine {
         // ─── 多段计费 ───
         BigDecimal freight = calculateFreight(tier, chargeable, request.pieces(), request.volumeCbm());
 
+        // ─── R-12: 应用客户价格策略 (基价 × 佣金率) ───
+        // customer_rate_strategies 命中时, freight = base_freight × commission_rate
+        // floor_amount 兜底确保不低于成本
+        if (request.customerId() != null) {
+            try {
+                Map<String, Object> strategy = jdbc.queryForMap("""
+                    SELECT commission_rate, floor_amount
+                      FROM customer_rate_strategies
+                     WHERE customer_id = ?::uuid AND channel_id = ?::uuid
+                       AND active = true
+                       AND (effective_to IS NULL OR effective_to >= now())
+                       AND effective_from <= now()
+                     ORDER BY effective_from DESC LIMIT 1
+                    """, request.customerId(), channelId);
+                BigDecimal rate = toBigDecimal(strategy.get("commission_rate"));
+                BigDecimal floor = toBigDecimal(strategy.get("floor_amount"));
+                if (rate != null && rate.signum() > 0) {
+                    BigDecimal adjusted = freight.multiply(rate).setScale(MONEY_SCALE, RoundingMode.HALF_UP);
+                    if (floor != null && floor.signum() > 0 && adjusted.compareTo(floor) < 0) {
+                        adjusted = floor;
+                    }
+                    freight = adjusted;
+                }
+            } catch (org.springframework.dao.EmptyResultDataAccessException ignored) {
+                // 没策略, 走基价
+            } catch (org.springframework.dao.DataAccessException ignored) {
+                // 表不存在等极端情况, 走基价
+            }
+        }
+
         // ─── 燃油 ───
         String yearMonth = request.chargeDate().format(YEAR_MONTH);
         BigDecimal fuelRate = repository.findFuelRate(tenantId, channelId, yearMonth);
