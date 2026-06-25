@@ -105,18 +105,30 @@ public class AccBillExportController {
             ORDER BY o.created_at
             """, id, id);
 
-        // 货件明细 (装箱单 / 申报)
+        // 货件明细 (装箱单 / 申报) — DISTINCT order 避免多笔 charges 笛卡尔积重复
         List<Map<String, Object>> detailRows = jdbc.queryForList("""
+            WITH billed_orders AS (
+              SELECT DISTINCT o.id AS order_id, o.order_no, o.created_at,
+                     o.metadata, s.id AS shipment_id, s.destination_country,
+                     cu.name AS customer_name, ch_name.name AS channel_name
+                FROM customer_invoice_lines cil
+                JOIN charges ch ON ch.id = cil.charge_id
+                JOIN orders o ON o.id = ch.order_id
+                JOIN shipments s ON s.id = ch.shipment_id
+                JOIN customers cu ON cu.id = ch.customer_id
+                LEFT JOIN channels ch_name ON ch_name.id = s.channel_id
+               WHERE cil.invoice_id = ?::uuid
+            )
             SELECT
-              o.order_no                                         AS company_order_no,
-              o.created_at::date                                 AS the_date,
-              cu.name                                            AS customer_name,
+              bo.order_no                                        AS company_order_no,
+              bo.created_at::date                                AS the_date,
+              bo.customer_name                                   AS customer_name,
               ct.tracking_no                                     AS tracking_no,
-              ch_name.name                                       AS channel_name,
-              s.destination_country                              AS country,
-              o.metadata #>> '{acc_compat,receiver,address}'     AS address,
-              o.metadata #>> '{acc_compat,receiver,name}'        AS recipient,
-              o.metadata #>> '{acc_compat,receiver,postcode}'    AS postcode,
+              bo.channel_name                                    AS channel_name,
+              bo.destination_country                             AS country,
+              bo.metadata #>> '{acc_compat,receiver,address}'    AS address,
+              bo.metadata #>> '{acc_compat,receiver,name}'       AS recipient,
+              bo.metadata #>> '{acc_compat,receiver,postcode}'   AS postcode,
               pkg.no                                             AS pkg_no,
               (pkg.weight)::numeric                              AS pkg_weight,
               (pkg.length)::numeric                              AS pkg_length,
@@ -128,19 +140,14 @@ public class AccBillExportController {
               pkg.quantity                                       AS quantity,
               pkg.price                                          AS price,
               pkg.material                                       AS material
-            FROM customer_invoice_lines cil
-            JOIN charges ch ON ch.id = cil.charge_id
-            JOIN orders o ON o.id = ch.order_id
-            JOIN shipments s ON s.id = ch.shipment_id
-            JOIN customers cu ON cu.id = ch.customer_id
-            LEFT JOIN channels ch_name ON ch_name.id = s.channel_id
-            LEFT JOIN cartons ct ON ct.shipment_id = s.id
+            FROM billed_orders bo
+            LEFT JOIN cartons ct ON ct.shipment_id = bo.shipment_id
             LEFT JOIN LATERAL jsonb_to_recordset(
-              o.metadata #> '{acc_compat,packageList}'
+              bo.metadata #> '{acc_compat,packageList}'
             ) AS pkg(no text, name text, cnName text, weight text, length text, width text, height text,
                      hsCode text, quantity text, price text, material text) ON true
-            WHERE cil.invoice_id = ?::uuid AND pkg.no IS NOT NULL
-            ORDER BY o.created_at, pkg.no
+            WHERE pkg.no IS NOT NULL
+            ORDER BY bo.created_at, pkg.no
             """, id);
 
         // 用 POI 生成 xlsx
