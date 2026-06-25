@@ -175,37 +175,40 @@ public class AccBatchImportController {
     private List<Map<String, Object>> readXlsx(MultipartFile file) {
         if (file == null || file.isEmpty()) throw ApiException.badRequest("file 必填");
         String name = file.getOriginalFilename();
-        if (name == null || (!name.endsWith(".xlsx") && !name.endsWith(".xls"))) {
+        if (name == null || (!name.toLowerCase().endsWith(".xlsx") && !name.toLowerCase().endsWith(".xls"))) {
             throw ApiException.badRequest("仅支持 .xlsx / .xls 文件");
         }
-        List<Map<String, Object>> rows = new ArrayList<>();
+        // EasyExcel 3.x ReadListener 不暴露 invokeHeadMap, 用第一行手动当 headers
+        List<String[]> raw = new ArrayList<>();
         try {
             EasyExcel.read(file.getInputStream(), new ReadListener<Map<Integer, String>>() {
-                List<String> headers;
-                @Override
-                public void invokeHeadMap(Map<Integer, String> headerMap, AnalysisContext ctx) {
-                    headers = new ArrayList<>();
-                    for (int i = 0; i < headerMap.size(); i++) {
-                        String h = headerMap.get(i);
-                        headers.add(h == null ? ("col" + i) : h.trim().toLowerCase());
-                    }
-                }
                 @Override
                 public void invoke(Map<Integer, String> data, AnalysisContext ctx) {
-                    Map<String, Object> row = new LinkedHashMap<>();
-                    for (int i = 0; i < headers.size(); i++) {
-                        String v = data.get(i);
-                        row.put(headers.get(i), v == null ? null : v.trim());
-                    }
-                    rows.add(row);
+                    String[] cells = new String[data.size()];
+                    for (int i = 0; i < cells.length; i++) cells[i] = data.getOrDefault(i, "");
+                    raw.add(cells);
                 }
-                @Override
-                public void doAfterAllAnalysed(AnalysisContext ctx) {}
-            }).sheet().headRowNumber(1).doRead();
+                @Override public void doAfterAllAnalysed(AnalysisContext ctx) {}
+            }).sheet().headRowNumber(0).doRead();  // headRowNumber=0 让 invoke 第一行也进
         } catch (IOException ex) {
             throw ApiException.badRequest("xlsx 读取失败: " + ex.getMessage());
         }
-        if (rows.isEmpty()) throw ApiException.badRequest("xlsx 无数据行");
+        if (raw.size() < 2) throw ApiException.badRequest("xlsx 至少需要 header + 1 行数据");
+
+        String[] headers = raw.get(0);
+        for (int i = 0; i < headers.length; i++) {
+            headers[i] = headers[i] == null ? "col" + i : headers[i].trim().toLowerCase();
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int r = 1; r < raw.size(); r++) {
+            String[] cells = raw.get(r);
+            Map<String, Object> row = new LinkedHashMap<>();
+            for (int i = 0; i < headers.length; i++) {
+                String v = i < cells.length ? cells[i] : null;
+                row.put(headers[i], v == null ? null : v.trim());
+            }
+            rows.add(row);
+        }
         return rows;
     }
 
