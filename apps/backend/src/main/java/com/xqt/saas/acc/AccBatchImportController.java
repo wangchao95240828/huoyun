@@ -286,7 +286,7 @@ public class AccBatchImportController {
                     INSERT INTO orders (tenant_id, customer_id, order_no, status, metadata, source)
                     VALUES (
                       current_setting('app.current_tenant_id')::uuid,
-                      (SELECT id FROM customers WHERE code = ? LIMIT 1), ?, 'DRAFT', ?::jsonb, 'BATCH_IMPORT'
+                      (SELECT id FROM customers WHERE code = ? LIMIT 1), ?, 'DRAFT', ?::jsonb, 'IMPORT'
                     )
                     """, row.get("customer_code"), orderNo, json.toJson(meta));
                 n++;
