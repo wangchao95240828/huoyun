@@ -742,6 +742,7 @@ interface FormField {
   required?: boolean;
   opts?: Array<{ v: number | string; l: string }>;
   ref?: string;
+  options?: Array<{ id: string; name: string }>;  // 用于 select 的 inline 选项 (不走 selectOptions)
 }
 
 const showForm = ref(false);
