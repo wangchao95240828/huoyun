@@ -81,6 +81,14 @@ public class AccBatchImportController {
         if (commit && !validRows.isEmpty()) {
             int inserted = doInsertOrders(validRows);
             result.put("inserted", inserted);
+            // 收集 insert 失败原因
+            List<Map<String, Object>> insertFails = validRows.stream()
+                .filter(r -> r.containsKey("_insertError"))
+                .map(r -> Map.<String, Object>of(
+                    "customer_code", r.get("customer_code"),
+                    "error", r.get("_insertError")))
+                .toList();
+            if (!insertFails.isEmpty()) result.put("insertFails", insertFails);
         } else {
             result.put("inserted", 0);
             result.put("note", commit ? "无有效行可插入" : "preview only — 设 commit=true 才真插入");
@@ -120,18 +128,24 @@ public class AccBatchImportController {
             // 找原 freight charge (走 cartons.carrier_tracking_no → shipment → charges)
             Map<String, Object> origCharge;
             try {
-                origCharge = jdbc.queryForMap("""
+                java.util.List<Map<String, Object>> matchRows = jdbc.queryForList("""
                     SELECT ch.id::text AS id, ch.amount, ch.currency, ch.shipment_id::text AS shipment_id,
                            ch.charge_item_id::text AS charge_item_id, ch.customer_id::text AS customer_id,
                            ch.order_id::text AS order_id
                       FROM charges ch
                       JOIN cartons c ON c.shipment_id = ch.shipment_id
                       JOIN charge_items ci ON ci.id = ch.charge_item_id
-                     WHERE c.carrier_tracking_no = ?
+                     WHERE c.tracking_no = ?
                        AND ch.side = 'AR' AND ci.category = 'FREIGHT'
                        AND ch.status::text <> 'VOID'
                      ORDER BY ch.created_at DESC LIMIT 1
                     """, trackingNo);
+                if (matchRows.isEmpty()) {
+                    details.add(Map.of("row", i + 2, "skip", "找不到 tracking_no=" + trackingNo + " 的运费 charge"));
+                    skipped++;
+                    continue;
+                }
+                origCharge = matchRows.get(0);
             } catch (DataAccessException ex) {
                 details.add(Map.of("row", i + 2, "skip", "找不到 tracking_no=" + trackingNo + " 的运费 charge"));
                 skipped++;
@@ -232,6 +246,12 @@ public class AccBatchImportController {
 
     private int doInsertOrders(List<Map<String, Object>> rows) {
         int n = 0;
+        // 显式设 tenant context (前端没自动设)
+        try {
+            String tenantId = jdbc.queryForObject(
+                "SELECT id::text FROM tenants WHERE deleted_at IS NULL LIMIT 1", String.class);
+            jdbc.execute("SELECT set_config('app.current_tenant_id', '" + tenantId + "', false)");
+        } catch (DataAccessException ignored) {}
         for (Map<String, Object> row : rows) {
             // 简化版: 只插 orders + 1 行 declaration 进 metadata.acc_compat
             String orderNo = "BATCH-" + System.currentTimeMillis() + "-" + n;
@@ -263,12 +283,13 @@ public class AccBatchImportController {
                     INSERT INTO orders (tenant_id, customer_id, order_no, status, metadata, source)
                     VALUES (
                       current_setting('app.current_tenant_id')::uuid,
-                      (SELECT id FROM customers WHERE code = ?), ?, 'DRAFT', ?::jsonb, 'BATCH_IMPORT'
+                      (SELECT id FROM customers WHERE code = ? LIMIT 1), ?, 'DRAFT', ?::jsonb, 'BATCH_IMPORT'
                     )
                     """, row.get("customer_code"), orderNo, json.toJson(meta));
                 n++;
             } catch (DataAccessException ex) {
-                // skip failed row
+                // 留行级错误到 row, 后续可返给用户
+                row.put("_insertError", ex.getMessage());
             }
         }
         return n;
