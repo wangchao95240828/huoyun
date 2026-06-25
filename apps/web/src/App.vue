@@ -4001,57 +4001,57 @@ const emptyDeclareRow = () => ({ name: '', cnName: '', origin: '', quantity: 1, 
 // 用户在数据管理 → 海关编码加入的自定义会通过 fetchHsCodes() 合并展示.
 type HsCodeOpt = { code: string; nameCN: string; nameEN: string; cats?: string[] };
 const HS_CODE_DEFAULTS: HsCodeOpt[] = [
-  // 电子类
-  { code: '8517.12', nameCN: '手机', nameEN: 'Mobile phone', cats: ['手机','phone','iphone','samsung'] },
-  { code: '8517.62', nameCN: '网络通讯设备', nameEN: 'Networking device', cats: ['路由器','router','wifi','交换机'] },
-  { code: '8528.72', nameCN: '电视/显示器', nameEN: 'TV/Monitor', cats: ['电视','monitor','显示器','tv'] },
-  { code: '8504.40', nameCN: '电源适配器', nameEN: 'Power adapter', cats: ['充电器','adapter','充电头','charger'] },
-  { code: '8471.41', nameCN: '便携计算机', nameEN: 'Laptop computer', cats: ['笔记本','laptop','电脑','macbook'] },
-  { code: '8473.30', nameCN: '电脑配件', nameEN: 'Computer accessory', cats: ['键盘','鼠标','keyboard','mouse'] },
-  { code: '8518.30', nameCN: '耳机/耳麦', nameEN: 'Headphones', cats: ['耳机','earphone','headphone','airpods'] },
-  { code: '8523.41', nameCN: 'U盘/存储卡', nameEN: 'USB drive/Memory card', cats: ['u盘','usb','tf','sd'] },
-  { code: '8525.80', nameCN: '摄像头/相机', nameEN: 'Camera', cats: ['相机','摄像','camera','摄像头'] },
+  // 电子类 — 全部 10 位纯数字 (ACC 海关要求)
+  { code: '8517120000', nameCN: '手机', nameEN: 'Mobile phone', cats: ['手机','phone','iphone','samsung'] },
+  { code: '8517620000', nameCN: '网络通讯设备', nameEN: 'Networking device', cats: ['路由器','router','wifi','交换机'] },
+  { code: '8528720000', nameCN: '电视/显示器', nameEN: 'TV/Monitor', cats: ['电视','monitor','显示器','tv'] },
+  { code: '8504400000', nameCN: '电源适配器', nameEN: 'Power adapter', cats: ['充电器','adapter','充电头','charger'] },
+  { code: '8471410000', nameCN: '便携计算机', nameEN: 'Laptop computer', cats: ['笔记本','laptop','电脑','macbook'] },
+  { code: '8473300000', nameCN: '电脑配件', nameEN: 'Computer accessory', cats: ['键盘','鼠标','keyboard','mouse'] },
+  { code: '8518300000', nameCN: '耳机/耳麦', nameEN: 'Headphones', cats: ['耳机','earphone','headphone','airpods'] },
+  { code: '8523410000', nameCN: 'U盘/存储卡', nameEN: 'USB drive/Memory card', cats: ['u盘','usb','tf','sd'] },
+  { code: '8525800000', nameCN: '摄像头/相机', nameEN: 'Camera', cats: ['相机','摄像','camera','摄像头'] },
   // 服装鞋帽包
-  { code: '6109.10', nameCN: '棉制T恤衫', nameEN: 'Cotton T-shirt', cats: ['t恤','tshirt','t-shirt','短袖'] },
-  { code: '6203.42', nameCN: '棉制男裤', nameEN: 'Cotton trousers (men)', cats: ['裤子','trousers','pants','jeans','牛仔裤'] },
-  { code: '6204.62', nameCN: '棉制女裤/裙', nameEN: 'Cotton trousers/skirt (women)', cats: ['女裤','skirt','裙'] },
-  { code: '6403.99', nameCN: '皮面鞋', nameEN: 'Leather shoes', cats: ['鞋','shoes','皮鞋','sneaker'] },
-  { code: '6402.99', nameCN: '塑料/橡胶鞋', nameEN: 'Plastic/rubber shoes', cats: ['运动鞋','拖鞋','sandals','slippers'] },
-  { code: '4202.92', nameCN: '塑料/纺织包', nameEN: 'Bag (plastic/textile)', cats: ['包','bag','背包','backpack'] },
-  { code: '4202.21', nameCN: '皮质手提包', nameEN: 'Leather handbag', cats: ['手提包','handbag','钱包','wallet'] },
+  { code: '6109100000', nameCN: '棉制T恤衫', nameEN: 'Cotton T-shirt', cats: ['t恤','tshirt','t-shirt','短袖'] },
+  { code: '6203420000', nameCN: '棉制男裤', nameEN: 'Cotton trousers (men)', cats: ['裤子','trousers','pants','jeans','牛仔裤'] },
+  { code: '6204620000', nameCN: '棉制女裤/裙', nameEN: 'Cotton trousers/skirt (women)', cats: ['女裤','skirt','裙'] },
+  { code: '6403990000', nameCN: '皮面鞋', nameEN: 'Leather shoes', cats: ['鞋','shoes','皮鞋','sneaker'] },
+  { code: '6402990000', nameCN: '塑料/橡胶鞋', nameEN: 'Plastic/rubber shoes', cats: ['运动鞋','拖鞋','sandals','slippers'] },
+  { code: '4202920000', nameCN: '塑料/纺织包', nameEN: 'Bag (plastic/textile)', cats: ['包','bag','背包','backpack'] },
+  { code: '4202210000', nameCN: '皮质手提包', nameEN: 'Leather handbag', cats: ['手提包','handbag','钱包','wallet'] },
   // 家居家纺灯具
-  { code: '9403.60', nameCN: '木制家具', nameEN: 'Wooden furniture', cats: ['家具','furniture','椅子','桌子','chair','table'] },
-  { code: '9405.20', nameCN: '台灯/桌灯', nameEN: 'Desk/Table lamp', cats: ['台灯','灯','lamp','light'] },
-  { code: '6302.21', nameCN: '棉制床上用品', nameEN: 'Cotton bedding', cats: ['床品','床单','被套','bedding','sheet'] },
-  { code: '7013.49', nameCN: '玻璃餐具', nameEN: 'Glass tableware', cats: ['玻璃杯','glass','cup','酒杯'] },
-  { code: '7323.93', nameCN: '不锈钢厨具', nameEN: 'Stainless steel kitchenware', cats: ['锅','pot','pan','厨具'] },
+  { code: '9403600000', nameCN: '木制家具', nameEN: 'Wooden furniture', cats: ['家具','furniture','椅子','桌子','chair','table'] },
+  { code: '9405200000', nameCN: '台灯/桌灯', nameEN: 'Desk/Table lamp', cats: ['台灯','灯','lamp','light'] },
+  { code: '6302210000', nameCN: '棉制床上用品', nameEN: 'Cotton bedding', cats: ['床品','床单','被套','bedding','sheet'] },
+  { code: '7013490000', nameCN: '玻璃餐具', nameEN: 'Glass tableware', cats: ['玻璃杯','glass','cup','酒杯'] },
+  { code: '7323930000', nameCN: '不锈钢厨具', nameEN: 'Stainless steel kitchenware', cats: ['锅','pot','pan','厨具'] },
   // 玩具母婴
-  { code: '9503.00', nameCN: '玩具', nameEN: 'Toys', cats: ['玩具','toy','积木','lego','娃娃','doll'] },
-  { code: '9504.30', nameCN: '游戏机/桌游', nameEN: 'Game console/board game', cats: ['游戏机','console','棋牌','game'] },
-  { code: '9619.00', nameCN: '尿不湿/卫生用品', nameEN: 'Sanitary/diaper', cats: ['尿不湿','diaper','卫生巾','pads'] },
+  { code: '9503000000', nameCN: '玩具', nameEN: 'Toys', cats: ['玩具','toy','积木','lego','娃娃','doll'] },
+  { code: '9504300000', nameCN: '游戏机/桌游', nameEN: 'Game console/board game', cats: ['游戏机','console','棋牌','game'] },
+  { code: '9619000000', nameCN: '尿不湿/卫生用品', nameEN: 'Sanitary/diaper', cats: ['尿不湿','diaper','卫生巾','pads'] },
   // 化妆品/个护
-  { code: '3304.99', nameCN: '化妆品/护肤品', nameEN: 'Cosmetics/skincare', cats: ['化妆品','面膜','cream','护肤','口红','lipstick'] },
-  { code: '3305.10', nameCN: '洗发水', nameEN: 'Shampoo', cats: ['洗发水','shampoo'] },
-  { code: '8214.20', nameCN: '美容工具', nameEN: 'Beauty tool', cats: ['美甲','美容','tweezer','刀片'] },
+  { code: '3304990000', nameCN: '化妆品/护肤品', nameEN: 'Cosmetics/skincare', cats: ['化妆品','面膜','cream','护肤','口红','lipstick'] },
+  { code: '3305100000', nameCN: '洗发水', nameEN: 'Shampoo', cats: ['洗发水','shampoo'] },
+  { code: '8214200000', nameCN: '美容工具', nameEN: 'Beauty tool', cats: ['美甲','美容','tweezer','刀片'] },
   // 工具五金
-  { code: '8205.59', nameCN: '手工具', nameEN: 'Hand tool', cats: ['工具','tool','螺丝刀','wrench','扳手'] },
-  { code: '8467.21', nameCN: '电钻', nameEN: 'Electric drill', cats: ['电钻','drill','螺丝枪'] },
+  { code: '8205590000', nameCN: '手工具', nameEN: 'Hand tool', cats: ['工具','tool','螺丝刀','wrench','扳手'] },
+  { code: '8467210000', nameCN: '电钻', nameEN: 'Electric drill', cats: ['电钻','drill','螺丝枪'] },
   // 文具/办公
-  { code: '4820.10', nameCN: '笔记本/账本', nameEN: 'Notebook (paper)', cats: ['笔记本','本子','notebook','日记本'] },
-  { code: '9608.10', nameCN: '圆珠笔', nameEN: 'Ballpoint pen', cats: ['笔','pen','圆珠笔','签字笔'] },
+  { code: '4820100000', nameCN: '笔记本/账本', nameEN: 'Notebook (paper)', cats: ['笔记本','本子','notebook','日记本'] },
+  { code: '9608100000', nameCN: '圆珠笔', nameEN: 'Ballpoint pen', cats: ['笔','pen','圆珠笔','签字笔'] },
   // 户外运动
-  { code: '9506.91', nameCN: '健身器材', nameEN: 'Fitness equipment', cats: ['健身','dumbbell','哑铃','yoga','瑜伽'] },
-  { code: '9506.62', nameCN: '球类', nameEN: 'Ball (sports)', cats: ['足球','篮球','ball','football','basketball'] },
+  { code: '9506910000', nameCN: '健身器材', nameEN: 'Fitness equipment', cats: ['健身','dumbbell','哑铃','yoga','瑜伽'] },
+  { code: '9506620000', nameCN: '球类', nameEN: 'Ball (sports)', cats: ['足球','篮球','ball','football','basketball'] },
   // 食品 (注:多数国家电商不允许)
-  { code: '0901.21', nameCN: '烘焙咖啡', nameEN: 'Roasted coffee', cats: ['咖啡','coffee'] },
-  { code: '2103.90', nameCN: '调味品/酱料', nameEN: 'Sauce/seasoning', cats: ['酱料','sauce','调料'] },
+  { code: '0901210000', nameCN: '烘焙咖啡', nameEN: 'Roasted coffee', cats: ['咖啡','coffee'] },
+  { code: '2103900000', nameCN: '调味品/酱料', nameEN: 'Sauce/seasoning', cats: ['酱料','sauce','调料'] },
   // 礼品/工艺品
-  { code: '9404.90', nameCN: '寝具/枕头', nameEN: 'Pillow/cushion', cats: ['枕头','pillow','靠垫','cushion'] },
-  { code: '7117.19', nameCN: '仿造首饰', nameEN: 'Imitation jewelry', cats: ['饰品','jewelry','项链','necklace','戒指','ring','耳环'] },
+  { code: '9404900000', nameCN: '寝具/枕头', nameEN: 'Pillow/cushion', cats: ['枕头','pillow','靠垫','cushion'] },
+  { code: '7117190000', nameCN: '仿造首饰', nameEN: 'Imitation jewelry', cats: ['饰品','jewelry','项链','necklace','戒指','ring','耳环'] },
   // 汽车/摩托配件
-  { code: '8708.99', nameCN: '汽车零件', nameEN: 'Auto parts', cats: ['车','car','汽车','auto'] },
+  { code: '8708990000', nameCN: '汽车零件', nameEN: 'Auto parts', cats: ['车','car','汽车','auto'] },
   // 通用兜底
-  { code: '9999.99', nameCN: '其他物品', nameEN: 'Other goods', cats: [] },
+  { code: '9999990000', nameCN: '其他物品', nameEN: 'Other goods', cats: [] },
 ];
 // fetched 后端自定义 HS code, 优先合并到推荐
 const hsCodesFetched = ref<HsCodeOpt[]>([]);
