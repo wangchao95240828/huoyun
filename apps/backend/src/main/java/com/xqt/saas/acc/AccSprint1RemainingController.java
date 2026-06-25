@@ -54,7 +54,7 @@ public class AccSprint1RemainingController {
         try {
             String id = jdbc.queryForObject("""
                 INSERT INTO charge_items (tenant_id, code, name, category, default_side, default_uom)
-                VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?::charge_side, ?::charge_uom)
+                VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?::charge_side, ?::billing_uom)
                 RETURNING id::text
                 """, String.class, code, name, category, defaultSide, defaultUom);
             return Map.of("id", id, "code", code, "ok", true);
