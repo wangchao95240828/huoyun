@@ -342,19 +342,139 @@ POST /api/customer-api/orders/{no}/cancel
 
 ---
 
-## 五、批量上传清单 (xlsx)
+## 五、批量上传清单 (xlsx) ⭐
 
-对接 SDK 走不通时, 客户可以上传 xlsx 批量建单 (走运营端入口):
+客户可以直接调 API 上传清单文件, 一次创建多个订单, **用自己的 API key 认证, 不需要走运营端**。
+
+### 5.1 接口
 
 ```
-POST /api/acc/batch-import/orders   (multipart, admin/客服 token)
+POST /api/customer-api/orders/import-xlsx
+Content-Type: multipart/form-data
+Headers: X-API-User / X-API-Time / X-API-Version / X-API-Sign  (跟普通签名一样)
+Form:
+  file:    <清单.xlsx>       (必填)
+  commit:  true / false      (可选, 默认 true)
+                              false = 预览校验, 不真插
+                              true  = 真插入 DRAFT 订单
 ```
 
-xlsx 表头 (中文/英文均可):
+### 5.2 xlsx 表头 (中英文都识别)
 
-| 客户编码 | 渠道产品 | 制单账号 | 重量(kg) | 国家 | 邮编 | 地址 | 收件人 | 电话 | 申报品名 | 数量 | 单价 | HS编码 |
+| 中文 | 英文 | 必填 | 说明 |
+|---|---|---|---|
+| 客户单号 | no | 否 | 留空自动生成 |
+| 渠道产品 | product | ✅ | 渠道代码 |
+| 重量(kg) | weight | ✅ | > 0 |
+| 件数 | piece | 否 | 默认 1 |
+| 材积 | volume | 否 | m³ |
+| 国家 | country | ✅ | ISO 二字码 (US/CN) |
+| 邮编 | postcode | ✅ | 美国 5 位 |
+| 地址 | address | ✅ | |
+| 收件人 | name | ✅ | |
+| 电话 | phone | ✅ | ≥ 10 位 |
+| 公司 | company | 否 | |
+| 城市 | city | 否 | |
+| 省/州 | province | 否 | |
+| 英文品名 | declare_name | ✅ | |
+| 中文品名 | declare_name_cn | 否 | |
+| 产地 | origin | 否 | 默认 CN |
+| 数量 | declare_qty | ✅ | |
+| 单价 | declare_price | ✅ | |
+| HS编码 | hs_code | ✅ | 6-10 位纯数字 |
+| 装箱号 | pkg_no | 否 | 默认 PKG-1 |
+| 长 / 宽 / 高 (cm) | length / width / height | 否 | |
+| 币种 | currency | 否 | 默认 USD |
 
-详见 `批量导单模板.xlsx`。
+### 5.3 返回
+
+```json
+{
+  "ok": true,
+  "data": {
+    "item": {
+      "total": 100,
+      "ok": 95,
+      "failed": 5,
+      "committed": true,
+      "results": [
+        {"row": 2, "orderNo": "MY-ORDER-001", "orderId": "uuid"},
+        {"row": 3, "orderNo": "MY-ORDER-002", "orderId": "uuid"}
+      ],
+      "errors": [
+        {"row": 4, "errors": ["hs_code 必须 6-10 位纯数字"], "raw": {...}},
+        {"row": 7, "errors": ["country 必须 ISO 二字码"], "raw": {...}}
+      ]
+    }
+  }
+}
+```
+
+### 5.4 Python 调用示例
+
+```python
+import os, time, hashlib, requests
+
+def upload_manifest(client, xlsx_path: str, commit: bool = True):
+    body = b''  # multipart 用空 body 签名
+    body_hash = hashlib.sha256(body).hexdigest()
+    ts = str(int(time.time()))
+    joined = ','.join([body_hash, ts, client.key, '1'])
+    sign = hashlib.md5((joined + client.secret).encode()).hexdigest()
+    headers = {
+        'X-API-User': client.key,
+        'X-API-Time': ts,
+        'X-API-Version': '1',
+        'X-API-Sign': sign,
+    }
+    with open(xlsx_path, 'rb') as f:
+        files = {'file': (os.path.basename(xlsx_path), f,
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+        data = {'commit': str(commit).lower()}
+        r = requests.post(f'{client.base}/api/customer-api/orders/import-xlsx',
+                         headers=headers, files=files, data=data)
+        return r.json()
+
+# 1. 先预览
+preview = upload_manifest(client, 'my-manifest.xlsx', commit=False)
+print(f"将插入 {preview['data']['item']['ok']} 条, 失败 {preview['data']['item']['failed']} 条")
+for err in preview['data']['item']['errors']:
+    print(f"  行 {err['row']}: {err['errors']}")
+
+# 2. 修复错误后真上传
+result = upload_manifest(client, 'my-manifest.xlsx', commit=True)
+for r in result['data']['item']['results']:
+    print(f"创建成功 行 {r['row']}: {r['orderNo']}")
+
+# 3. 逐个提交 → 取 1Z tracking
+for r in result['data']['item']['results']:
+    submit_resp = client.submit_order(r['orderNo'])
+    print(f"{r['orderNo']} → tracking: {submit_resp['data']['trackingNo']}")
+```
+
+### 5.5 完整客户业务流
+
+```
+客户 ERP 导出清单 manifest.xlsx
+   ↓
+POST /orders/import-xlsx?commit=false  → 预览校验
+   ↓ (修错误)
+POST /orders/import-xlsx?commit=true   → 创建 N 个 DRAFT 订单
+   ↓ (for each)
+POST /orders/{no}/submit               → 取号 + 出面单
+   ↓
+POST /tracking/query                   → 跟踪
+   ↓
+GET  /finance/invoices                 → 月底拉账单 (奥沃星样式)
+```
+
+### 5.6 旧入口 (运营端 admin token, 客户不能用)
+
+```
+POST /api/acc/batch-import/orders  (admin Bearer token)
+```
+
+这条路径是给运营/客服用的, **客户对接走 `/api/customer-api/orders/import-xlsx` 即可**。
 
 ---
 
