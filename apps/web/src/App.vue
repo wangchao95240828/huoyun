@@ -7263,6 +7263,11 @@ async function doDisableCustomerLogin(row: any) {
           <button class="primary sm" v-if="canCrud && accTab !== 'charges' && accTab !== 'costs'" @click="openAdd">
             <Plus :size="13" /> 新增
           </button>
+          <!-- R-7: 应收运费 / 待核费用 tab 加批量补收按钮 -->
+          <button class="secondary sm" v-if="accTab === 'charges' || accTab === 'charges-pending'"
+                  @click="openXlsxImport('restate-ar')" style="color:#0ea5e9">
+            <Upload :size="13" /> 📤 xlsx 批量补收
+          </button>
           <!-- ACC 核算中心「导入费用/导入成本」: tab 即上传入口 -->
           <label class="primary sm" v-if="accTab === 'charges-import'" style="cursor:pointer">
             <Upload :size="13" /> 上传费用 CSV
@@ -7511,6 +7516,10 @@ async function doDisableCustomerLogin(row: any) {
             </button>
             <button class="secondary sm" @click="doExportSelected" :disabled="bizLoading || selectedIds.size === 0">
               <Download :size="13" /> 导出选中({{ selectedIds.size }})
+            </button>
+            <!-- R-2: xlsx 批量导单 -->
+            <button class="secondary sm" @click="openXlsxImport('orders')" :disabled="bizLoading" style="color:#0ea5e9">
+              <Upload :size="13" /> 📥 xlsx 批量导单
             </button>
           </template>
           <!-- 导入快件 (在 orders-import tab 显示) -->
@@ -8117,6 +8126,13 @@ async function doDisableCustomerLogin(row: any) {
                           v-if="canAudit && row.auditStatus === 'AUDITED'"
                           @click="doUndoAudit(row.id)" title="反审核" :disabled="bizLoading">
                     <XCircle :size="12" />
+                  </button>
+                  <!-- R-8: 单笔补收按钮 (仅 AR charge 显示) -->
+                  <button class="action-btn"
+                          v-if="(accTab === 'charges' || accTab === 'charges-pending') && row.side === 'AR' && row.auditStatus !== 'AUDITED'"
+                          @click="openRestate(row)" title="补收/差值"
+                          style="color:#0ea5e9">
+                    <Calculator :size="12" />
                   </button>
                   <button class="action-btn history-btn"
                           v-if="canAudit && row.auditStatus"
@@ -8938,6 +8954,121 @@ async function doDisableCustomerLogin(row: any) {
             <RefreshCw v-if="bizLoading" :size="14" class="spinning" />
             执行
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ R-2/R-7: xlsx 批量上传 Modal ════════ -->
+    <div class="modal-backdrop" v-if="showXlsxImportDialog" @click.self="showXlsxImportDialog = false">
+      <div class="modal-dialog" style="max-width: 800px">
+        <div class="modal-header">
+          <h3>{{ xlsxImportType === 'orders' ? '📥 批量导入运单 (xlsx)' : '📤 批量补收运费 (xlsx)' }}</h3>
+          <button class="modal-close" @click="showXlsxImportDialog = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <div style="padding:10px 14px;background:#f0f9ff;border-left:4px solid #0ea5e9;margin-bottom:14px;font-size:13px">
+            <div v-if="xlsxImportType === 'orders'">
+              <strong>表头要求 (中文/英文都行)</strong>:<br>
+              客户编码 | 渠道产品 | 制单账号 | 重量(kg) | 国家 | 邮编 | 地址 | 收件人 | 电话 | 申报品名 | 数量 | 单价 | HS编码<br>
+              <a href="/docs/xlsx-模板/批量导单模板.xlsx" target="_blank" style="color:#0ea5e9">下载模板</a>
+            </div>
+            <div v-else>
+              <strong>表头</strong>: 运单号 | 新金额 | 备注<br>
+              <strong>模式</strong>:
+              <label style="margin-left:8px"><input type="radio" v-model="xlsxImportMode" value="DELTA"> DELTA (差值, 推荐)</label>
+              <label style="margin-left:12px"><input type="radio" v-model="xlsxImportMode" value="OVERWRITE"> OVERWRITE (覆盖)</label><br>
+              <a href="/docs/xlsx-模板/批量补收模板.xlsx" target="_blank" style="color:#0ea5e9">下载模板</a>
+            </div>
+          </div>
+          <div class="form-grid">
+            <div class="form-field" style="grid-column:1/-1">
+              <label>选择 xlsx 文件 <span class="required">*</span></label>
+              <input type="file" accept=".xlsx,.xls" @change="onXlsxFileChange" />
+            </div>
+          </div>
+          <div v-if="xlsxImportResult" style="margin-top:12px;padding:12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0">
+            <div v-if="xlsxImportType === 'orders'" style="font-size:13px">
+              <div>共 <strong>{{ xlsxImportResult.total }}</strong> 行 ·
+                ✅ 有效 <strong style="color:#16a34a">{{ xlsxImportResult.validCount }}</strong> ·
+                ❌ 校验失败 <strong style="color:#ef4444">{{ xlsxImportResult.errorCount }}</strong>
+                <span v-if="xlsxImportResult.inserted"> · 已插入 <strong style="color:#16a34a">{{ xlsxImportResult.inserted }}</strong></span></div>
+              <div v-if="xlsxImportResult.errors && xlsxImportResult.errors.length" style="margin-top:8px;max-height:200px;overflow:auto">
+                <strong>错误明细</strong>:
+                <ul style="margin:4px 0 0 16px;color:#dc2626;font-size:12px">
+                  <li v-for="err in xlsxImportResult.errors" :key="err._rowIndex">
+                    行 {{ err._rowIndex }}: {{ err._errors?.join(' / ') }}
+                  </li>
+                </ul>
+              </div>
+              <div v-if="xlsxImportResult.insertFails && xlsxImportResult.insertFails.length" style="margin-top:8px;color:#dc2626;font-size:12px">
+                插入失败 {{ xlsxImportResult.insertFails.length }} 行 (见后端日志)
+              </div>
+            </div>
+            <div v-else style="font-size:13px">
+              <div>共 {{ xlsxImportResult.total }} 行 · 处理 {{ xlsxImportResult.processed }} · 跳过 {{ xlsxImportResult.skipped }}</div>
+              <div v-if="xlsxImportResult.details" style="max-height:200px;overflow:auto;margin-top:8px">
+                <ul style="margin:4px 0 0 16px;font-size:12px">
+                  <li v-for="(d, i) in xlsxImportResult.details" :key="i" :style="{color: d.mode ? '#16a34a' : '#94a3b8'}">
+                    行 {{ d.row }}: <span v-if="d.mode">{{ d.tracking }} {{ d.old }} → {{ d.new }} (delta {{ d.delta }})</span><span v-else>{{ d.skip || d.note }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div v-if="bizMessage" :class="['biz-message', bizMessageType]" style="margin-top:10px">{{ bizMessage }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showXlsxImportDialog = false">关闭</button>
+          <button v-if="xlsxImportType === 'orders' && !xlsxImportResult" class="primary"
+                  @click="doXlsxImport(false)" :disabled="xlsxImportLoading || !xlsxImportFile">
+            🔍 预览
+          </button>
+          <button v-if="xlsxImportType === 'orders' && xlsxImportResult && xlsxImportResult.validCount > 0" class="primary"
+                  @click="doXlsxImport(true)" :disabled="xlsxImportLoading">
+            ✅ 确认插入 {{ xlsxImportResult.validCount }} 行
+          </button>
+          <button v-if="xlsxImportType === 'restate-ar'" class="primary"
+                  @click="doXlsxImport(true)" :disabled="xlsxImportLoading || !xlsxImportFile">
+            💰 上传并补收
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ R-8: 单笔补收 Modal ════════ -->
+    <div class="modal-backdrop" v-if="showRestateDialog" @click.self="showRestateDialog = false">
+      <div class="modal-dialog" style="max-width: 500px">
+        <div class="modal-header">
+          <h3>💰 补收/差值</h3>
+          <button class="modal-close" @click="showRestateDialog = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-grid">
+            <div class="form-field">
+              <label>原金额</label>
+              <input type="text" :value="restateData.oldAmount + ' ' + restateData.currency" disabled />
+            </div>
+            <div class="form-field">
+              <label>新金额 <span class="required">*</span></label>
+              <input type="number" step="0.01" v-model.number="restateData.newAmount" />
+            </div>
+            <div class="form-field" style="grid-column:1/-1">
+              <label>模式</label>
+              <label style="margin-right:12px"><input type="radio" v-model="restateData.mode" value="DELTA" /> DELTA 差值 (推荐, 保留原 charge)</label>
+              <label><input type="radio" v-model="restateData.mode" value="OVERWRITE" /> OVERWRITE 覆盖 (仅未审核可用)</label>
+            </div>
+            <div class="form-field" style="grid-column:1/-1">
+              <label>备注</label>
+              <input type="text" v-model="restateData.remark" placeholder="如 DWS 复称 / 客户加重" />
+            </div>
+            <div class="form-field" style="grid-column:1/-1;background:#f0f9ff;padding:10px;border-radius:4px;font-size:12px">
+              差值 = <strong>{{ (Number(restateData.newAmount) - Number(restateData.oldAmount)).toFixed(2) }}</strong> {{ restateData.currency }}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showRestateDialog = false">取消</button>
+          <button class="primary" @click="doRestate" :disabled="bizLoading">提交补收</button>
         </div>
       </div>
     </div>
