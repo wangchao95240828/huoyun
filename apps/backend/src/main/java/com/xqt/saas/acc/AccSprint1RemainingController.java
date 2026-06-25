@@ -28,11 +28,12 @@ public class AccSprint1RemainingController {
     }
 
     // ─────────── R-13: charge_items CRUD ───────────
+    // 实际 schema: id/tenant_id/code/name/category/default_side/default_uom/audit_status
     @GetMapping("/api/acc/charge-items")
     public Map<String, Object> listChargeItems(@RequestParam(required = false) String category) {
         String cat = (category == null || category.isBlank()) ? null : category;
         List<Map<String, Object>> rows = jdbc.queryForList("""
-            SELECT id::text, code, name, category, currency, default_amount, active, created_at
+            SELECT id::text, code, name, category, default_side, default_uom, audit_status
               FROM charge_items
              WHERE (?::text IS NULL OR category = ?::text)
              ORDER BY category, code
@@ -45,21 +46,17 @@ public class AccSprint1RemainingController {
         String code = str(body.get("code"));
         String name = str(body.get("name"));
         String category = str(body.get("category"));
-        String currency = (String) body.getOrDefault("currency", "CNY");
-        BigDecimal defaultAmt = body.get("defaultAmount") == null ? null
-            : new BigDecimal(body.get("defaultAmount").toString());
+        String defaultSide = (String) body.getOrDefault("defaultSide", "AR");
+        String defaultUom = (String) body.getOrDefault("defaultUom", "FLAT");
         if (code == null || name == null || category == null) {
             throw ApiException.badRequest("code / name / category 必填");
         }
-        if (!List.of("FREIGHT","SURCHARGE","TAX","DISCOUNT","OTHER").contains(category)) {
-            throw ApiException.badRequest("category 必须是 FREIGHT/SURCHARGE/TAX/DISCOUNT/OTHER");
-        }
         try {
             String id = jdbc.queryForObject("""
-                INSERT INTO charge_items (tenant_id, code, name, category, currency, default_amount, active)
-                VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?, true)
+                INSERT INTO charge_items (tenant_id, code, name, category, default_side, default_uom)
+                VALUES (current_setting('app.current_tenant_id')::uuid, ?, ?, ?, ?, ?)
                 RETURNING id::text
-                """, String.class, code, name, category, currency, defaultAmt);
+                """, String.class, code, name, category, defaultSide, defaultUom);
             return Map.of("id", id, "code", code, "ok", true);
         } catch (DataAccessException ex) {
             throw ApiException.badRequest("创建失败 (code 可能重复): " + ex.getMessage());
@@ -71,9 +68,8 @@ public class AccSprint1RemainingController {
         Integer using = jdbc.queryForObject(
             "SELECT count(*) FROM charges WHERE charge_item_id = ?::uuid", Integer.class, id);
         if (using != null && using > 0) {
-            // 软删: 标 inactive
-            jdbc.update("UPDATE charge_items SET active = false WHERE id = ?::uuid", id);
-            return Map.of("id", id, "softDeleted", true, "usedBy", using);
+            // 已被使用, 拒删 (charge_items 无 active 列, 只能 hard delete)
+            throw ApiException.badRequest("此费用类目已被 " + using + " 条 charge 使用, 不能删除");
         }
         jdbc.update("DELETE FROM charge_items WHERE id = ?::uuid", id);
         return Map.of("id", id, "deleted", true);

@@ -88,13 +88,13 @@ public class AccReconciliationController {
                 FROM charges
                WHERE shipment_id = s.id AND side = 'AP' AND status::text <> 'VOID'
             ) our_ap ON true
-            -- 渠道商账单 (按 tracking 找 partner_invoice_lines)
+            -- 渠道商账单 (partner_invoice_lines 没 tracking_no 列, 走 carton_id 关联)
             LEFT JOIN LATERAL (
               SELECT pil.amount AS partner_amount, pil.currency AS partner_currency,
                      pin.invoice_no, pin.partner_id
                 FROM partner_invoice_lines pil
                 JOIN partner_invoices pin ON pin.id = pil.invoice_id
-               WHERE pil.tracking_no = c.tracking_no
+               WHERE pil.carton_id = c.id
                  AND pin.status <> 'VOID'
                LIMIT 1
             ) pi ON true
@@ -147,7 +147,7 @@ public class AccReconciliationController {
     // 2. 应收 vs 实收 对比 (AR vs Received Reconciliation)
     // ─────────────────────────────────────────────────
 
-    /** R-4 阶段 A: 上传渠道商账单 xlsx → 解析 + 落到 partner_invoice_lines */
+    /** R-4 阶段 A: 上传渠道商账单 xlsx → 解析 + 落到 partner_invoice_lines (按 tracking 找 carton). */
     @PostMapping("/carrier-invoice/import")
     @org.springframework.transaction.annotation.Transactional(rollbackFor = Exception.class)
     public Map<String, Object> importCarrierInvoice(
@@ -224,15 +224,20 @@ public class AccReconciliationController {
             try { amt = new BigDecimal(amtStr.replace(",", "")); }
             catch (NumberFormatException ex) { skipped++; continue; }
             try {
+                // 按 tracking 找 carton, 没找到也插 (carton_id=NULL, 留 description)
+                java.util.List<String> cartonIds = jdbc.queryForList(
+                    "SELECT id::text FROM cartons WHERE tracking_no = ? LIMIT 1", String.class, tracking);
+                String cartonId = cartonIds.isEmpty() ? null : cartonIds.get(0);
                 jdbc.update("""
                     INSERT INTO partner_invoice_lines
-                      (tenant_id, invoice_id, tracking_no, amount, currency)
+                      (tenant_id, invoice_id, carton_id, amount, currency, description)
                     VALUES (current_setting('app.current_tenant_id')::uuid,
-                            ?::uuid, ?, ?, ?)
-                    """, invoiceId, tracking, amt, currency);
+                            ?::uuid, ?::uuid, ?, ?, ?)
+                    """, invoiceId, cartonId, amt, currency, "tracking=" + tracking);
                 inserted++;
                 total = total.add(amt);
-                details.add(Map.of("row", r + 1, "tracking", tracking, "amount", amt, "ok", true));
+                details.add(Map.of("row", r + 1, "tracking", tracking, "amount", amt,
+                    "matched", cartonId != null, "ok", true));
             } catch (DataAccessException ex) {
                 details.add(Map.of("row", r + 1, "tracking", tracking, "error", ex.getMessage()));
                 skipped++;
