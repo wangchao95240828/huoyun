@@ -9722,7 +9722,7 @@ async function doDisableCustomerLogin(row: any) {
         </div>
         <div class="modal-footer">
           <button class="secondary" @click="showAddCostDialog = false">取消</button>
-          <button class="primary" @click="doAddCost"
+          <button class="primary" @click="doAddCost()"
                   :disabled="bizLoading || !addCostData.amount || (addCostStandalone && !addCostOrderId)">
             <CreditCard :size="14" /> 落到「待核成本」
           </button>
