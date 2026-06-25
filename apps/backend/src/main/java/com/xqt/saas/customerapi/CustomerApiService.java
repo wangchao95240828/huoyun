@@ -1731,7 +1731,7 @@ public class CustomerApiService {
                     PreOrderResult res = preOrder(principal, preReq);
                     Map<String, Object> okRow = new java.util.LinkedHashMap<>();
                     okRow.put("row", r + 1);
-                    okRow.put("orderNo", res.no());
+                    okRow.put("orderNo", res.orderNo());
                     okRow.put("orderId", res.orderId());
                     ok.add(okRow);
                 } catch (Exception ex) {
