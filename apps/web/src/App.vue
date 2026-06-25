@@ -517,28 +517,40 @@ function pickAddCostOrder(orderId: string) {
   const opt = addCostOrderOptions.value.find(o => o.id === orderId);
   addCostOrderNo.value = opt?.orderNo || '';
 }
-async function doAddCost() {
+async function doAddCost(overwrite = false) {
   if (!addCostOrderId.value || !addCostData.amount) {
     setBizError('请输入成本金额');
     return;
   }
   bizLoading.value = true;
   try {
+    const body: any = {
+      amount: Number(addCostData.amount),
+      currency: addCostData.currency,
+      chargeItemCode: addCostData.chargeItemCode || null,
+      remark: addCostData.remark || null,
+    };
+    if (overwrite) body.overwrite = true;
     const res = await apiFetch(`${API}/api/acc/orders/${addCostOrderId.value}/add-cost`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amount: Number(addCostData.amount),
-        currency: addCostData.currency,
-        chargeItemCode: addCostData.chargeItemCode || null,
-        remark: addCostData.remark || null,
-      }),
+      body: JSON.stringify(body),
     });
     const j = await res.json();
     if (res.ok) {
-      setBizOk(`成本添加成功: ${j.amount} ${j.currency}，已落到「核算中心 → 待核成本」，等待一审`);
+      setBizOk(`成本添加成功: ${j.amount} ${j.currency}${overwrite ? '（已覆盖原成本）' : ''}，已落到「核算中心 → 待核成本」，等待一审`);
       showAddCostDialog.value = false;
       fetchAccData();
+    } else if (res.status === 409) {
+      // R-1: 同单同类型已存在 — 弹 confirm 让用户选覆盖还是取消
+      const msg = j.error ?? '该订单已有同类型成本';
+      if (confirm(msg + '\n\n选择"确定"将作废原成本并写入新成本, 选择"取消"放弃此次添加.')) {
+        // 用户确认覆盖, 递归调用 with overwrite=true
+        await doAddCost(true);
+        return;
+      } else {
+        setBizError('已取消, 未修改原成本');
+      }
     } else {
       setBizError('添加失败：' + (j.error ?? res.status));
     }
@@ -764,6 +776,88 @@ function clearBizMessage() { bizMessage.value = ''; bizMessageType.value = 'info
 const showBizDialog = ref(false);
 const bizDialogType = ref('');
 const bizDialogData = reactive<Record<string, any>>({});
+
+// R-2 / R-7: xlsx 批量上传 modal 状态
+const showXlsxImportDialog = ref(false);
+const xlsxImportType = ref<'orders' | 'restate-ar'>('orders');
+const xlsxImportFile = ref<File | null>(null);
+const xlsxImportMode = ref<'DELTA' | 'OVERWRITE'>('DELTA');
+const xlsxImportLoading = ref(false);
+const xlsxImportResult = ref<any>(null);
+function openXlsxImport(type: 'orders' | 'restate-ar') {
+  xlsxImportType.value = type;
+  xlsxImportFile.value = null;
+  xlsxImportResult.value = null;
+  xlsxImportMode.value = 'DELTA';
+  showXlsxImportDialog.value = true;
+}
+function onXlsxFileChange(e: any) {
+  xlsxImportFile.value = e.target.files?.[0] || null;
+  xlsxImportResult.value = null;
+}
+async function doXlsxImport(commit = false) {
+  if (!xlsxImportFile.value) { setBizError('请先选择 xlsx 文件'); return; }
+  xlsxImportLoading.value = true;
+  try {
+    const formData = new FormData();
+    formData.append('file', xlsxImportFile.value);
+    if (xlsxImportType.value === 'orders') formData.append('commit', commit ? 'true' : 'false');
+    const url = xlsxImportType.value === 'orders'
+      ? `${API}/api/acc/batch-import/orders`
+      : `${API}/api/acc/batch-import/restate-ar?mode=${xlsxImportMode.value}`;
+    const res = await apiFetch(url, { method: 'POST', body: formData });
+    const j = await res.json();
+    xlsxImportResult.value = j;
+    if (!res.ok) {
+      setBizError('导入失败: ' + (j.error ?? res.status));
+    } else if (commit && xlsxImportType.value === 'orders') {
+      setBizOk(`导入完成: ${j.inserted}/${j.validCount} 行已插入 (错误 ${j.errorCount})`);
+      fetchAccData();
+    } else if (xlsxImportType.value === 'restate-ar') {
+      setBizOk(`补收完成: 处理 ${j.processed}/${j.total}, 跳过 ${j.skipped}`);
+      fetchAccData();
+    }
+  } catch (e: any) { setBizError('上传异常: ' + e.message); }
+  finally { xlsxImportLoading.value = false; }
+}
+
+// R-8: 单笔 charge 补收 modal
+const showRestateDialog = ref(false);
+const restateData = reactive<{ chargeId: string; oldAmount: number; newAmount: number;
+  mode: 'DELTA' | 'OVERWRITE'; remark: string; currency: string }>({
+  chargeId: '', oldAmount: 0, newAmount: 0, mode: 'DELTA', remark: '', currency: '',
+});
+function openRestate(row: any) {
+  restateData.chargeId = row.chargeId || row.id;
+  restateData.oldAmount = Number(row.amount) || 0;
+  restateData.newAmount = restateData.oldAmount;
+  restateData.mode = 'DELTA';
+  restateData.remark = '';
+  restateData.currency = row.currency || 'USD';
+  showRestateDialog.value = true;
+}
+async function doRestate() {
+  if (!restateData.chargeId || !restateData.newAmount) { setBizError('请输入新金额'); return; }
+  try {
+    const res = await apiFetch(`${API}/api/acc/charges/${restateData.chargeId}/restate`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        newAmount: Number(restateData.newAmount),
+        mode: restateData.mode,
+        remark: restateData.remark || null,
+      }),
+    });
+    const j = await res.json();
+    if (res.ok) {
+      setBizOk(`补收完成: 差值 ${j.delta || 0} ${restateData.currency}${j.voidedPriorAdjusts ? `, 已 VOID ${j.voidedPriorAdjusts} 笔旧补收` : ''}`);
+      showRestateDialog.value = false;
+      fetchAccData();
+    } else {
+      setBizError('补收失败: ' + (j.error ?? res.status));
+    }
+  } catch (e: any) { setBizError('补收异常: ' + e.message); }
+}
 
 // R-10: 账单生成明细预览 (生成账单 modal 内显示所有 charges)
 const billPreviewRows = ref<any[]>([]);
