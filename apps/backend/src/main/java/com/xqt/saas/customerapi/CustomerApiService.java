@@ -1630,4 +1630,182 @@ public class CustomerApiService {
         }
         return new BigDecimal(value.toString());
     }
+
+    /**
+     * 客户清单批量上传 — xlsx 解析 + 行级校验 + 调 preOrder 建草稿单.
+     * customer_id 强制从 principal 注入 (客户不能借此建别人的单).
+     * 表头中文/英文均可: 客户单号/渠道产品/重量/国家/邮编/地址/收件人/电话/品名/数量/单价/HS编码 + 长/宽/高
+     */
+    public Map<String, Object> importOrdersFromXlsx(CustomerApiPrincipal principal,
+                                                      org.springframework.web.multipart.MultipartFile file,
+                                                      boolean commit) {
+        if (file == null || file.isEmpty()) throw ApiException.badRequest("file 必填");
+        String name = file.getOriginalFilename();
+        if (name == null || (!name.toLowerCase().endsWith(".xlsx") && !name.toLowerCase().endsWith(".xls"))) {
+            throw ApiException.badRequest("仅支持 .xlsx / .xls");
+        }
+        java.util.List<String[]> raw = new java.util.ArrayList<>();
+        try {
+            com.alibaba.excel.EasyExcel.read(file.getInputStream(),
+                new com.alibaba.excel.read.listener.ReadListener<Map<Integer, String>>() {
+                    @Override public void invoke(Map<Integer, String> d, com.alibaba.excel.context.AnalysisContext c) {
+                        String[] cells = new String[d.size()];
+                        for (int i = 0; i < cells.length; i++) cells[i] = d.getOrDefault(i, "");
+                        raw.add(cells);
+                    }
+                    @Override public void doAfterAllAnalysed(com.alibaba.excel.context.AnalysisContext c) {}
+                }).sheet().headRowNumber(0).doRead();
+        } catch (Exception ex) {
+            throw ApiException.badRequest("xlsx 读取失败: " + ex.getMessage());
+        }
+        if (raw.size() < 2) throw ApiException.badRequest("xlsx 至少需要 header + 1 行");
+
+        Map<String, String> ZH = Map.ofEntries(
+            Map.entry("客户单号", "no"), Map.entry("单号", "no"),
+            Map.entry("渠道产品", "product"), Map.entry("产品", "product"), Map.entry("发货产品", "product"),
+            Map.entry("重量(kg)", "weight"), Map.entry("重量", "weight"),
+            Map.entry("件数", "piece"),
+            Map.entry("材积(m³)", "volume"), Map.entry("材积", "volume"), Map.entry("体积", "volume"),
+            Map.entry("国家", "country"),
+            Map.entry("邮编", "postcode"),
+            Map.entry("地址", "address"),
+            Map.entry("收件人", "name"), Map.entry("姓名", "name"),
+            Map.entry("电话", "phone"),
+            Map.entry("公司", "company"),
+            Map.entry("省/州", "province"), Map.entry("省", "province"),
+            Map.entry("城市", "city"),
+            Map.entry("申报品名", "declare_name"), Map.entry("英文品名", "declare_name"),
+            Map.entry("中文品名", "declare_name_cn"),
+            Map.entry("数量", "declare_qty"),
+            Map.entry("单价", "declare_price"),
+            Map.entry("hs编码", "hs_code"), Map.entry("海关编码", "hs_code"),
+            Map.entry("产地", "origin"),
+            Map.entry("装箱号", "pkg_no"), Map.entry("装箱单号", "pkg_no"),
+            Map.entry("长", "length"), Map.entry("长度", "length"), Map.entry("长(cm)", "length"),
+            Map.entry("宽", "width"), Map.entry("宽度", "width"), Map.entry("宽(cm)", "width"),
+            Map.entry("高", "height"), Map.entry("高度", "height"), Map.entry("高(cm)", "height"),
+            Map.entry("币种", "currency")
+        );
+        String[] hdrs = raw.get(0);
+        String[] keys = new String[hdrs.length];
+        for (int i = 0; i < hdrs.length; i++) {
+            String h = hdrs[i] == null ? ("col" + i) : hdrs[i].trim();
+            String lower = h.toLowerCase();
+            keys[i] = ZH.getOrDefault(lower, ZH.getOrDefault(h, lower));
+        }
+
+        java.util.List<Map<String, Object>> ok = new java.util.ArrayList<>();
+        java.util.List<Map<String, Object>> errs = new java.util.ArrayList<>();
+        for (int r = 1; r < raw.size(); r++) {
+            String[] cells = raw.get(r);
+            Map<String, String> row = new java.util.LinkedHashMap<>();
+            for (int i = 0; i < keys.length && i < cells.length; i++) {
+                String v = cells[i];
+                row.put(keys[i], v == null ? null : v.trim());
+            }
+            // 行级校验
+            java.util.List<String> rowErrs = new java.util.ArrayList<>();
+            String product = row.get("product");
+            String country = row.get("country");
+            String weight = row.get("weight");
+            String hs = row.get("hs_code");
+            if (product == null || product.isBlank()) rowErrs.add("product 必填");
+            if (country == null || country.length() != 2) rowErrs.add("country 必须 ISO 二字码");
+            try { if (Double.parseDouble(weight) <= 0) rowErrs.add("weight 必须 > 0"); }
+            catch (Exception ex) { rowErrs.add("weight 非数字"); }
+            if (hs != null && !hs.isBlank() && !hs.matches("^\\d{6,10}$")) rowErrs.add("hs_code 必须 6-10 位纯数字");
+
+            if (!rowErrs.isEmpty()) {
+                Map<String, Object> e = new java.util.LinkedHashMap<>();
+                e.put("row", r + 1);
+                e.put("errors", rowErrs);
+                e.put("raw", row);
+                errs.add(e);
+                continue;
+            }
+
+            if (commit) {
+                // 调 preOrder 建草稿单
+                CustomerApiRequests.PreOrder preReq = buildPreOrderFromRow(row);
+                try {
+                    PreOrderResult res = preOrder(principal, preReq);
+                    Map<String, Object> okRow = new java.util.LinkedHashMap<>();
+                    okRow.put("row", r + 1);
+                    okRow.put("orderNo", res.no());
+                    okRow.put("orderId", res.orderId());
+                    ok.add(okRow);
+                } catch (Exception ex) {
+                    Map<String, Object> e = new java.util.LinkedHashMap<>();
+                    e.put("row", r + 1);
+                    e.put("errors", List.of(ex.getMessage()));
+                    errs.add(e);
+                }
+            } else {
+                ok.add(Map.of("row", r + 1, "preview", row));
+            }
+        }
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("total", raw.size() - 1);
+        result.put("ok", ok.size());
+        result.put("failed", errs.size());
+        result.put("committed", commit);
+        result.put("results", ok.subList(0, Math.min(20, ok.size())));
+        result.put("errors", errs);
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private CustomerApiRequests.PreOrder buildPreOrderFromRow(Map<String, String> row) {
+        Map<String, Object> recv = new java.util.LinkedHashMap<>();
+        recv.put("company", row.getOrDefault("company", ""));
+        recv.put("name", row.getOrDefault("name", ""));
+        recv.put("phone", row.getOrDefault("phone", ""));
+        recv.put("address", row.getOrDefault("address", ""));
+        recv.put("city", row.getOrDefault("city", ""));
+        recv.put("province", row.getOrDefault("province", ""));
+        recv.put("postcode", row.getOrDefault("postcode", ""));
+        recv.put("country", row.get("country"));
+
+        Map<String, Object> dec = new java.util.LinkedHashMap<>();
+        dec.put("name", row.getOrDefault("declare_name", ""));
+        dec.put("cnName", row.getOrDefault("declare_name_cn", ""));
+        dec.put("origin", row.getOrDefault("origin", "CN"));
+        dec.put("quantity", Integer.parseInt(row.getOrDefault("declare_qty", "1")));
+        dec.put("price", new BigDecimal(row.getOrDefault("declare_price", "0")));
+        dec.put("hsCode", row.getOrDefault("hs_code", ""));
+
+        Map<String, Object> pkg = new java.util.LinkedHashMap<>();
+        pkg.put("no", row.getOrDefault("pkg_no", "PKG-1"));
+        pkg.put("name", row.getOrDefault("declare_name", ""));
+        pkg.put("cnName", row.getOrDefault("declare_name_cn", ""));
+        pkg.put("weight", new BigDecimal(row.get("weight")));
+        pkg.put("quantity", Integer.parseInt(row.getOrDefault("declare_qty", "1")));
+        pkg.put("price", new BigDecimal(row.getOrDefault("declare_price", "0")));
+        pkg.put("hsCode", row.getOrDefault("hs_code", ""));
+        if (row.get("length") != null && !row.get("length").isBlank()) {
+            pkg.put("length", new BigDecimal(row.get("length")));
+            pkg.put("width", new BigDecimal(row.getOrDefault("width", "0")));
+            pkg.put("height", new BigDecimal(row.getOrDefault("height", "0")));
+        }
+
+        return new CustomerApiRequests.PreOrder(
+            row.get("no"),
+            null,  // token
+            row.get("product"),
+            row.get("country"),
+            new BigDecimal(row.get("weight")),
+            Integer.parseInt(row.getOrDefault("piece", "1")),
+            row.get("volume") != null && !row.get("volume").isBlank() ? new BigDecimal(row.get("volume")) : null,
+            row.getOrDefault("currency", "USD"),
+            recv,
+            null,  // shipper
+            null,  // shipTo
+            List.of(dec),
+            List.of(pkg),
+            "PARCEL", null, 0, null, null, "PDF",
+            row.getOrDefault("declare_name_cn", ""),
+            null,
+            null
+        );
+    }
 }

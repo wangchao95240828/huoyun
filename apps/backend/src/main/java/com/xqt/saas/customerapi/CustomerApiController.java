@@ -160,6 +160,20 @@ public class CustomerApiController {
         return ApiResponse.ok(financeView.customerInvoiceList(principal().customerId(), currency));
     }
 
+    /**
+     * 客户批量上传清单 xlsx → 一次性建多个订单 (DRAFT 状态, 客户需另调 submit 走真出单)
+     *   POST /api/customer-api/orders/import-xlsx  (multipart/form-data, file=<xlsx>)
+     *   行级独立校验, 失败行不影响成功行
+     *   xlsx 表头中文/英文均可
+     */
+    @PostMapping("/orders/import-xlsx")
+    public ApiResponse<ItemResponse<java.util.Map<String, Object>>> importOrdersXlsx(
+        @org.springframework.web.bind.annotation.RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+        @org.springframework.web.bind.annotation.RequestParam(defaultValue = "true") boolean commit
+    ) {
+        return ApiResponse.ok(new ItemResponse<>(service.importOrdersFromXlsx(principal(), file, commit)));
+    }
+
     private CustomerApiPrincipal principal() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || !(authentication.getPrincipal() instanceof CustomerApiPrincipal customer)) {
