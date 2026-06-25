@@ -6876,6 +6876,28 @@ async function doSyncStowage(id: number) {
   }
 }
 
+async function doExportBillXlsx(id: any) {
+  try {
+    bizLoading.value = true;
+    const res = await apiFetch(`${API}/api/acc/bills/${id}/export-xlsx`);
+    if (!res.ok) {
+      setBizError('导出失败: ' + res.status);
+      return;
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('content-disposition') || '';
+    const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+    const filename = m ? decodeURIComponent(m[1].replace(/^"|"$/g, '')) : `账单_${new Date().toISOString().slice(0,10)}.xlsx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    setBizOk(`账单已导出: ${filename}`);
+  } catch (e: any) { setBizError('导出异常: ' + e.message); }
+  finally { bizLoading.value = false; }
+}
+
 async function doReloadBill(id: number) {
   bizLoading.value = true;
   try {
@@ -8279,6 +8301,10 @@ async function doDisableCustomerLogin(row: any) {
                   </button>
                   <button class="action-btn" v-if="accTab === 'bills'" @click="doReloadBill(row.id)" title="重算" :disabled="bizLoading">
                     <Calculator :size="12" />
+                  </button>
+                  <!-- 账单导出 xlsx (奥沃星样式) -->
+                  <button class="action-btn" v-if="accTab === 'bills'" @click="doExportBillXlsx(row.id)" title="导出账单 xlsx" :disabled="bizLoading" style="color:#0ea5e9">
+                    <Download :size="12" />
                   </button>
                   <!-- 客户 API 凭证: 重置密钥 / 禁用 (ACC CustomerAPI.php 对齐) -->
                   <button class="action-btn fwb fwb-label" v-if="accTab === 'api-credentials' && row.status === 'ACTIVE'"
