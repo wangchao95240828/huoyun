@@ -155,6 +155,8 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                   ch.audit_status,
                   ch.audited_at,
                   ch.audit_name,
+                  ch.source_type,                  -- R-11
+                  ch.source_charge_id::text AS source_charge_id,  -- R-9
                   s.shipment_no,
                   s.customer_ref,
                   s.destination_country,
@@ -483,6 +485,9 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));
+        // R-11 / R-9 状态来源 + 源 charge
+        out.put("source_type", row.get("source_type"));
+        out.put("source_charge_id", row.get("source_charge_id"));
         return out;
     }
 }

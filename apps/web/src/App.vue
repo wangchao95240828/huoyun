@@ -1122,6 +1122,12 @@ const accTabs = [
   { key: "swb-commissions",  label: "业绩提成",           icon: Gift,        api: "settlement-workbench/commissions" },
   // alair: 应收款项目（A1 财务任务）
   { key: "customer-receivables", label: "应收款项目", icon: TrendingUp, api: "customer-receivables" },
+  // Sprint 1 新增 tab — R-4 / R-6 / R-12 / R-13 / AR-vs-Received
+  { key: "carrier-invoice-recon", label: "渠道账单对比", icon: BarChart3, api: "reconciliation/carrier-invoice" },
+  { key: "ar-vs-received",        label: "应收实收对比", icon: BarChart3, api: "reconciliation/ar-vs-received" },
+  { key: "charge-items",          label: "费用类目",     icon: Tag,       api: "charge-items" },
+  { key: "customer-rate-strategies", label: "客户价格策略", icon: TrendingUp, api: "customer-rate-strategies" },
+  { key: "cost-pre-estimates",    label: "预估报价池",   icon: Calculator,api: "cost-pre-estimates" },
   // 财务工作台 — 一票货的 3 阶段视图
   { key: "fwb-prepay",   label: "预扣明细", icon: Wallet, api: "finance-workbench/prepay-details" },
   { key: "fwb-pending",  label: "待财务审核", icon: AlertCircle, api: "finance-workbench/pending-audit" },
@@ -1258,6 +1264,7 @@ const accFinanceTabs = [
   accTabs.find(t => t.key === "currencies")!,             // 币种管理
   // 应收 (6)
   accTabs.find(t => t.key === "customer-receivables")!,   // ⭐ 应收款项目 (按客户聚合欠款) — 之前漏了
+  accTabs.find(t => t.key === "ar-vs-received")!,         // R-Sprint1 新: 应收 vs 实收 对比
   accTabs.find(t => t.key === "charges")!,                // 应收款项 (charges 明细)
   accTabs.find(t => t.key === "receiveds")!,              // 收款记录
   accTabs.find(t => t.key === "receiveds-pending")!,      // 待审收款
@@ -1269,7 +1276,8 @@ const accFinanceTabs = [
   accTabs.find(t => t.key === "fwb-pending")!,            // 待财务审核
   accTabs.find(t => t.key === "fwb-invoiced")!,           // 已出账
   accTabs.find(t => t.key === "fwb-needs-verify")!,       // 待二审账单
-  // 应付 (5)
+  // 应付 (6)
+  accTabs.find(t => t.key === "carrier-invoice-recon")!,  // R-4: 渠道账单对比
   accTabs.find(t => t.key === "costs")!,                  // 应付款项
   accTabs.find(t => t.key === "payments")!,               // 付款记录
   accTabs.find(t => t.key === "payments-pending")!,       // 待审付款
@@ -1362,6 +1370,9 @@ const accGroupSales = [
   T("api-credentials"),        // 客户 API (跨挂自 API 对接中心)
   T("customer-logins"),        // 客户登陆号
   T("customer-rate-cards"),    // 客户专价绑定 (修 P0-D1: 表存在但 UI 没暴露)
+  T("customer-rate-strategies"), // R-12 客户价格策略 (基价×佣金)
+  T("charge-items"),           // R-13 费用类目
+  T("cost-pre-estimates"),     // R-6 预估报价池
   // xqt-saas 扩展: 销售线索/产品/渠道
   T("potentials"),
   T("sold-tos"),
@@ -1664,6 +1675,8 @@ Object.assign(accColumns, {
     { key: "type", label: "类型" },
     { key: "amount", label: "应收金额", fmt: "money" },
     { key: "paid", label: "实收金额", fmt: "money" },
+    { key: "source_type", label: "来源" },           // R-11 状态来源 (ESTIMATE/MANUAL/RESTATE...)
+    { key: "source_charge_id", label: "源 charge" }, // R-9 补收/回退关联
     { key: "theDate", label: "日期" },
     { key: "auditName", label: "审核人" },
   ],
@@ -1690,6 +1703,63 @@ Object.assign(accColumns, {
     { key: "settlement_method", label: "结算方式" },
     { key: "credit_amount",     label: "授信额度", fmt: "money" },
     { key: "last_payment_at",   label: "最后付款", fmt: "datetime" },
+  ],
+  // R-4: 渠道账单对比
+  "carrier-invoice-recon": [
+    { key: "shipmentNo",       label: "出货号" },
+    { key: "trackingNo",       label: "运单号" },
+    { key: "channelCode",      label: "渠道" },
+    { key: "partnerCode",      label: "供应商" },
+    { key: "ourAmount",        label: "我们 AP", fmt: "money" },
+    { key: "partnerAmount",    label: "渠道账单", fmt: "money" },
+    { key: "delta",            label: "差值", fmt: "money" },
+    { key: "reconcileStatus",  label: "对账状态" },
+    { key: "partnerInvoiceNo", label: "账单号" },
+    { key: "shipmentDate",     label: "日期" },
+  ],
+  // 应收 vs 实收
+  "ar-vs-received": [
+    { key: "customerCode",   label: "客户编码" },
+    { key: "customerName",   label: "客户" },
+    { key: "currency",       label: "币种" },
+    { key: "auditedAr",      label: "已审应收", fmt: "money" },
+    { key: "receivedAmount", label: "已实收",   fmt: "money" },
+    { key: "balance",        label: "差额",     fmt: "money" },
+    { key: "status",         label: "状态" },
+    { key: "arCount",        label: "AR 笔数" },
+    { key: "receivedCount",  label: "收款笔数" },
+  ],
+  // R-13 费用类目
+  "charge-items": [
+    { key: "code",          label: "代码" },
+    { key: "name",          label: "名称" },
+    { key: "category",      label: "类别" },
+    { key: "default_side",  label: "默认方向" },
+    { key: "default_uom",   label: "计费单位" },
+    { key: "audit_status",  label: "审核状态" },
+  ],
+  // R-12 客户价格策略
+  "customer-rate-strategies": [
+    { key: "customer_code",   label: "客户" },
+    { key: "channel_code",    label: "渠道" },
+    { key: "commission_rate", label: "佣金率" },
+    { key: "floor_amount",    label: "底价", fmt: "money" },
+    { key: "effective_from",  label: "生效", fmt: "datetime" },
+    { key: "active",          label: "启用" },
+    { key: "remark",          label: "备注" },
+  ],
+  // R-6 预估报价池
+  "cost-pre-estimates": [
+    { key: "channel_code",      label: "渠道" },
+    { key: "customer_code",     label: "客户" },
+    { key: "qty",               label: "件数" },
+    { key: "unit_price",        label: "单价", fmt: "money" },
+    { key: "currency",          label: "币种" },
+    { key: "target_weight_kg",  label: "目标重(kg)" },
+    { key: "effective_date",    label: "生效日期" },
+    { key: "reconciled_count",  label: "已核销" },
+    { key: "status",            label: "状态" },
+    { key: "remark",            label: "备注" },
   ],
   // 财务工作台 — 三 bucket 共用列定义
   "fwb-prepay": [
@@ -1966,6 +2036,7 @@ Object.assign(accColumns, {
     { key: "name", label: "账号名称" },
     { key: "code", label: "编号" },
     { key: "supplierName", label: "物流商" },
+    { key: "processing_fee", label: "操作费", fmt: "money" },  // R-5
     { key: "isOpen", label: "启用", fmt: "bool" },
   ],
   products: [
