@@ -384,7 +384,6 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                 return Map.of("mode", "DELTA", "delta", java.math.BigDecimal.ZERO,
                     "note", "金额相同, 无需补收");
             }
-            // 找 ADJUST 类目, 找不到走 FREIGHT (但会撞 unique key, 此时建议用 OVERWRITE)
             String adjustItemId;
             java.util.List<String> adjustRows = jdbc.queryForList(
                 "SELECT id::text FROM charge_items WHERE code='ADJUST' LIMIT 1", String.class);
@@ -392,6 +391,21 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                 adjustItemId = adjustRows.get(0);
             } else {
                 throw ApiException.badRequest("找不到 ADJUST 调账类目, 请联系管理员配置 charge_items");
+            }
+            // 同 shipment 已有 ADJUST charge 就 VOID + 累加进新 delta (避免撞 unique key)
+            java.math.BigDecimal cumDelta = delta;
+            java.util.List<Map<String, Object>> existingAdjusts = jdbc.queryForList("""
+                SELECT id::text AS id, amount FROM charges
+                 WHERE shipment_id=?::uuid AND charge_item_id=?::uuid AND side=?::charge_side
+                   AND status::text <> 'VOID'
+                """, shipmentId, adjustItemId, side);
+            for (Map<String, Object> ex : existingAdjusts) {
+                cumDelta = cumDelta.add((java.math.BigDecimal) ex.get("amount"));
+                jdbc.update("UPDATE charges SET status='VOID'::charge_status WHERE id=?::uuid", ex.get("id"));
+            }
+            if (cumDelta.signum() == 0) {
+                return Map.of("mode", "DELTA", "delta", java.math.BigDecimal.ZERO,
+                    "note", "累加后差值为 0, 跳过", "voidedPriorAdjusts", existingAdjusts.size());
             }
             String deltaId = jdbc.queryForObject("""
                 INSERT INTO charges (
@@ -401,11 +415,11 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                   current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,
                   ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid
                 ) RETURNING id::text
-                """, String.class, shipmentId, adjustItemId, side, currency, delta,
+                """, String.class, shipmentId, adjustItemId, side, currency, cumDelta,
                 json.toJson(evidence), customerId, orderId);
             return Map.of("mode", "DELTA", "sourceChargeId", id, "deltaChargeId", deltaId,
-                "oldAmount", oldAmount, "newAmount", newAmount, "delta", delta,
-                "chargeItem", "ADJUST");
+                "oldAmount", oldAmount, "newAmount", newAmount, "delta", cumDelta,
+                "voidedPriorAdjusts", existingAdjusts.size(), "chargeItem", "ADJUST");
         }
     }
 

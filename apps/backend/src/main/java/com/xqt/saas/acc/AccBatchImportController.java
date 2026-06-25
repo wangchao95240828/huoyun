@@ -172,14 +172,32 @@ public class AccBatchImportController {
                     skipped++;
                     continue;
                 }
-                // DELTA 用 ADJUST charge_item 避免撞 unique key
+                // DELTA 用 ADJUST charge_item, 同 shipment 已有 ADJUST 就先 VOID 累加新 delta
                 String adjustItemId = jdbc.queryForList(
                     "SELECT id::text FROM charge_items WHERE code='ADJUST' LIMIT 1", String.class)
                     .stream().findFirst().orElse(chargeItemId);
-                insertCharge(shipmentId, adjustItemId, "AR", delta, currency, customerId, orderId,
-                    origChargeId, "DELTA: " + (remark == null ? "" : remark));
+                BigDecimal totalDelta = delta;
+                java.util.List<Map<String, Object>> existingAdjusts = jdbc.queryForList("""
+                    SELECT id::text AS id, amount FROM charges
+                     WHERE shipment_id=?::uuid AND charge_item_id=?::uuid AND side='AR'
+                       AND status::text <> 'VOID'
+                    """, shipmentId, adjustItemId);
+                for (Map<String, Object> ex : existingAdjusts) {
+                    totalDelta = totalDelta.add((BigDecimal) ex.get("amount"));
+                    jdbc.update("UPDATE charges SET status='VOID'::charge_status WHERE id=?::uuid",
+                        ex.get("id"));
+                }
+                if (totalDelta.signum() == 0) {
+                    details.add(Map.of("row", i + 2, "tracking", trackingNo,
+                        "mode", "DELTA", "note", "累加后差值为 0, 跳过"));
+                    skipped++;
+                    continue;
+                }
+                insertCharge(shipmentId, adjustItemId, "AR", totalDelta, currency, customerId, orderId,
+                    origChargeId, "DELTA cumulative: " + (remark == null ? "" : remark));
                 details.add(Map.of("row", i + 2, "tracking", trackingNo,
-                    "mode", "DELTA", "old", oldAmount, "new", newAmount, "delta", delta));
+                    "mode", "DELTA", "old", oldAmount, "new", newAmount,
+                    "delta", totalDelta, "prevAdjustsVoided", existingAdjusts.size()));
             }
             processed++;
         }
