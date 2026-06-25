@@ -81,7 +81,7 @@ class AccOrdersListProjectionTest {
         AccOrdersController c = new AccOrdersController(jdbc,
             new JsonSupport(new ObjectMapper()),
             mock(CascadeChecker.class), mock(FieldGate.class), new BranchAccessFilter(),
-            mock(com.xqt.saas.customerapi.CustomerApiService.class), mock(com.xqt.saas.acc.OrderNoGenerator.class));
+            mock(com.xqt.saas.customerapi.CustomerApiService.class), mock(com.xqt.saas.acc.OrderNoGenerator.class), mock(com.xqt.saas.framework.audit.AuditService.class));
 
         List<Map<String, Object>> items = stubAndCall(jdbc, c,
             orderRow(new BigDecimal("280.00"), new BigDecimal("180.00"), "上海分公司"), "ORD");
@@ -103,7 +103,7 @@ class AccOrdersListProjectionTest {
         AccOrdersController c = new AccOrdersController(jdbc,
             new JsonSupport(new ObjectMapper()),
             mock(CascadeChecker.class), mock(FieldGate.class), new BranchAccessFilter(),
-            mock(com.xqt.saas.customerapi.CustomerApiService.class), mock(com.xqt.saas.acc.OrderNoGenerator.class));
+            mock(com.xqt.saas.customerapi.CustomerApiService.class), mock(com.xqt.saas.acc.OrderNoGenerator.class), mock(com.xqt.saas.framework.audit.AuditService.class));
 
         List<Map<String, Object>> items = stubAndCall(jdbc, c,
             orderRow(BigDecimal.ZERO, BigDecimal.ZERO, null), null);
