@@ -47,9 +47,15 @@ public class AccSprint1RemainingController {
         String name = str(body.get("name"));
         String category = str(body.get("category"));
         String defaultSide = (String) body.getOrDefault("defaultSide", "AR");
-        String defaultUom = (String) body.getOrDefault("defaultUom", "FLAT");
+        String defaultUom = (String) body.getOrDefault("defaultUom", "SHIPMENT");
         if (code == null || name == null || category == null) {
             throw ApiException.badRequest("code / name / category 必填");
+        }
+        if (!List.of("AR","AP","SELLER_COST","SELLER_COMMISSION").contains(defaultSide)) {
+            throw ApiException.badRequest("defaultSide 必须是 AR/AP/SELLER_COST/SELLER_COMMISSION");
+        }
+        if (!List.of("KG","LB","CBM","PIECE","SHIPMENT","CARTON","PERCENT").contains(defaultUom)) {
+            throw ApiException.badRequest("defaultUom 必须是 KG/LB/CBM/PIECE/SHIPMENT/CARTON/PERCENT");
         }
         try {
             String id = jdbc.queryForObject("""
