@@ -3689,6 +3689,46 @@ function fmtJson(value: any): string {
   catch { return String(value); }
 }
 
+// i18n enum → 中文 (默认显示中文, 除非用户切换 EN)
+const useEnglish = ref(localStorage.getItem('xqt.lang') === 'en');
+const ENUM_ZH: Record<string, string> = {
+  // 通用审核
+  PENDING: '待审', UNAUDITED: '未审', AUDITED: '已审', REJECTED: '拒绝',
+  // 订单 / shipment 状态
+  DRAFT: '草稿', SUBMITTED: '已提交', ACCEPTED: '已接单', FULFILLING: '处理中',
+  COMPLETED: '已完成', CANCELLED: '已作废', VOID: '已作废', VOIDED: '已作废',
+  ORDERED: '已下单', IN_TRANSIT: '在途', DELIVERED: '已签收',
+  // charge / 财务
+  ESTIMATED: '预估', LOCKED: '已锁定', ADJUSTED: '已调整', PAID: '已付清',
+  UNSETTLED: '未结清', PARTIAL: '部分结清', SETTLED: '已结清',
+  UNPAID: '未付', CONFIRMED: '已确认',
+  AR: '应收', AP: '应付',
+  // R-11 source_type
+  ESTIMATE: '系统预估', MANUAL: '手动添加', INVOICE: '真账单', LIVE_QUOTE: '实时报价', RESTATE: '补收差值', BATCH_IMPORT: '批量导入',
+  // R-4 reconcile status
+  MATCH: '匹配', DRIFT_MINOR: '小幅偏差', DRIFT_MAJOR: '大幅偏差',
+  NO_PARTNER_BILL: '缺渠道账单', NO_OUR_COST: '缺我方成本',
+  // AR vs Received
+  BALANCED: '已平衡', CUSTOMER_OWES: '客户欠款', OVER_PAID: '客户多付',
+  // payment 模式
+  PREPAY: '预付', PREPAID: '预付', MONTHLY: '月结', CREDIT: '授信',
+  // charge_item category
+  FREIGHT: '运费', SURCHARGE: '附加费', TAX: '税费', DISCOUNT: '折扣',
+  CUSTOMS: '报关', DELIVERY: '派送', INSURANCE: '保险', OTHER: '其他',
+  // status active
+  ACTIVE: '生效', EXHAUSTED: '用尽', EXPIRED: '已过期',
+};
+function i18n(value: any): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (useEnglish.value) return String(value);
+  const s = String(value);
+  return ENUM_ZH[s] ?? s;
+}
+function toggleLang() {
+  useEnglish.value = !useEnglish.value;
+  localStorage.setItem('xqt.lang', useEnglish.value ? 'en' : 'zh');
+}
+
 function fmtCell(value: any, format?: string): string {
   if (value === null || value === undefined) return "-";
   if (format === "money") return "¥" + fmt(Number(value));
@@ -3697,8 +3737,12 @@ function fmtCell(value: any, format?: string): string {
     const n = Number(value);
     return Number.isFinite(n) ? (n * 100).toFixed(2) + "%" : "-";
   }
-  if (format === "bool") return value ? "是" : "否";
+  if (format === "bool") return value ? (useEnglish.value ? 'Yes' : '是') : (useEnglish.value ? 'No' : '否');
   if (format === "date" && typeof value === "string") return value.slice(0, 19).replace("T", " ");
+  // i18n: 检查 enum 映射, 命中就翻译, 否则原样
+  if (typeof value === 'string' && ENUM_ZH[value]) {
+    return i18n(value);
+  }
   return String(value);
 }
 
@@ -6730,11 +6774,21 @@ async function doExport() {
     const raw = await res.json();
     const json = Array.isArray(raw) ? raw : (raw.data ?? []);
     if (Array.isArray(json) && json.length > 0) {
-      const headers = Object.keys(json[0]);
+      // 用列定义生成中文表头 + i18n 翻译 enum (除非 useEnglish=true)
+      const colDefs = (accColumns as any)[tab.key] || (accColumns as any)[tab.api] || [];
+      const headers = colDefs.length > 0
+        ? colDefs.map((c: any) => useEnglish.value ? c.key : (c.label ?? c.key))
+        : Object.keys(json[0]);
+      const keys = colDefs.length > 0 ? colDefs.map((c: any) => c.key) : Object.keys(json[0]);
       const csv = [headers.join(','), ...json.map((row: any) =>
-        headers.map(h => {
-          const val = String(row[h] ?? '').replace(/"/g, '""');
-          return `"${val}"`;
+        keys.map((k: string) => {
+          let val = row[k];
+          // i18n 翻译 enum 值 (status/audit/state 等)
+          if (typeof val === 'string' && !useEnglish.value && ENUM_ZH[val]) {
+            val = ENUM_ZH[val];
+          }
+          const s = String(val ?? '').replace(/"/g, '""');
+          return `"${s}"`;
         }).join(',')
       )].join('\n');
       const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -6744,7 +6798,7 @@ async function doExport() {
       a.download = `${tab.label}_${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      bizMessage.value = `导出成功，${json.length} 条记录`;
+      bizMessage.value = `导出成功，${json.length} 条记录${useEnglish.value ? ' (EN)' : ' (中文)'}`;
     } else {
       bizMessage.value = '无数据可导出';
     }
@@ -7035,7 +7089,10 @@ async function doDisableCustomerLogin(row: any) {
               <span>{{ authUser?.tenantCode }} · {{ authUser?.roles?.join(', ') }}</span>
             </div>
           </div>
-          <button class="text-button" @click="logout()">退出</button>
+          <button class="text-button" @click="toggleLang" :title="useEnglish ? '切换中文显示' : 'Switch to English'">
+            {{ useEnglish ? '🇨🇳 中' : '🇬🇧 EN' }}
+          </button>
+          <button class="text-button" @click="logout()">{{ useEnglish ? 'Logout' : '退出' }}</button>
         </div>
       </header>
 
