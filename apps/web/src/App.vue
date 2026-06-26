@@ -1059,7 +1059,6 @@ const accTabs = [
   { key: "quick-orders", label: "快速下单", icon: ClipboardList, api: "quick-orders" },
   // 制单中心工具类 (ACC 缺失补齐) - 大多是 orders 数据源 + 不同 filter
   { key: "orders-queue", label: "制单队列", icon: ClipboardList, api: "orders", statusFilter: "QUEUE" },
-  { key: "orders-import", label: "导入快件", icon: Upload, api: "orders" },
   { key: "orders-batch-print", label: "批量打印", icon: FileText, api: "orders" },
   { key: "orders-batch-track", label: "追踪快递", icon: MapPin, api: "orders" },
   { key: "orders-update-tracking", label: "更新转单号", icon: RefreshCw, api: "orders" },
@@ -1299,7 +1298,6 @@ const accGroupOrder = [
   T("orders"), T("orders-draft"), T("orders-history"), T("orders-cancelled"), T("orders-void"),
   T("quick-orders"),
   T("orders-queue"),                    // 制单队列
-  T("orders-import"),                   // 导入快件
   T("orders-batch-print"),              // 批量打印
   // 批量操作子组：5 个独立批量页面（ACC ExpressBatch.php）
   T("orders-update-tracking"),          // 更新转单号
@@ -1500,7 +1498,6 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'stowages-exception': 'stowages',
       // 制单中心 view tabs (复用 orders 列)
       'orders-queue': 'orders',
-      'orders-import': 'orders',
       'orders-batch-print': 'orders',
       'orders-batch-track': 'orders',
       'orders-update-tracking': 'orders',
@@ -1561,7 +1558,6 @@ const accColumns: Record<string, Array<{ key: string; label: string; fmt?: strin
       'stowages-exception': 'stowages',
       // 制单中心 view tabs (复用 orders 列)
       'orders-queue': 'orders',
-      'orders-import': 'orders',
       'orders-batch-print': 'orders',
       'orders-batch-track': 'orders',
       'orders-update-tracking': 'orders',
@@ -5642,44 +5638,6 @@ async function doOrdersPrint(kind: string) {
   }
 }
 
-// 导入快件
-const showImportDialog = ref(false);
-async function doDownloadImportTemplate() {
-  const res = await apiFetch(`${API}/api/acc/orders/import-template`);
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'order-import-template.csv';
-  a.click();
-  URL.revokeObjectURL(url);
-}
-async function doImportExcel(event: Event) {
-  const target = event.target as HTMLInputElement;
-  const file = target.files?.[0];
-  if (!file) return;
-  const fd = new FormData();
-  fd.append('file', file);
-  bizLoading.value = true;
-  try {
-    const res = await apiFetch(`${API}/api/acc/orders/import-excel`, {
-      method: 'POST',
-      body: fd,
-    });
-    const j = await res.json();
-    bizMessage.value = `导入完成: 成功 ${j.created ?? 0} / 失败 ${j.failed ?? 0}`;
-    if ((j.errors ?? []).length > 0) {
-      console.log('导入错误:', j.errors);
-    }
-    await fetchAccData();
-  } catch (e: any) {
-    bizMessage.value = `导入失败: ${e.message}`;
-  } finally {
-    bizLoading.value = false;
-    target.value = '';
-    setTimeout(() => { bizMessage.value = ''; }, 10000);
-  }
-}
 
 // ACC 制单中心「批量打印」: 把勾选订单 POST 到 orders/print-label, 后端返回 JSON 文档清单,
 // 前端打开 print-preview 新窗口(后续可扩 PDF 渲染, 先把文档清单展示出来).
@@ -7535,16 +7493,6 @@ async function doDisableCustomerLogin(row: any) {
             <Upload :size="13" /> 上传成本 CSV
             <input type="file" accept=".csv" style="display:none" @change="doImportActualCost" />
           </label>
-          <!-- ACC 制单中心「导入快件」: 下载模板 + 上传 Excel/CSV -->
-          <template v-if="accTab === 'orders-import'">
-            <button class="secondary sm" @click="doDownloadImportTemplate">
-              <FileText :size="13" /> 下载模板
-            </button>
-            <label class="primary sm" style="cursor:pointer">
-              <Upload :size="13" /> 上传快件 Excel/CSV
-              <input type="file" accept=".csv,.xls,.xlsx" style="display:none" @change="doImportExcel" />
-            </label>
-          </template>
           <!-- ACC 制单中心「批量打印」: 选中订单后批量打面单 -->
           <button class="primary sm" v-if="accTab === 'orders-batch-print'"
                   @click="doBatchPrintLabels"
@@ -7595,10 +7543,7 @@ async function doDisableCustomerLogin(row: any) {
             <button class="secondary sm" @click="doExportPrepayCsv" :disabled="bizLoading">
               <FileText :size="13" /> 导出客户对账 CSV
             </button>
-            <label class="secondary sm" style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;">
-              <Upload :size="13" /> 导入 UPS 账单 CSV
-              <input type="file" accept=".csv" @change="doImportActualBill" style="display:none" :disabled="bizLoading" />
-            </label>
+            <!-- 导入 UPS 账单 CSV: 移除重复入口, 统一去 核算中心 → 导入费用 -->
           </template>
           <!-- 财务工作台 - 已出账 批量工具栏 -->
           <template v-if="accTab === 'fwb-invoiced'">
@@ -7784,17 +7729,6 @@ async function doDisableCustomerLogin(row: any) {
                   style="color:#0ea5e9">
             <Upload :size="13" /> 📥 xlsx 批量导单
           </button>
-          <!-- 导入快件 (在 orders-import tab 显示) -->
-          <template v-if="accTab === 'orders-import'">
-            <button class="secondary sm" @click="doDownloadImportTemplate" :disabled="bizLoading">
-              <Download :size="13" /> 下载模板
-            </button>
-            <label class="secondary sm" style="cursor:pointer;display:inline-flex;align-items:center;gap:4px">
-              <Upload :size="13" />
-              <span>导入 Excel/CSV</span>
-              <input type="file" accept=".csv,.xlsx,.xls" @change="doImportExcel" style="display:none" />
-            </label>
-          </template>
           <button class="secondary sm" v-if="canExport && !canOrdersBatch" @click="doExport" :disabled="bizLoading">
             <Download :size="13" /> 导出
           </button>

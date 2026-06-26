@@ -143,7 +143,11 @@ public class AccBillExportController {
             FROM billed_orders bo
             LEFT JOIN cartons ct ON ct.shipment_id = bo.shipment_id
             LEFT JOIN LATERAL jsonb_to_recordset(
-              bo.metadata #> '{acc_compat,packageList}'
+              CASE
+                WHEN jsonb_typeof(bo.metadata #> '{acc_compat,packageList}') = 'array'
+                  THEN bo.metadata #> '{acc_compat,packageList}'
+                ELSE '[]'::jsonb
+              END
             ) AS pkg(no text, name text, cnName text, weight text, length text, width text, height text,
                      hsCode text, quantity text, price text, material text) ON true
             WHERE pkg.no IS NOT NULL
