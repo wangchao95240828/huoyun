@@ -7775,11 +7775,15 @@ async function doDisableCustomerLogin(row: any) {
             <button class="secondary sm" @click="doExportSelected" :disabled="bizLoading || selectedIds.size === 0">
               <Download :size="13" /> 导出选中({{ selectedIds.size }})
             </button>
-            <!-- R-2: xlsx 批量导单 -->
-            <button class="secondary sm" @click="openXlsxImport('orders')" :disabled="bizLoading" style="color:#0ea5e9">
-              <Upload :size="13" /> 📥 xlsx 批量导单
-            </button>
           </template>
+          <!-- R-2: xlsx 批量导单 — 放在「快件订单」主页, 也兼容 未提交/历史制单 -->
+          <button class="secondary sm"
+                  v-if="accTab === 'orders' || showFullOrdersToolbar"
+                  @click="openXlsxImport('orders')"
+                  :disabled="bizLoading"
+                  style="color:#0ea5e9">
+            <Upload :size="13" /> 📥 xlsx 批量导单
+          </button>
           <!-- 导入快件 (在 orders-import tab 显示) -->
           <template v-if="accTab === 'orders-import'">
             <button class="secondary sm" @click="doDownloadImportTemplate" :disabled="bizLoading">
