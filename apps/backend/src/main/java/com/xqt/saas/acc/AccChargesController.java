@@ -372,13 +372,14 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
             String newId = jdbc.queryForObject("""
                 INSERT INTO charges (
                   tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
-                  evidence, customer_id, order_id
+                  evidence, customer_id, order_id, source_type, source_charge_id
                 ) VALUES (
                   current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,
-                  ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid
+                  ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid,
+                  'RESTATE', ?::uuid
                 ) RETURNING id::text
                 """, String.class, shipmentId, chargeItemId, side, currency, newAmount,
-                json.toJson(evidence), customerId, orderId);
+                json.toJson(evidence), customerId, orderId, id);
             return Map.of("mode", "OVERWRITE", "voidedChargeId", id, "newChargeId", newId,
                 "oldAmount", oldAmount, "newAmount", newAmount);
         } else {
@@ -415,13 +416,14 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
             String deltaId = jdbc.queryForObject("""
                 INSERT INTO charges (
                   tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
-                  evidence, customer_id, order_id
+                  evidence, customer_id, order_id, source_type, source_charge_id
                 ) VALUES (
                   current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,
-                  ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid
+                  ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid,
+                  'RESTATE', ?::uuid
                 ) RETURNING id::text
                 """, String.class, shipmentId, adjustItemId, side, currency, cumDelta,
-                json.toJson(evidence), customerId, orderId);
+                json.toJson(evidence), customerId, orderId, id);
             return Map.of("mode", "DELTA", "sourceChargeId", id, "deltaChargeId", deltaId,
                 "oldAmount", oldAmount, "newAmount", newAmount, "delta", cumDelta,
                 "voidedPriorAdjusts", existingAdjusts.size(), "chargeItem", "ADJUST");
