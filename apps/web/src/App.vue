@@ -1391,15 +1391,15 @@ const accGroupAccounting = [
 ];
 // 人事组织（保留，对应 ACC 部分原系统设置/数据管理范畴）
 const accGroupHR = [
-  T("acc-branches"), T("departments"),
+  T("acc-branches"),
 ];
-// 数据管理 / 系统设置（master + 接口 + 任务）
+// 数据管理 / 系统设置（master + 接口）
 const accGroupSystem = [
   T("countries"), T("districts"),
   T("postcodes"), T("remotes"),
   T("fuels"), T("hscodes"),
   T("zones"), T("bank-names"),
-  T("logistics-interfaces"), T("tasks"), T("templates"),
+  T("logistics-interfaces"),
   T("importer-templates"),                  // 制单进口商预设
 ];
 
