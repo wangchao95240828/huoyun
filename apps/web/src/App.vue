@@ -1198,6 +1198,7 @@ const accTabs = [
   { key: "sales-prices", label: "销售价格", icon: WalletCards, api: "sales-prices" },
   { key: "customer-prices", label: "客户价格", icon: WalletCards, api: "customer-prices" },
   { key: "published-prices", label: "公布价格", icon: WalletCards, api: "published-prices" },
+  { key: "rate-lookup", label: "价目表查询", icon: Search, api: "rate-lookup/channels" },
   { key: "files", label: "文件管理", icon: FileText, api: "files" },
   // DWS 实物分拣 (客服中心 收货线)
   { key: "inbound-parcels", label: "入仓预报", icon: PackageOpen, api: "inbound-parcels" },
@@ -1240,6 +1241,7 @@ const accBasicTabs = [
   accTabs.find(t => t.key === "sales-prices")!,        // 销售价格
   accTabs.find(t => t.key === "customer-prices")!,     // 客户价格
   accTabs.find(t => t.key === "published-prices")!,    // 公布价格
+  accTabs.find(t => t.key === "rate-lookup")!,         // 价目表查询 (XQT 22 渠道)
   accTabs.find(t => t.key === "zones")!,               // 价格分区
   accTabs.find(t => t.key === "channels")!,            // 渠道类型
   accTabs.find(t => t.key === "files")!,               // 文件管理
@@ -2674,6 +2676,16 @@ Object.assign(accColumns, {
     { key: "priority", label: "优先级" },
     { key: "status", label: "启用", fmt: "bool" },
     { key: "createdAt", label: "创建时间", fmt: "datetime" },
+  ],
+  "rate-lookup": [
+    { key: "code", label: "渠道代码" },
+    { key: "name", label: "渠道名称" },
+    { key: "lane", label: "运输方式" },
+    { key: "last_mile_method", label: "末端方式" },
+    { key: "active_lines", label: "价格阶梯数" },
+    { key: "zone_count", label: "Zone 数" },
+    { key: "min_price", label: "最低价", fmt: "money" },
+    { key: "max_price", label: "最高价", fmt: "money" },
   ],
   files: [
     { key: "fileName", label: "文件名" },
