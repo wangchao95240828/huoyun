@@ -1137,7 +1137,6 @@ const accTabs = [
   { key: "payments", label: "供应商付款", icon: Landmark, api: "payments" },
   { key: "receiveds", label: "客户收款", icon: Coins, api: "receiveds" },
   { key: "profits", label: "利润查询", icon: BarChart3, api: "profits" },
-  { key: "fees", label: "杂费套餐", icon: ListChecks, api: "fees" },
   { key: "fee-types", label: "附加费类型", icon: Tag, api: "fee-types" },
   { key: "customer-fines", label: "客户罚款", icon: MinusCircle, api: "customer-fines" },
   { key: "supplier-fines", label: "物流商罚款", icon: MinusCircle, api: "supplier-fines" },
@@ -1147,18 +1146,12 @@ const accTabs = [
   { key: "supplier-refunds", label: "物流商退款", icon: Undo2, api: "supplier-refunds" },
   { key: "customer-rebates", label: "客户返利", icon: Gift, api: "customer-rebates" },
   { key: "supplier-rebates", label: "物流商返利", icon: Gift, api: "supplier-rebates" },
-  { key: "expenses", label: "费用收支", icon: Receipt, api: "expenses" },
   { key: "banks", label: "银行账户", icon: PiggyBank, api: "banks" },
   { key: "commissions", label: "员工提成", icon: UserCheck, api: "commissions" },
   { key: "transfers", label: "转账记录", icon: ArrowLeftRight, api: "transfers" },
-  { key: "dividends", label: "分红入股", icon: HandCoins, api: "dividends" },
-  { key: "borrowings", label: "资金借贷", icon: Banknote, api: "borrowings" },
   { key: "currencies", label: "货币汇率", icon: Coins, api: "currencies" },
-  { key: "assets", label: "固定资产", icon: Landmark, api: "assets" },
   { key: "cycles", label: "周期费用", icon: CalendarClock, api: "cycles" },
   { key: "received-sms", label: "收款短信", icon: Mail, api: "received-sms" },
-  { key: "expense-categories", label: "费用分类", icon: Tag, api: "expense-categories" },
-  { key: "fee-item-types", label: "费用项类型", icon: Tag, api: "fee-item-types" },
   // 客户/供应商
   { key: "customers", label: "客户管理", icon: Users, api: "customers" },
   { key: "customer-groups", label: "客户分组", icon: FolderTree, api: "customer-groups" },
@@ -1168,18 +1161,8 @@ const accTabs = [
   { key: "products", label: "价格表", icon: WalletCards, api: "products" },
   { key: "product-items", label: "品名管理", icon: Hash, api: "product-items" },
   { key: "potentials", label: "潜在客户", icon: UserCheck, api: "potentials" },
-  { key: "sold-tos", label: "收件地址库", icon: MapPin, api: "sold-tos" },
-  { key: "notices", label: "客户通知", icon: FileText, api: "notices" },
   // 人事组织
-  { key: "employees", label: "员工管理", icon: Users, api: "employees" },
-  { key: "wages", label: "工资发放", icon: Banknote, api: "wages" },
-  { key: "attendances", label: "考勤管理", icon: Clock, api: "attendances" },
   { key: "acc-branches", label: "分店管理", icon: Building2, api: "branches" },
-  { key: "departments", label: "部门管理", icon: Building2, api: "departments" },
-  { key: "socials", label: "社保缴纳", icon: ShieldCheck, api: "socials" },
-  { key: "social-persons", label: "社保人员", icon: Users, api: "social-persons" },
-  { key: "funds", label: "公积金缴纳", icon: PiggyBank, api: "funds" },
-  { key: "fund-persons", label: "公积金人员", icon: Users, api: "fund-persons" },
   { key: "commission-rules", label: "提成规则", icon: ClipboardList, api: "commission-rules" },
   // 基础数据
   { key: "countries", label: "国家地区", icon: Globe, api: "countries" },
@@ -1191,15 +1174,9 @@ const accTabs = [
   { key: "bank-names", label: "银行名称", icon: PiggyBank, api: "bank-names" },
   { key: "districts", label: "行政区域", icon: Globe, api: "districts" },
   { key: "logistics-interfaces", label: "物流接口", icon: Layers, api: "logistics-interfaces" },
-  { key: "tasks", label: "定时任务", icon: ListChecks, api: "tasks" },
-  { key: "templates", label: "消息模板", icon: FileText, api: "templates" },
   { key: "importer-templates", label: "进口商模板", icon: FileText, api: "importer-templates" },
   // ACC 基础信息 → 运费管理 新增 4 个 tab
-  { key: "sales-prices", label: "销售价格", icon: WalletCards, api: "sales-prices" },
-  { key: "customer-prices", label: "客户价格", icon: WalletCards, api: "customer-prices" },
-  { key: "published-prices", label: "公布价格", icon: WalletCards, api: "published-prices" },
   { key: "rate-lookup", label: "价目表查询", icon: Search, api: "rate-lookup/channels" },
-  { key: "files", label: "文件管理", icon: FileText, api: "files" },
   // DWS 实物分拣 (客服中心 收货线)
   { key: "inbound-parcels", label: "入仓预报", icon: PackageOpen, api: "inbound-parcels" },
   { key: "dws-scans", label: "DWS 扫描流水", icon: Scale, api: "dws-scans" },
@@ -1220,7 +1197,6 @@ const accTabs = [
   { key: "api-call-logs", label: "API 调用日志", icon: ListChecks, api: "api-call-logs" },
   { key: "webhook-endpoints", label: "Webhook 回调地址", icon: Webhook, api: "webhook-endpoints" },
   { key: "webhook-events", label: "Webhook 投递记录", icon: Send, api: "webhook-events" },
-  { key: "api-docs", label: "API 文档", icon: BookOpen, api: "api-docs" },
 ];
 
 // ACC 基础信息（对应 ACC 顶部"基础信息"菜单的 4 大子组、共 21 项）。
@@ -1233,18 +1209,13 @@ const accBasicTabs = [
   accTabs.find(t => t.key === "postcodes")!,           // 邮编管理
   accTabs.find(t => t.key === "remotes")!,             // 偏远邮编
   accTabs.find(t => t.key === "fee-types")!,           // 杂费类型
-  accTabs.find(t => t.key === "fees")!,                // 杂费套餐
   accTabs.find(t => t.key === "fuels")!,               // 燃油费用
   // 运费管理 (8)
   accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号
   accTabs.find(t => t.key === "products")!,            // 销售产品
-  accTabs.find(t => t.key === "sales-prices")!,        // 销售价格
-  accTabs.find(t => t.key === "customer-prices")!,     // 客户价格
-  accTabs.find(t => t.key === "published-prices")!,    // 公布价格
   accTabs.find(t => t.key === "rate-lookup")!,         // 价目表查询 (XQT 22 渠道)
   accTabs.find(t => t.key === "zones")!,               // 价格分区
   accTabs.find(t => t.key === "channels")!,            // 渠道类型
-  accTabs.find(t => t.key === "files")!,               // 文件管理
   // 物流商管理 (2)（"创建物流商"用列表里的"新增"按钮，不单独占 tab）
   accTabs.find(t => t.key === "suppliers")!,           // 物流商列表
   accTabs.find(t => t.key === "supplier-adjusts")!,    // 物流商调账
@@ -1261,7 +1232,6 @@ const accFinanceTabs = [
   // 资金账户 (5)
   accTabs.find(t => t.key === "banks")!,                  // 账户管理
   accTabs.find(t => t.key === "transfers")!,              // 资金转账
-  accTabs.find(t => t.key === "borrowings")!,             // 资金借贷
   accTabs.find(t => t.key === "account-transactions")!,   // 往来账户
   accTabs.find(t => t.key === "currencies")!,             // 币种管理
   // 应收 (6)
@@ -1376,8 +1346,6 @@ const accGroupSales = [
   T("cost-pre-estimates"),     // R-6 预估报价池
   // xqt-saas 扩展: 销售线索/产品/渠道
   T("potentials"),
-  T("sold-tos"),
-  T("notices"),
   T("suppliers"),
   T("channels"),
   T("channel-accounts"),
@@ -1420,14 +1388,10 @@ const accGroupAccounting = [
   T("bills"),
   T("profits"),
   T("commissions"), T("commission-rules"),
-  T("expenses"), T("cycles"),
-  T("fees"), T("fee-types"), T("expense-categories"), T("fee-item-types"),
 ];
 // 人事组织（保留，对应 ACC 部分原系统设置/数据管理范畴）
 const accGroupHR = [
-  T("employees"), T("wages"), T("attendances"),
   T("acc-branches"), T("departments"),
-  T("socials"), T("social-persons"), T("funds"), T("fund-persons"),
 ];
 // 数据管理 / 系统设置（master + 接口 + 任务）
 const accGroupSystem = [
@@ -1445,7 +1409,6 @@ const accGroupApi = [
   T("api-call-logs"),
   T("webhook-endpoints"),
   T("webhook-events"),
-  T("api-docs"),
 ];
 
 const accMenuGroups = [
@@ -2461,18 +2424,6 @@ Object.assign(accColumns, {
     { key: "bankName", label: "绑定账户" },
     { key: "remark", label: "备注" },
   ],
-  "expense-categories": [
-    { key: "name", label: "分类名称" },
-    { key: "type", label: "费用类型" },
-    { key: "isComing", label: "收入", fmt: "bool" },
-    { key: "remark", label: "备注" },
-  ],
-  "fee-item-types": [
-    { key: "name", label: "名称" },
-    { key: "type", label: "类型" },
-    { key: "color", label: "颜色标识" },
-    { key: "remark", label: "备注" },
-  ],
   potentials: [
     { key: "name", label: "公司名称" },
     { key: "contacts", label: "联系人" },
@@ -2483,16 +2434,6 @@ Object.assign(accColumns, {
     { key: "qq", label: "QQ 号" },
     { key: "weixin", label: "微信" },
     { key: "addTime", label: "添加时间", fmt: "date" },
-  ],
-  "sold-tos": [
-    { key: "name", label: "名称" },
-    { key: "code", label: "编号" },
-    { key: "consignee", label: "收件人" },
-    { key: "company", label: "公司" },
-    { key: "country", label: "国家" },
-    { key: "phone", label: "电话" },
-    { key: "postcode", label: "邮编" },
-    { key: "address", label: "地址" },
   ],
   notices: [
     { key: "name", label: "发布人" },
@@ -2511,14 +2452,6 @@ Object.assign(accColumns, {
     { key: "bankName", label: "缴纳账户" },
     { key: "remark", label: "备注" },
   ],
-  "social-persons": [
-    { key: "name", label: "姓名" },
-    { key: "code", label: "编号" },
-    { key: "type", label: "社保类型" },
-    { key: "wage", label: "基数", fmt: "money" },
-    { key: "rate", label: "比例(%)" },
-    { key: "remark", label: "备注" },
-  ],
   funds: [
     { key: "month", label: "月份" },
     { key: "theDate", label: "日期" },
@@ -2527,14 +2460,6 @@ Object.assign(accColumns, {
     { key: "rate", label: "缴纳比例(%)" },
     { key: "amount", label: "金额", fmt: "money" },
     { key: "bankName", label: "缴纳账户" },
-    { key: "remark", label: "备注" },
-  ],
-  "fund-persons": [
-    { key: "name", label: "姓名" },
-    { key: "code", label: "编号" },
-    { key: "wage", label: "基数", fmt: "money" },
-    { key: "rate", label: "比例(%)" },
-    { key: "company", label: "公司" },
     { key: "remark", label: "备注" },
   ],
   "commission-rules": [
@@ -2643,39 +2568,6 @@ Object.assign(accColumns, {
     { key: "sendCustomer", label: "发客户", fmt: "bool" },
     { key: "sendSelf", label: "发自己", fmt: "bool" },
     { key: "isSave", label: "保存", fmt: "bool" },
-  ],
-  "sales-prices": [
-    { key: "name", label: "价格名称" },
-    { key: "service", label: "渠道/服务" },
-    { key: "receiveArea", label: "收件区域" },
-    { key: "minWeight", label: "最小重量" },
-    { key: "maxWeight", label: "最大重量" },
-    { key: "zipPrefix", label: "邮编前缀" },
-    { key: "priority", label: "优先级" },
-    { key: "status", label: "启用", fmt: "bool" },
-    { key: "createdAt", label: "创建时间", fmt: "datetime" },
-  ],
-  "customer-prices": [
-    { key: "name", label: "价格名称" },
-    { key: "userName", label: "客户" },
-    { key: "userLevel", label: "客户等级" },
-    { key: "service", label: "渠道/服务" },
-    { key: "receiveArea", label: "收件区域" },
-    { key: "minWeight", label: "最小重量" },
-    { key: "maxWeight", label: "最大重量" },
-    { key: "status", label: "启用", fmt: "bool" },
-    { key: "createdAt", label: "创建时间", fmt: "datetime" },
-  ],
-  "published-prices": [
-    { key: "name", label: "价格名称" },
-    { key: "service", label: "渠道/服务" },
-    { key: "receiveArea", label: "收件区域" },
-    { key: "minWeight", label: "最小重量" },
-    { key: "maxWeight", label: "最大重量" },
-    { key: "zipPrefix", label: "邮编前缀" },
-    { key: "priority", label: "优先级" },
-    { key: "status", label: "启用", fmt: "bool" },
-    { key: "createdAt", label: "创建时间", fmt: "datetime" },
   ],
   "rate-lookup": [
     { key: "code", label: "渠道代码" },
