@@ -820,7 +820,7 @@ public class RateEngine {
                  WHERE tenant_id = ?::uuid
                    AND rate_card_id = ?::uuid
                    AND warehouse_code IS NOT NULL
-                   AND warehouse_code ~ ('(^|[、.,])' || ? || '($|[、.,])')
+                   AND warehouse_code ~ ('(^|[、./, ])' || ? || '($|[、./, ])')
                  LIMIT 1
                 """, String.class, tenantId, rateCardId, warehouseCode);
         } catch (org.springframework.dao.EmptyResultDataAccessException e) {
