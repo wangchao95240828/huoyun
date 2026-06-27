@@ -12,14 +12,30 @@ import com.alibaba.excel.context.AnalysisContext;
 import com.alibaba.excel.read.listener.ReadListener;
 import com.xqt.saas.common.ApiException;
 import com.xqt.saas.common.JsonSupport;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.IndexedColors;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import java.io.ByteArrayOutputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 /**
  * R-2 + R-7: xlsx 批量导入/补收
@@ -375,5 +391,58 @@ public class AccBatchImportController {
         if (o == null) return null;
         String s = o.toString().trim();
         return s.isEmpty() ? null : s;
+    }
+
+    /** GET /api/acc/batch-import/template/orders — R-2 xlsx 批量导单模板. */
+    @GetMapping("/template/orders")
+    public ResponseEntity<ByteArrayResource> ordersTemplate() throws IOException {
+        String[] headers = {
+            "客户编码", "渠道编码", "客户单号", "收件人姓名", "收件人电话", "收件人邮箱",
+            "国家", "州/省", "城市", "邮编", "地址1", "地址2",
+            "重量(KG)", "长(CM)", "宽(CM)", "高(CM)", "件数",
+            "申报品名", "HS编码", "申报数量", "申报单价", "申报币种", "原产国", "内件类型"
+        };
+        return makeTemplate("批量导单模板.xlsx", "订单导入", headers,
+            new String[]{"SELLER-DEMO","UPS-GROUND-US","CUST-NO-001","张三","13800138000","zhang@example.com",
+                         "US","CA","Los Angeles","90210","123 Test Ave","Suite 100",
+                         "1.5","20","15","10","1",
+                         "Wireless Mouse","8517.62.00","1","12.50","USD","CN","ELECTRONICS"});
+    }
+
+    /** GET /api/acc/batch-import/template/restate-ar — R-7 xlsx 批量补收模板. */
+    @GetMapping("/template/restate-ar")
+    public ResponseEntity<ByteArrayResource> restateArTemplate() throws IOException {
+        String[] headers = {"运单号", "新金额", "新重量(KG)", "备注"};
+        return makeTemplate("批量补收模板.xlsx", "应收补收", headers,
+            new String[]{"GUARANTEED-1782285154","18.50","1.65","UPS 实际计费重补收"});
+    }
+
+    private ResponseEntity<ByteArrayResource> makeTemplate(String filename, String sheetName,
+                                                            String[] headers, String[] sample) throws IOException {
+        try (XSSFWorkbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            XSSFSheet sh = wb.createSheet(sheetName);
+            CellStyle hdr = wb.createCellStyle();
+            Font f = wb.createFont(); f.setBold(true); f.setColor(IndexedColors.WHITE.getIndex());
+            hdr.setFont(f);
+            hdr.setFillForegroundColor(IndexedColors.DARK_BLUE.getIndex());
+            hdr.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            Row r0 = sh.createRow(0);
+            for (int i = 0; i < headers.length; i++) {
+                Cell c = r0.createCell(i); c.setCellValue(headers[i]); c.setCellStyle(hdr);
+                sh.setColumnWidth(i, 4500);
+            }
+            Row r1 = sh.createRow(1);
+            for (int i = 0; i < sample.length && i < headers.length; i++) {
+                r1.createCell(i).setCellValue(sample[i]);
+            }
+            wb.write(out);
+            byte[] bytes = out.toByteArray();
+            String encoded = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
+                .contentType(MediaType.parseMediaType(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(new ByteArrayResource(bytes));
+        }
     }
 }

@@ -9170,14 +9170,14 @@ async function doDisableCustomerLogin(row: any) {
             <div v-if="xlsxImportType === 'orders'">
               <strong>表头要求 (中文/英文都行)</strong>:<br>
               客户编码 | 渠道产品 | 制单账号 | 重量(kg) | 国家 | 邮编 | 地址 | 收件人 | 电话 | 申报品名 | 数量 | 单价 | HS编码<br>
-              <a href="/docs/xlsx-模板/批量导单模板.xlsx" target="_blank" style="color:#0ea5e9">下载模板</a>
+              <a :href="`${API}/api/acc/batch-import/template/orders`" target="_blank" style="color:#0ea5e9">📥 下载模板</a>
             </div>
             <div v-else>
               <strong>表头</strong>: 运单号 | 新金额 | 备注<br>
               <strong>模式</strong>:
               <label style="margin-left:8px"><input type="radio" v-model="xlsxImportMode" value="DELTA"> DELTA (差值, 推荐)</label>
               <label style="margin-left:12px"><input type="radio" v-model="xlsxImportMode" value="OVERWRITE"> OVERWRITE (覆盖)</label><br>
-              <a href="/docs/xlsx-模板/批量补收模板.xlsx" target="_blank" style="color:#0ea5e9">下载模板</a>
+              <a :href="`${API}/api/acc/batch-import/template/restate-ar`" target="_blank" style="color:#0ea5e9">📥 下载模板</a>
             </div>
           </div>
           <div class="form-grid">
