@@ -151,10 +151,26 @@ public class RateEngine {
             chosenRateCardId = (String) baseCard.get("id");
         }
 
-        // ─── 解析 UPS zone（按 dest_prefix 查 ups_zone_mappings）───
-        String resolvedZone = repository.resolveZoneByPostcode(
-            tenantId, UPS_ORIGIN_PREFIX, request.postalCode());
-        if (resolvedZone == null) resolvedZone = DEFAULT_ZONE;
+        // ─── 解析 zone (按 channel.lane 走 3 套逻辑) ───
+        // US-LAST-MILE     → ups_zone_mappings (UPS Zone 2-8)
+        // US-OCEAN-EXPRESS → dest postcode 第一位 → USE/USM/USW (海派区域分段)
+        // US-OCEAN-TRUCK   → channelAccountCode 视作 warehouse_code, 在顿号分隔列里搜
+        String resolvedZone;
+        String channelLane = (String) channel.get("lane");
+        if ("US-OCEAN-EXPRESS".equals(channelLane)) {
+            resolvedZone = resolveOceanExpressZone(request.postalCode());
+        } else if ("US-OCEAN-TRUCK".equals(channelLane)) {
+            resolvedZone = resolveOceanTruckZone(tenantId, chosenRateCardId, request.channelAccountCode());
+            if (resolvedZone == null) {
+                throw ApiException.notFound(
+                    "渠道 [" + request.channelCode() + "] (卡派) 需要传 channelAccountCode = 亚马逊仓库代码 (如 MDW2);"
+                    + " 未传或仓库未在价表中");
+            }
+        } else {
+            resolvedZone = repository.resolveZoneByPostcode(
+                tenantId, UPS_ORIGIN_PREFIX, request.postalCode());
+            if (resolvedZone == null) resolvedZone = DEFAULT_ZONE;
+        }
 
         // ─── 取价表行（含邮编精确匹配优先级）───
         Map<String, Object> tier = repository.findTier(
@@ -772,6 +788,50 @@ public class RateEngine {
     private void requireNonBlank(String name, String value) {
         if (value == null || value.isBlank()) {
             throw ApiException.badRequest(name + " is required");
+        }
+    }
+
+    /**
+     * 海派区域分段 — 按目的地邮编首位:
+     *   8/9 开头 → USW (美西)
+     *   4/5/6/7  → USM (美中)
+     *   0/1/2/3  → USE (美东)
+     * (来源: 新启天 VIP 海运报价表 "王牌渠道-海派系列")
+     */
+    private static String resolveOceanExpressZone(String postalCode) {
+        if (postalCode == null || postalCode.isBlank()) return "USM";
+        char c = postalCode.charAt(0);
+        if (c == '8' || c == '9') return "USW";
+        if (c == '4' || c == '5' || c == '6' || c == '7') return "USM";
+        return "USE";
+    }
+
+    /**
+     * 卡派区域 — 按亚马逊仓库代码 (MDW2/ONT8/...) 查 rate_card_lines.warehouse_code.
+     * warehouse_code 列存的是顿号分隔的多个仓库 (如 "ONT8、LGB8、SBD1"),
+     * 用 LIKE 匹配确认仓库属于哪个 zone (组合1-8 / 一区-五区).
+     */
+    private String resolveOceanTruckZone(String tenantId, String rateCardId, String warehouseCode) {
+        if (warehouseCode == null || warehouseCode.isBlank()) return null;
+        try {
+            return jdbc.queryForObject("""
+                SELECT zone_code FROM rate_card_lines
+                 WHERE tenant_id = ?::uuid
+                   AND rate_card_id = ?::uuid
+                   AND warehouse_code IS NOT NULL
+                   AND (warehouse_code LIKE ?
+                        OR warehouse_code LIKE ?
+                        OR warehouse_code LIKE ?
+                        OR warehouse_code = ?)
+                 LIMIT 1
+                """, String.class,
+                tenantId, rateCardId,
+                warehouseCode + "%",                  // 以 MDW2 开头
+                "%、" + warehouseCode + "、%",        // 中间 dotted
+                "%、" + warehouseCode,                // 结尾 dotted
+                warehouseCode);                       // 唯一
+        } catch (org.springframework.dao.EmptyResultDataAccessException e) {
+            return null;
         }
     }
 }
