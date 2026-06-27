@@ -813,23 +813,16 @@ public class RateEngine {
      */
     private String resolveOceanTruckZone(String tenantId, String rateCardId, String warehouseCode) {
         if (warehouseCode == null || warehouseCode.isBlank()) return null;
+        // 仓库列存的是多个 warehouse 用 . / 、 / , 任一分隔. 用正则 word-boundary 匹配.
         try {
             return jdbc.queryForObject("""
                 SELECT zone_code FROM rate_card_lines
                  WHERE tenant_id = ?::uuid
                    AND rate_card_id = ?::uuid
                    AND warehouse_code IS NOT NULL
-                   AND (warehouse_code LIKE ?
-                        OR warehouse_code LIKE ?
-                        OR warehouse_code LIKE ?
-                        OR warehouse_code = ?)
+                   AND warehouse_code ~ ('(^|[、.,])' || ? || '($|[、.,])')
                  LIMIT 1
-                """, String.class,
-                tenantId, rateCardId,
-                warehouseCode + "%",                  // 以 MDW2 开头
-                "%、" + warehouseCode + "、%",        // 中间 dotted
-                "%、" + warehouseCode,                // 结尾 dotted
-                warehouseCode);                       // 唯一
+                """, String.class, tenantId, rateCardId, warehouseCode);
         } catch (org.springframework.dao.EmptyResultDataAccessException e) {
             return null;
         }
