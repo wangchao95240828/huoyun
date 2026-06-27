@@ -42,7 +42,7 @@ public class RateRepository {
     public Map<String, Object> findChannelByCode(String tenantId, String channelCode) {
         try {
             return jdbc.queryForMap("""
-                SELECT id::text AS id, code, name, dim_factor, primary_uom::text AS primary_uom, active
+                SELECT id::text AS id, code, name, lane, dim_factor, primary_uom::text AS primary_uom, active
                 FROM channels
                 WHERE tenant_id = ?::uuid AND code = ?
                 """, tenantId, channelCode);
