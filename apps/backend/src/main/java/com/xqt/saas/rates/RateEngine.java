@@ -158,9 +158,14 @@ public class RateEngine {
         String resolvedZone;
         String channelLane = (String) channel.get("lane");
         if ("US-OCEAN-EXPRESS".equals(channelLane)) {
-            resolvedZone = resolveOceanExpressZone(request.postalCode());
+            resolvedZone = resolveOceanExpressZone(request.countryCode(), request.postalCode());
         } else if ("US-OCEAN-TRUCK".equals(channelLane)) {
-            resolvedZone = resolveOceanTruckZone(tenantId, chosenRateCardId, request.channelAccountCode());
+            // 美转加卡派也走这个 lane, 但用 postcode 不用 warehouse
+            if ("CA".equals(request.countryCode())) {
+                resolvedZone = resolveCanadaZone(request.postalCode());
+            } else {
+                resolvedZone = resolveOceanTruckZone(tenantId, chosenRateCardId, request.channelAccountCode());
+            }
             if (resolvedZone == null) {
                 throw ApiException.notFound(
                     "渠道 [" + request.channelCode() + "] (卡派) 需要传 channelAccountCode = 亚马逊仓库代码 (如 MDW2);"
@@ -798,12 +803,29 @@ public class RateEngine {
      *   0/1/2/3  → USE (美东)
      * (来源: 新启天 VIP 海运报价表 "王牌渠道-海派系列")
      */
-    private static String resolveOceanExpressZone(String postalCode) {
+    private static String resolveOceanExpressZone(String countryCode, String postalCode) {
+        if ("CA".equals(countryCode)) return resolveCanadaZone(postalCode);
         if (postalCode == null || postalCode.isBlank()) return "USM";
         char c = postalCode.charAt(0);
         if (c == '8' || c == '9') return "USW";
         if (c == '4' || c == '5' || c == '6' || c == '7') return "USM";
         return "USE";
+    }
+
+    /**
+     * 加拿大邮编 (字母-数字-字母) 首字母 → 主要城市:
+     *   M/L/N/P → 多伦多 (Ontario 中部)
+     *   K       → 渥太华 (Eastern Ontario)
+     *   V       → 温哥华 (BC)
+     *   T       → 卡尔加里 (Alberta)
+     */
+    private static String resolveCanadaZone(String postalCode) {
+        if (postalCode == null || postalCode.isBlank()) return "多伦多";
+        char c = Character.toUpperCase(postalCode.charAt(0));
+        if (c == 'K') return "渥太华";
+        if (c == 'V') return "温哥华";
+        if (c == 'T') return "卡尔加里";
+        return "多伦多";  // M/L/N/P + 兜底
     }
 
     /**
