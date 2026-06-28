@@ -6639,6 +6639,23 @@ async function doExportBillXlsx(id: any) {
   finally { bizLoading.value = false; }
 }
 
+// R-2 / R-7: 下载 xlsx 模板 (要 JWT, 用 apiFetch 拿 blob)
+async function doDownloadTemplate(kind: 'orders' | 'restate-ar') {
+  try {
+    const res = await apiFetch(`${API}/api/acc/batch-import/template/${kind}`);
+    if (!res.ok) { setBizError('模板下载失败: ' + res.status); return; }
+    const blob = await res.blob();
+    const cd = res.headers.get('content-disposition') || '';
+    const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+    const fn = m ? decodeURIComponent(m[1].replace(/^"|"$/g, ''))
+                 : (kind === 'orders' ? '批量导单模板.xlsx' : '批量补收模板.xlsx');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fn; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e: any) { setBizError('模板下载异常: ' + e.message); }
+}
+
 async function doReloadBill(id: number) {
   bizLoading.value = true;
   try {
@@ -8850,14 +8867,14 @@ async function doDisableCustomerLogin(row: any) {
             <div v-if="xlsxImportType === 'orders'">
               <strong>表头要求 (中文/英文都行)</strong>:<br>
               客户编码 | 渠道产品 | 制单账号 | 重量(kg) | 国家 | 邮编 | 地址 | 收件人 | 电话 | 申报品名 | 数量 | 单价 | HS编码<br>
-              <a :href="`${API}/api/acc/batch-import/template/orders`" target="_blank" style="color:#0ea5e9">📥 下载模板</a>
+              <a href="javascript:void(0)" @click="doDownloadTemplate('orders')" style="color:#0ea5e9;cursor:pointer">📥 下载模板</a>
             </div>
             <div v-else>
               <strong>表头</strong>: 运单号 | 新金额 | 备注<br>
               <strong>模式</strong>:
               <label style="margin-left:8px"><input type="radio" v-model="xlsxImportMode" value="DELTA"> DELTA (差值, 推荐)</label>
               <label style="margin-left:12px"><input type="radio" v-model="xlsxImportMode" value="OVERWRITE"> OVERWRITE (覆盖)</label><br>
-              <a :href="`${API}/api/acc/batch-import/template/restate-ar`" target="_blank" style="color:#0ea5e9">📥 下载模板</a>
+              <a href="javascript:void(0)" @click="doDownloadTemplate('restate-ar')" style="color:#0ea5e9;cursor:pointer">📥 下载模板</a>
             </div>
           </div>
           <div class="form-grid">
