@@ -42,17 +42,20 @@ public class AccChargesController {
     private final MoneySnapshotService moneySnapshotService;
 
         private final BranchAccessFilter branchAccess;
+    private final BalanceLedgerSideEffect balanceLedgerSideEffect;
 
 public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
                                 CascadeChecker cascadeChecker, FieldGate fieldGate,
                                 MoneySnapshotService moneySnapshotService,
-                                  BranchAccessFilter branchAccess) {
+                                  BranchAccessFilter branchAccess,
+                                  BalanceLedgerSideEffect balanceLedgerSideEffect) {
         this.jdbc = jdbc;
         this.json = json;
         this.cascadeChecker = cascadeChecker;
         this.fieldGate = fieldGate;
         this.moneySnapshotService = moneySnapshotService;
             this.branchAccess = branchAccess;
+        this.balanceLedgerSideEffect = balanceLedgerSideEffect;
     }
 
     @GetMapping
@@ -372,16 +375,22 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
             String newId = jdbc.queryForObject("""
                 INSERT INTO charges (
                   tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
-                  evidence, customer_id, order_id, source_type, source_charge_id
+                  evidence, customer_id, order_id, source_type, source_charge_id,
+                  audit_status, audited_at, audit_name
                 ) VALUES (
                   current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,
                   ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid,
-                  'RESTATE', ?::uuid
+                  'RESTATE', ?::uuid,
+                  'AUDITED', now(), ?
                 ) RETURNING id::text
                 """, String.class, shipmentId, chargeItemId, side, currency, newAmount,
-                json.toJson(evidence), customerId, orderId, id);
+                json.toJson(evidence), customerId, orderId, id, "restate-auto");
+            // 触发 balance_ledger 写入 (扣客户预扣账户)
+            balanceLedgerSideEffect.onAudited("charges", newId,
+                jdbc.queryForObject("SELECT current_setting('app.current_tenant_id')", String.class),
+                "restate-auto");
             return Map.of("mode", "OVERWRITE", "voidedChargeId", id, "newChargeId", newId,
-                "oldAmount", oldAmount, "newAmount", newAmount);
+                "oldAmount", oldAmount, "newAmount", newAmount, "auto_audited", true);
         } else {
             // DELTA 模式: 写差值 charge — 用 ADJUST charge_item 避免撞 unique key
             // (uq_charges_shipment_item_side 同 shipment 同 charge_item_id 只能 1 笔非 VOID)
@@ -416,17 +425,24 @@ public AccChargesController(JdbcTemplate jdbc, JsonSupport json,
             String deltaId = jdbc.queryForObject("""
                 INSERT INTO charges (
                   tenant_id, shipment_id, charge_item_id, side, status, currency, amount,
-                  evidence, customer_id, order_id, source_type, source_charge_id
+                  evidence, customer_id, order_id, source_type, source_charge_id,
+                  audit_status, audited_at, audit_name
                 ) VALUES (
                   current_setting('app.current_tenant_id')::uuid, ?::uuid, ?::uuid,
                   ?::charge_side, 'ESTIMATED', ?, ?, ?::jsonb, ?::uuid, ?::uuid,
-                  'RESTATE', ?::uuid
+                  'RESTATE', ?::uuid,
+                  'AUDITED', now(), ?
                 ) RETURNING id::text
                 """, String.class, shipmentId, adjustItemId, side, currency, cumDelta,
-                json.toJson(evidence), customerId, orderId, id);
+                json.toJson(evidence), customerId, orderId, id, "restate-auto");
+            // 触发 balance_ledger 写入 (扣客户预扣账户)
+            balanceLedgerSideEffect.onAudited("charges", deltaId,
+                jdbc.queryForObject("SELECT current_setting('app.current_tenant_id')", String.class),
+                "restate-auto");
             return Map.of("mode", "DELTA", "sourceChargeId", id, "deltaChargeId", deltaId,
                 "oldAmount", oldAmount, "newAmount", newAmount, "delta", cumDelta,
-                "voidedPriorAdjusts", existingAdjusts.size(), "chargeItem", "ADJUST");
+                "voidedPriorAdjusts", existingAdjusts.size(), "chargeItem", "ADJUST",
+                "auto_audited", true);
         }
     }
 
