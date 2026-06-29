@@ -111,9 +111,11 @@ public class AccCarrierBillExportController {
               s.shipment_no                                             AS master_tracking_id,
               s.customer_ref                                            AS customer_ref,
               s.destination_country                                     AS recipient_country,
-              s.metadata #>> '{acc_compat,receiver,state}'              AS recipient_state,
-              s.metadata #>> '{acc_compat,receiver,postcode}'           AS recipient_zip,
-              s.metadata #>> '{acc_compat,zone_code}'                   AS zone_code,
+              -- shipments 没 metadata, 从关联 orders 取 receiver 数据
+              o.metadata #>> '{acc_compat,receiver,state}'              AS recipient_state,
+              COALESCE(s.destination_postal_code,
+                       o.metadata #>> '{acc_compat,receiver,postcode}') AS recipient_zip,
+              s.remote_level                                            AS zone_code,
               -- 计费重 (kg → lb, 1 kg ≈ 2.205 lb)
               COALESCE(ct.chargeable_weight_kg, ct.actual_weight_kg, 0) * 2.205  AS rated_weight_lb,
               -- 拆账单 line: 走 partner_invoice_lines
@@ -134,6 +136,8 @@ public class AccCarrierBillExportController {
             JOIN partner_invoice_lines pil ON pil.invoice_id = pi.id
        LEFT JOIN cartons ct ON ct.id = pil.carton_id
        LEFT JOIN shipments s ON s.id = COALESCE(pil.shipment_id, ct.shipment_id)
+       LEFT JOIN shipment_order_links sol ON sol.shipment_id = s.id
+       LEFT JOIN orders o ON o.id = sol.order_id
             """ + " " + where + " ";
     }
 
