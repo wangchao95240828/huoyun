@@ -6000,21 +6000,28 @@ async function doViewOrderFinance(row: any) {
 }
 
 // 财务工作台 — 打印账单（弹新窗口浏览器 Ctrl+P 另存 PDF）
-function doPrintInvoice(row: any) {
+async function doPrintInvoice(row: any) {
   const invoiceId = row.invoice_id;
-  if (!invoiceId) { bizMessage.value = '该行没有 invoice_id'; return; }
-  // 用 Bearer token 拼 URL 不安全，改用同源 fetch 拿到 HTML 再 document.write
-  const token = localStorage.getItem('token') || '';
-  fetch(`${API}/api/acc/finance-workbench/invoices/${invoiceId}/print`, {
-    headers: { 'Authorization': `Bearer ${token}` },
-  }).then(r => r.text()).then(html => {
-    const w = window.open('', '_blank');
-    if (w) {
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
+  if (!invoiceId) { setBizError('该行没有 invoice_id'); return; }
+  // 改用 blob URL: 兼容现代浏览器 popup blocker, 不被拦截
+  try {
+    const res = await apiFetch(`${API}/api/acc/finance-workbench/invoices/${invoiceId}/print`);
+    if (!res.ok) {
+      setBizError('打开打印页失败: HTTP ' + res.status);
+      return;
     }
-  }).catch(e => { bizMessage.value = '打开打印页失败: ' + e.message; });
+    const html = await res.text();
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, '_blank');
+    if (!w) {
+      // popup blocker 拦了 — fallback: 直接当前页跳转
+      setBizError('弹窗被拦截, 请允许此站点弹窗或使用下载方式');
+      return;
+    }
+    // 5 秒后释放 (够浏览器加载完)
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e: any) { setBizError('打开打印页失败: ' + e.message); }
 }
 
 // 财务工作台 — 退款（PAID/PARTIAL → 减 paid_amount + ledger REFUND）
@@ -8133,9 +8140,13 @@ async function doDisableCustomerLogin(row: any) {
                   <button class="action-btn" v-if="accTab === 'bills'" @click="doReloadBill(row.id)" title="重算" :disabled="bizLoading">
                     <Calculator :size="12" />
                   </button>
-                  <!-- 账单导出 xlsx (奥沃星样式) -->
-                  <button class="action-btn" v-if="accTab === 'bills'" @click="doExportBillXlsx(row.id)" title="导出账单 xlsx" :disabled="bizLoading" style="color:#0ea5e9">
-                    <Download :size="12" />
+                  <!-- 账单导出 xlsx (奥沃星样式) — bills tab 或 fwb-invoiced tab 都显示 -->
+                  <button class="action-btn"
+                          v-if="(accTab === 'bills' && row.id) || (accTab === 'fwb-invoiced' && row.invoice_id)"
+                          @click="doExportBillXlsx(row.invoice_id || row.id)"
+                          title="导出账单 xlsx (奥沃星样式)"
+                          :disabled="bizLoading" style="color:#0ea5e9">
+                    <Download :size="12" /> 导出
                   </button>
                   <!-- 客户 API 凭证: 重置密钥 / 禁用 (ACC CustomerAPI.php 对齐) -->
                   <button class="action-btn fwb fwb-label" v-if="accTab === 'api-credentials' && row.status === 'ACTIVE'"
