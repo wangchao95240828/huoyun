@@ -326,8 +326,8 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
             SELECT ci.currency,
                    COUNT(*)                       AS invoice_count,
                    MAX(ci.invoice_date)           AS last_billed_at,
-                   MIN(ci.bill_period_from)       AS earliest_period_from,
-                   MAX(ci.bill_period_to)         AS latest_period_to,
+                   MIN(ci.start_date)             AS earliest_period_from,
+                   MAX(ci.end_date)               AS latest_period_to,
                    SUM(ci.total_amount)           AS billed_total
               FROM customer_invoices ci
              WHERE ci.customer_id = ?::uuid

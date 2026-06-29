@@ -74,7 +74,7 @@ public class AccCarrierBillExportController {
         List<Object> args = new java.util.ArrayList<>();
         sql.append(" AND 1=1 ");
         if (partnerCode != null && !partnerCode.isBlank()) {
-            sql.append(" AND pi.partner_code = ?");
+            sql.append(" AND pi.partner_id IN (SELECT id FROM partners WHERE code = ?)");
             args.add(partnerCode);
         }
         if (currency != null && !currency.isBlank()) {
@@ -104,7 +104,7 @@ public class AccCarrierBillExportController {
             SELECT
               pi.invoice_no,
               pi.invoice_date,
-              pi.partner_code,
+              p.code                                                    AS partner_code,
               pi.currency,
               -- carton/shipment 关联
               ct.carton_no                                              AS tracking_id,
@@ -115,7 +115,7 @@ public class AccCarrierBillExportController {
               s.metadata #>> '{acc_compat,receiver,postcode}'           AS recipient_zip,
               s.metadata #>> '{acc_compat,zone_code}'                   AS zone_code,
               -- 计费重 (kg → lb, 1 kg ≈ 2.205 lb)
-              COALESCE(ct.chargeable_weight_kg, ct.weight_kg, 0) * 2.205  AS rated_weight_lb,
+              COALESCE(ct.chargeable_weight_kg, ct.actual_weight_kg, 0) * 2.205  AS rated_weight_lb,
               -- 拆账单 line: 走 partner_invoice_lines
               pil.description                                           AS line_description,
               pil.amount                                                AS line_amount,
@@ -128,8 +128,9 @@ public class AccCarrierBillExportController {
                 WHERE ch.shipment_id = s.id AND ch.side='AR'
                   AND ch.status::text <> 'VOID')                        AS ar_total,
               -- 补收差异 (实际 vs 预报)
-              (COALESCE(ct.chargeable_weight_kg, 0) - COALESCE(ct.weight_kg, 0))  AS weight_diff
+              (COALESCE(ct.chargeable_weight_kg, 0) - COALESCE(ct.actual_weight_kg, 0))  AS weight_diff
             FROM partner_invoices pi
+       LEFT JOIN partners p ON p.id = pi.partner_id
             JOIN partner_invoice_lines pil ON pil.invoice_id = pi.id
        LEFT JOIN cartons ct ON ct.id = pil.carton_id
        LEFT JOIN shipments s ON s.id = COALESCE(pil.shipment_id, ct.shipment_id)
