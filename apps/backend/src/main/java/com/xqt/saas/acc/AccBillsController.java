@@ -275,8 +275,14 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
     @PostMapping("/generate")
     public Map<String, Object> generate(@RequestBody Map<String, Object> body) {
         String customerId = resolveCustomerId(body.get("customerId"));
+        if (customerId == null || customerId.isBlank()) {
+            return Map.of("ok", false, "error", "customerId 必填");
+        }
         java.time.LocalDate from = parseDate(body.get("dateFrom"));
         java.time.LocalDate to = parseDate(body.get("dateTo"));
+        // 默认: 没传日期 = 最近 30 天
+        if (from == null) from = java.time.LocalDate.now().minusDays(30);
+        if (to == null) to = java.time.LocalDate.now();
         String currency = (String) body.getOrDefault("currency", "CNY");
         @SuppressWarnings("unchecked")
         List<String> chargeIds = body.get("chargeIds") instanceof List ? (List<String>) body.get("chargeIds") : null;
@@ -287,10 +293,49 @@ public AccBillsController(JdbcTemplate jdbc, JsonSupport json,
             com.xqt.saas.documentcharges.DocumentChargeResponses.InvoiceResult r =
                 docService.generateCustomerInvoice(currentPrincipal(), req);
             return Map.of("ok", true, "billId", r.invoiceId(), "invoiceNo", r.invoiceNo(),
-                "lineCount", r.lineCount(), "totalAmount", r.totalAmount());
+                "lineCount", r.lineCount(), "totalAmount", r.totalAmount(),
+                "dateFrom", from.toString(), "dateTo", to.toString());
         } catch (com.xqt.saas.common.ApiException ex) {
             return Map.of("ok", false, "error", ex.getMessage());
         }
+    }
+
+    /**
+     * 客户已生成账单状态查询 — 用于"标记已生成"显示。
+     * GET /api/acc/bills/customer-billed-status?customerId=
+     * 返回该客户每个币种最近一次出账日期 + 累计账单数。
+     */
+    @GetMapping("/customer-billed-status")
+    public Map<String, Object> customerBilledStatus(
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String customerId,
+        @org.springframework.web.bind.annotation.RequestParam(required = false) String customerCode
+    ) {
+        String cust = resolveCustomerId(customerId);
+        if (cust == null && customerCode != null) {
+            try {
+                cust = jdbc.queryForObject(
+                    "SELECT id::text FROM customers WHERE code = ?", String.class, customerCode);
+            } catch (DataAccessException ex) {
+                cust = null;
+            }
+        }
+        if (cust == null) {
+            throw com.xqt.saas.common.ApiException.badRequest("customerId 或 customerCode 必填");
+        }
+        java.util.List<java.util.Map<String, Object>> rows = jdbc.queryForList("""
+            SELECT ci.currency,
+                   COUNT(*)                       AS invoice_count,
+                   MAX(ci.invoice_date)           AS last_billed_at,
+                   MIN(ci.bill_period_from)       AS earliest_period_from,
+                   MAX(ci.bill_period_to)         AS latest_period_to,
+                   SUM(ci.total_amount)           AS billed_total
+              FROM customer_invoices ci
+             WHERE ci.customer_id = ?::uuid
+               AND ci.status <> 'VOID'
+             GROUP BY ci.currency
+             ORDER BY ci.currency
+            """, cust);
+        return Map.of("data", rows);
     }
 
     /**

@@ -907,8 +907,19 @@ const billPreviewLoading = ref(false);
 const billPreviewSummary = ref<any>({});
 const billPreviewSelectedIds = ref<Set<string>>(new Set());
 const billPreviewShowOnlyBillable = ref(true);
+const customerBilledStatus = ref<any[]>([]);
+async function loadCustomerBilledStatus() {
+  if (!bizDialogData.customer_id) { customerBilledStatus.value = []; return; }
+  try {
+    const res = await apiFetch(`${API}/api/acc/bills/customer-billed-status?customerId=${bizDialogData.customer_id}`);
+    const j = await res.json();
+    customerBilledStatus.value = j.data || [];
+  } catch { customerBilledStatus.value = []; }
+}
 async function loadBillablePreview() {
   if (!bizDialogData.customer_id) { setBizError('请先选客户'); return; }
+  // 同步刷新"已生成账单状态"
+  loadCustomerBilledStatus();
   billPreviewLoading.value = true;
   try {
     const params = new URLSearchParams({
@@ -6673,6 +6684,32 @@ async function openCarrierInvoiceUpload() {
   input.click();
 }
 
+// FedEx-B 风格 xlsx 导出 — 18 列
+async function doExportFedexStyle() {
+  const partner = prompt('物流商代码 (e.g. UPS / FEDEX / DHL), 留空 = 全部:', '') || '';
+  const currency = prompt('币种 (留空 = 全部):', '') || '';
+  const dateFrom = prompt('起始日期 YYYY-MM-DD (可选):', '') || '';
+  const dateTo = prompt('截止日期 YYYY-MM-DD (可选):', '') || '';
+  try {
+    const params = new URLSearchParams();
+    if (partner) params.set('partnerCode', partner);
+    if (currency) params.set('currency', currency);
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    const res = await apiFetch(`${API}/api/acc/partner-invoices/export-fedex-style?${params}`);
+    if (!res.ok) { setBizError('导出失败: ' + res.status); return; }
+    const blob = await res.blob();
+    const cd = res.headers.get('content-disposition') || '';
+    const m = cd.match(/filename\*?=(?:UTF-8'')?([^;]+)/i);
+    const fn = m ? decodeURIComponent(m[1].replace(/^"|"$/g, '')) : 'FedEx-B价账单.xlsx';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fn; a.click();
+    URL.revokeObjectURL(url);
+    setBizOk(`导出完成: ${fn}`);
+  } catch (e: any) { setBizError('导出异常: ' + e.message); }
+}
+
 async function doExportBillXlsx(id: any) {
   try {
     bizLoading.value = true;
@@ -7236,6 +7273,11 @@ async function doDisableCustomerLogin(row: any) {
           <button class="secondary sm" v-if="accTab === 'carrier-invoice-recon'"
                   @click="openCarrierInvoiceUpload" style="color:#0ea5e9">
             <Upload :size="13" /> 📥 上传渠道账单 xlsx
+          </button>
+          <!-- FedEx-B 风格 xlsx 导出 (用真 partner 数据生成 18 列) -->
+          <button class="secondary sm" v-if="accTab === 'carrier-invoice-recon'"
+                  @click="doExportFedexStyle" style="color:#a855f7">
+            <Download :size="13" /> 📤 导出 FedEx-B 风格
           </button>
           <!-- ACC 核算中心「导入费用/导入成本」: tab 即上传入口 -->
           <label class="primary sm" v-if="accTab === 'charges-import'" style="cursor:pointer">
@@ -8777,10 +8819,23 @@ async function doDisableCustomerLogin(row: any) {
             <template v-if="bizDialogType === 'generate-bill'">
               <div class="form-field">
                 <label>客户 <span class="required">*</span></label>
-                <select v-model="bizDialogData.customer_id">
+                <select v-model="bizDialogData.customer_id" @change="loadCustomerBilledStatus">
                   <option value="">请选择</option>
                   <option v-for="opt in (selectOptions['customers'] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
                 </select>
+              </div>
+              <!-- 已生成账单状态提示 -->
+              <div v-if="customerBilledStatus.length > 0" style="grid-column:1/-1;padding:10px;background:#fef3c7;border-left:3px solid #f59e0b;border-radius:4px;font-size:12px">
+                <strong>⚠ 该客户已生成账单历史:</strong>
+                <ul style="margin:6px 0 0 18px;padding:0">
+                  <li v-for="s in customerBilledStatus" :key="s.currency">
+                    {{ s.currency }}: 共 <strong>{{ s.invoice_count }}</strong> 张账单,
+                    累计 <strong>{{ s.billed_total }} {{ s.currency }}</strong>,
+                    最近一张 <strong>{{ s.last_billed_at }}</strong>
+                    (覆盖期 {{ s.earliest_period_from }} ~ {{ s.latest_period_to }})
+                  </li>
+                </ul>
+                <div style="margin-top:4px;color:#92400e">⚡ 新生成不要跟历史期重叠, 避免重复出账</div>
               </div>
               <div class="form-field">
                 <label>币种</label>
