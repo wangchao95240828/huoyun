@@ -1257,7 +1257,6 @@ const accTabs = [
 const accBasicTabs = [
   // 信息管理 (8)
   accTabs.find(t => t.key === "acc-branches")!,        // 分店管理
-  accTabs.find(t => t.key === "customer-groups")!,     // 分组管理
   accTabs.find(t => t.key === "districts")!,           // 地区管理
   accTabs.find(t => t.key === "postcodes")!,           // 邮编管理
   accTabs.find(t => t.key === "remotes")!,             // 偏远邮编
@@ -1273,11 +1272,8 @@ const accBasicTabs = [
   accTabs.find(t => t.key === "suppliers")!,           // 物流商列表
   accTabs.find(t => t.key === "supplier-adjusts")!,    // 物流商调账
   // 物流商往来 (5)
-  accTabs.find(t => t.key === "bills")!,               // 应付款项（账单视图，过滤 supplier）
   accTabs.find(t => t.key === "supplier-rebates")!,    // 物流商返利
   accTabs.find(t => t.key === "supplier-fines")!,      // 物流商罚款
-  accTabs.find(t => t.key === "payments")!,            // 付款记录
-  accTabs.find(t => t.key === "supplier-refunds")!,    // 退款记录
 ];
 
 // ACC 财务中心（对应 ACC 顶部"财务中心"菜单的 4 大子组、共 20 项）
@@ -1291,7 +1287,6 @@ const accFinanceTabs = [
   accTabs.find(t => t.key === "customer-receivables")!,   // ⭐ 应收款项目 (按客户聚合欠款)
   accTabs.find(t => t.key === "customer-accounts")!,      // ⭐ 客户账户 (临时额度) — 财务设额度
   accTabs.find(t => t.key === "ar-vs-received")!,         // R-Sprint1 新: 应收 vs 实收 对比
-  accTabs.find(t => t.key === "charges")!,                // 应收款项 (charges 明细)
   accTabs.find(t => t.key === "receiveds")!,              // 收款记录
   accTabs.find(t => t.key === "receiveds-pending")!,      // 待审收款
   accTabs.find(t => t.key === "customer-refunds")!,       // 退款记录
@@ -1304,13 +1299,11 @@ const accFinanceTabs = [
   accTabs.find(t => t.key === "fwb-needs-verify")!,       // 待二审账单
   // 应付 (6)
   accTabs.find(t => t.key === "carrier-invoice-recon")!,  // R-4: 渠道账单对比
-  accTabs.find(t => t.key === "costs")!,                  // 应付款项
   accTabs.find(t => t.key === "payments")!,               // 付款记录
   accTabs.find(t => t.key === "payments-pending")!,       // 待审付款
   accTabs.find(t => t.key === "supplier-refunds")!,       // 退款记录
   accTabs.find(t => t.key === "supplier-refunds-pending")!, // 待审退款
   // 利润列表 (5)
-  accTabs.find(t => t.key === "profits")!,                // 利润查询（含快件利润）
   accTabs.find(t => t.key === "profits-unfinished")!,     // 未完结快件
   accTabs.find(t => t.key === "profits-overdue")!,        // 逾期未结
   accTabs.find(t => t.key === "profits-lowprofit")!,      // 低利快件
@@ -1398,10 +1391,6 @@ const accGroupSales = [
   T("cost-pre-estimates"),     // R-6 预估报价池
   // xqt-saas 扩展: 销售线索/产品/渠道
   T("potentials"),
-  T("suppliers"),
-  T("channels"),
-  T("channel-accounts"),
-  T("products"),
   T("product-items"),
 ];
 // 核算中心（业务核算 - SKU 级 AR/AP/利润）
@@ -1437,22 +1426,19 @@ const accGroupAccounting = [
   T("approval-pending"),
   T("swb-commissions"),
   // 其余核算项
-  T("bills"),
   T("profits"),
   T("commissions"), T("commission-rules"),
 ];
 // 人事组织（保留，对应 ACC 部分原系统设置/数据管理范畴）
-const accGroupHR = [
-  T("acc-branches"),
-];
+const accGroupHR = [];
 // 数据管理 / 系统设置（master + 接口）
 const accGroupSystem = [
-  T("countries"), T("districts"),
-  T("postcodes"), T("remotes"),
-  T("fuels"), T("hscodes"),
-  T("zones"), T("bank-names"),
+  T("countries"),
+  T("hscodes"),
+  T("bank-names"),
   T("logistics-interfaces"),
   T("importer-templates"),                  // 制单进口商预设
+  // 注: districts/postcodes/remotes/fuels/zones 全归 基础信息, 这里不重复
 ];
 
 // API 对接中心：客户 API 凭证 / 调用日志 / Webhook 出站 / 文档
@@ -1471,7 +1457,6 @@ const accMenuGroups = [
   { key: "accounting",     label: "核算中心",       icon: BarChart3,   tabs: accGroupAccounting },
   { key: "finance-center", label: "财务中心",       icon: DollarSign,  tabs: accFinanceTabs },
   { key: "basic-info",     label: "基础信息",       icon: Layers,      tabs: accBasicTabs },
-  { key: "hr",             label: "人事组织",       icon: Building2,   tabs: accGroupHR },
   { key: "system",         label: "数据管理",       icon: Globe,       tabs: accGroupSystem },
   { key: "api",            label: "API 对接中心",    icon: KeyRound,    tabs: accGroupApi },
 ];
