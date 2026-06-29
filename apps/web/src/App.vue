@@ -1287,8 +1287,9 @@ const accFinanceTabs = [
   accTabs.find(t => t.key === "transfers")!,              // 资金转账
   accTabs.find(t => t.key === "account-transactions")!,   // 往来账户
   accTabs.find(t => t.key === "currencies")!,             // 币种管理
-  // 应收 (6)
-  accTabs.find(t => t.key === "customer-receivables")!,   // ⭐ 应收款项目 (按客户聚合欠款) — 之前漏了
+  // 应收 (7)
+  accTabs.find(t => t.key === "customer-receivables")!,   // ⭐ 应收款项目 (按客户聚合欠款)
+  accTabs.find(t => t.key === "customer-accounts")!,      // ⭐ 客户账户 (临时额度) — 财务设额度
   accTabs.find(t => t.key === "ar-vs-received")!,         // R-Sprint1 新: 应收 vs 实收 对比
   accTabs.find(t => t.key === "charges")!,                // 应收款项 (charges 明细)
   accTabs.find(t => t.key === "receiveds")!,              // 收款记录
@@ -1384,13 +1385,10 @@ const accGroupSales = [
   T("customer-groups"),
   // ACC 客户往来子组 (7) - 跟财务中心共挂, 销售视角入口
   T("customer-adjusts"),       // 客户调账
-  T("customer-receivables"),   // 应收款项
-  T("customer-accounts"),      // 客户账户 (临时额度)
-  T("bills"),                  // 客户账单
   T("customer-rebates"),       // 客户返利
   T("customer-fines"),         // 客户罚款
-  T("receiveds"),              // 收款记录
-  T("customer-refunds"),       // 退款记录
+  // 注: 应收款项目/客户账户/账单/收款 全归财务中心, 销售不重复
+  // customer-rate-strategies 下面有, 不重复
   // ACC 客户 API + 登陆号 (对齐 ACC 销售中心)
   T("api-credentials"),        // 客户 API (跨挂自 API 对接中心)
   T("customer-logins"),        // 客户登陆号
