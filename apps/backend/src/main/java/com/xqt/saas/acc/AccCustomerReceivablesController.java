@@ -40,6 +40,7 @@ public class AccCustomerReceivablesController {
         String kw = (keyword == null || keyword.isBlank()) ? null : "%" + keyword + "%";
 
         // 聚合查询：按客户 + 币种双维度分组
+        // 临时额度从 financial_accounts.temporary_credit 取, 余额 = 已付 + 临时额度 - 已用
         List<Map<String, Object>> rows = jdbc.queryForList("""
             SELECT
               c.code              AS code,
@@ -51,13 +52,16 @@ public class AccCustomerReceivablesController {
               ch.currency         AS currency,
               sum(ch.amount)                          AS turnover,
               sum(ch.amount - ch.paid_amount)         AS unpaid_amount,
-              sum(ch.amount - ch.paid_amount - coalesce(cb.balance, 0)) AS estimated_balance,
+              coalesce(fa.temporary_credit, 0)        AS temporary_credit,
+              coalesce(fa.balance, 0)                 AS account_balance,
+              (coalesce(fa.balance, 0) + coalesce(fa.temporary_credit, 0)) AS available_credit,
+              sum(ch.amount - ch.paid_amount - coalesce(fa.balance, 0) - coalesce(fa.temporary_credit, 0)) AS estimated_balance,
               rs.last_payment_at  AS last_payment_at,
               e.name              AS salesman_name
             FROM charges ch
             JOIN customers c ON c.id = ch.customer_id AND c.deleted_at IS NULL
-            LEFT JOIN customer_balance_accounts cb
-              ON cb.customer_id = c.id AND cb.currency = ch.currency
+            LEFT JOIN financial_accounts fa
+              ON fa.owner_type = 'CUSTOMER' AND fa.owner_id = c.id AND fa.currency = ch.currency
             LEFT JOIN acc_employees e ON e.id = c.salesman_id
             LEFT JOIN LATERAL (
               SELECT max(settled_at) AS last_payment_at
@@ -69,7 +73,7 @@ public class AccCustomerReceivablesController {
               AND (?::text IS NULL OR ch.currency = ?)
             GROUP BY c.code, c.name, c.contacts, c.account_mode,
                      c.default_currency, c.credit_limit, ch.currency,
-                     cb.balance, rs.last_payment_at, e.name
+                     fa.balance, fa.temporary_credit, rs.last_payment_at, e.name
             ORDER BY unpaid_amount DESC NULLS LAST
             LIMIT ? OFFSET ?
             """, kw, kw, kw, currency, currency, limit, offset);

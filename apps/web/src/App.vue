@@ -860,6 +860,47 @@ async function doRestate() {
   } catch (e: any) { setBizError('补收异常: ' + e.message); }
 }
 
+// 临时额度设置 modal
+const showTempCreditDialog = ref(false);
+const tempCreditData = reactive<{ customerId: string; customerCode: string; customerName: string;
+  currency: string; oldAmount: number; newAmount: number; remark: string }>({
+  customerId: '', customerCode: '', customerName: '', currency: 'USD',
+  oldAmount: 0, newAmount: 0, remark: '',
+});
+function openTempCredit(row: any) {
+  tempCreditData.customerId = row.customer_id || row.customerId || '';
+  tempCreditData.customerCode = row.customer_code || row.code || '';
+  tempCreditData.customerName = row.customer_name || row.name || '';
+  tempCreditData.currency = row.currency || 'USD';
+  tempCreditData.oldAmount = Number(row.temporary_credit) || 0;
+  tempCreditData.newAmount = tempCreditData.oldAmount;
+  tempCreditData.remark = '';
+  showTempCreditDialog.value = true;
+}
+async function doSetTempCredit() {
+  if (!tempCreditData.customerId) { setBizError('客户 ID 缺失'); return; }
+  if (tempCreditData.newAmount < 0) { setBizError('临时额度不能为负数'); return; }
+  try {
+    const res = await apiFetch(`${API}/api/acc/customer-accounts/${tempCreditData.customerId}/temporary-credit`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        currency: tempCreditData.currency,
+        amount: Number(tempCreditData.newAmount),
+        remark: tempCreditData.remark || null,
+      }),
+    });
+    const j = await res.json();
+    if (res.ok && j.ok) {
+      setBizOk(`临时额度已更新: ${tempCreditData.customerCode} ${tempCreditData.currency} ${tempCreditData.oldAmount} → ${j.newTemporaryCredit}, 新余额 ${j.newBalance}`);
+      showTempCreditDialog.value = false;
+      fetchAccData();
+    } else {
+      setBizError('设置失败: ' + (j.error ?? res.status));
+    }
+  } catch (e: any) { setBizError('设置异常: ' + e.message); }
+}
+
 // R-10: 账单生成明细预览 (生成账单 modal 内显示所有 charges)
 const billPreviewRows = ref<any[]>([]);
 const billPreviewLoading = ref(false);
@@ -1122,6 +1163,7 @@ const accTabs = [
   { key: "swb-commissions",  label: "业绩提成",           icon: Gift,        api: "settlement-workbench/commissions" },
   // alair: 应收款项目（A1 财务任务）
   { key: "customer-receivables", label: "应收款项目", icon: TrendingUp, api: "customer-receivables" },
+  { key: "customer-accounts", label: "客户账户 (临时额度)", icon: Wallet, api: "customer-accounts" },
   // Sprint 1 新增 tab — R-4 / R-6 / R-12 / R-13 / AR-vs-Received
   { key: "carrier-invoice-recon", label: "渠道账单对比", icon: BarChart3, api: "reconciliation/carrier-invoice" },
   { key: "ar-vs-received",        label: "应收实收对比", icon: BarChart3, api: "reconciliation/ar-vs-received" },
@@ -1332,6 +1374,7 @@ const accGroupSales = [
   // ACC 客户往来子组 (7) - 跟财务中心共挂, 销售视角入口
   T("customer-adjusts"),       // 客户调账
   T("customer-receivables"),   // 应收款项
+  T("customer-accounts"),      // 客户账户 (临时额度)
   T("bills"),                  // 客户账单
   T("customer-rebates"),       // 客户返利
   T("customer-fines"),         // 客户罚款
@@ -1661,11 +1704,24 @@ Object.assign(accColumns, {
     { key: "contact_name",      label: "联系人" },
     { key: "salesman_name",     label: "业务员" },
     { key: "currency",          label: "结算币种" },
+    { key: "turnover",          label: "应收总额", fmt: "money" },
     { key: "unpaid_amount",     label: "欠款金额", fmt: "money" },
+    { key: "temporary_credit",  label: "临时额度", fmt: "money" },
+    { key: "available_credit",  label: "可用余额", fmt: "money" },
     { key: "estimated_balance", label: "预估结余", fmt: "money" },
     { key: "settlement_method", label: "结算方式" },
     { key: "credit_amount",     label: "授信额度", fmt: "money" },
     { key: "last_payment_at",   label: "最后付款", fmt: "datetime" },
+  ],
+  "customer-accounts": [
+    { key: "customer_code",     label: "客户编码" },
+    { key: "customer_name",     label: "客户名称" },
+    { key: "currency",          label: "币种" },
+    { key: "total_paid",        label: "总付款额", fmt: "money" },
+    { key: "temporary_credit",  label: "临时额度", fmt: "money" },
+    { key: "total_used",        label: "使用金额", fmt: "money" },
+    { key: "balance",           label: "余额 (流水净额)", fmt: "money" },
+    { key: "available_credit",  label: "可用余额", fmt: "money" },
   ],
   // R-4: 渠道账单对比
   "carrier-invoice-recon": [
@@ -8027,6 +8083,13 @@ async function doDisableCustomerLogin(row: any) {
                           style="color:#0ea5e9">
                     <Calculator :size="12" />
                   </button>
+                  <!-- 临时额度按钮: 客户账户 + 应收款项目 行 -->
+                  <button class="action-btn"
+                          v-if="accTab === 'customer-accounts' || accTab === 'customer-receivables'"
+                          @click="openTempCredit(row)" title="设置临时额度"
+                          style="color:#a855f7">
+                    💳
+                  </button>
                   <button class="action-btn history-btn"
                           v-if="canAudit && row.auditStatus"
                           @click="openAuditHistory(row)" title="审核流转" :disabled="bizLoading">
@@ -8966,6 +9029,58 @@ async function doDisableCustomerLogin(row: any) {
         <div class="modal-footer">
           <button class="secondary" @click="showRestateDialog = false">取消</button>
           <button class="primary" @click="doRestate" :disabled="bizLoading">提交补收</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ════════ 临时额度 modal ════════ -->
+    <div class="modal-backdrop" v-if="showTempCreditDialog" @click.self="showTempCreditDialog = false">
+      <div class="modal-dialog" style="max-width: 520px">
+        <div class="modal-header">
+          <h3>💳 设置临时额度</h3>
+          <button class="modal-close" @click="showTempCreditDialog = false"><X :size="18" /></button>
+        </div>
+        <div class="modal-body">
+          <div style="padding:10px;background:#f0f9ff;border-left:3px solid #0ea5e9;font-size:12px;margin-bottom:14px">
+            <strong>余额 = 总付款额 + 临时额度 - 使用金额</strong><br>
+            客户未付款 / 欠款情况下, 临时给的垫资额度, 让他能继续下单. 我们设定.
+          </div>
+          <div class="form-grid">
+            <div class="form-field">
+              <label>客户</label>
+              <input type="text" :value="tempCreditData.customerCode + ' ' + tempCreditData.customerName" disabled />
+            </div>
+            <div class="form-field">
+              <label>币种</label>
+              <select v-model="tempCreditData.currency">
+                <option value="USD">USD</option>
+                <option value="CNY">CNY</option>
+                <option value="EUR">EUR</option>
+                <option value="HKD">HKD</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>当前临时额度</label>
+              <input type="text" :value="tempCreditData.oldAmount + ' ' + tempCreditData.currency" disabled />
+            </div>
+            <div class="form-field">
+              <label>新临时额度 <span class="required">*</span></label>
+              <input type="number" step="0.01" min="0" v-model.number="tempCreditData.newAmount" />
+            </div>
+            <div class="form-field" style="grid-column:1/-1">
+              <label>备注</label>
+              <input type="text" v-model="tempCreditData.remark" placeholder="如: 客户预付到账前临时垫资 500" />
+            </div>
+            <div class="form-field" style="grid-column:1/-1;background:#fefce8;padding:10px;border-radius:4px;font-size:12px">
+              额度变化: <strong>{{ (Number(tempCreditData.newAmount) - Number(tempCreditData.oldAmount)).toFixed(2) }}</strong> {{ tempCreditData.currency }}
+              <br>
+              <span style="color:#666">(填 0 = 取消临时额度, 余额会相应调整)</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="secondary" @click="showTempCreditDialog = false">取消</button>
+          <button class="primary" @click="doSetTempCredit" :disabled="bizLoading">确认设置</button>
         </div>
       </div>
     </div>
