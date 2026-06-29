@@ -372,7 +372,10 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
     private UpsCreds loadCreds(String tenantId, String channelCode) {
         try {
             Map<String, Object> row = jdbc.queryForMap("""
-                SELECT a.api_key, a.api_secret, a.account_no, a.endpoint_url, a.remark
+                SELECT a.api_key, a.api_secret, a.account_no, a.endpoint_url, a.remark,
+                       a.shipper_company, a.shipper_name, a.shipper_phone,
+                       a.shipper_address1, a.shipper_city, a.shipper_state,
+                       a.shipper_country2, a.shipper_postcode, a.ups_service_type
                 FROM acc_channel_accounts a
                 JOIN channels ch ON ch.id = a.channel_id
                 WHERE a.tenant_id = ?::uuid AND ch.code = ?
@@ -385,19 +388,32 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
             c.clientSecret = (String) row.get("api_secret");
             c.accountNo = (String) row.get("account_no");
             c.endpointUrl = (String) row.get("endpoint_url");
+
+            // 优先级 1: 表里 shipper_* 字段直接读 (ACC 模式 — 渠道账号挂托运人)
+            c.shipperName = nonBlank((String) row.get("shipper_company"),
+                                      (String) row.get("shipper_name"));
+            c.shipperPhone = (String) row.get("shipper_phone");
+            c.shipperAddress1 = (String) row.get("shipper_address1");
+            c.shipperCity = (String) row.get("shipper_city");
+            c.shipperProvince = (String) row.get("shipper_state");
+            c.shipperCountry = (String) row.get("shipper_country2");
+            c.shipperPostcode = (String) row.get("shipper_postcode");
+            c.serviceType = (String) row.get("ups_service_type");
+
+            // 优先级 2 (向后兼容): 老 remark JSON 字段
             String remarkStr = (String) row.get("remark");
-            if (remarkStr != null && !remarkStr.isBlank()) {
+            if (remarkStr != null && !remarkStr.isBlank() && remarkStr.startsWith("{")) {
                 try {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> m = json.readValue(remarkStr, Map.class);
-                    c.serviceType = (String) m.get("service_type");
-                    c.shipperName = (String) m.get("shipper_name");
-                    c.shipperPhone = (String) m.get("shipper_phone");
-                    c.shipperAddress1 = (String) m.get("shipper_address1");
-                    c.shipperCity = (String) m.get("shipper_city");
-                    c.shipperProvince = (String) m.get("shipper_province");
-                    c.shipperCountry = (String) m.get("shipper_country");
-                    c.shipperPostcode = (String) m.get("shipper_postcode");
+                    if (c.serviceType == null) c.serviceType = (String) m.get("service_type");
+                    if (c.shipperName == null) c.shipperName = (String) m.get("shipper_name");
+                    if (c.shipperPhone == null) c.shipperPhone = (String) m.get("shipper_phone");
+                    if (c.shipperAddress1 == null) c.shipperAddress1 = (String) m.get("shipper_address1");
+                    if (c.shipperCity == null) c.shipperCity = (String) m.get("shipper_city");
+                    if (c.shipperProvince == null) c.shipperProvince = (String) m.get("shipper_province");
+                    if (c.shipperCountry == null) c.shipperCountry = (String) m.get("shipper_country");
+                    if (c.shipperPostcode == null) c.shipperPostcode = (String) m.get("shipper_postcode");
                 } catch (Exception ignored) {}
             }
             return c;
@@ -410,6 +426,14 @@ public class UpsGroundCarrierGateway implements CarrierGateway {
         if (o instanceof Number n) return n.longValue();
         if (o instanceof String s) try { return Long.parseLong(s); } catch (Exception ignored) {}
         return def;
+    }
+
+    /** 返第一个非空 string, 全空返 null. */
+    private static String nonBlank(String... opts) {
+        for (String s : opts) {
+            if (s != null && !s.isBlank()) return s;
+        }
+        return null;
     }
 
     private static String strOr(Object... opts) {

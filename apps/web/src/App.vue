@@ -742,7 +742,11 @@ interface FormField {
   required?: boolean;
   opts?: Array<{ v: number | string; l: string }>;
   ref?: string;
-  options?: Array<{ id: string; name: string }>;  // 用于 select 的 inline 选项 (不走 selectOptions)
+  // options 支持 2 种格式:
+  //   · string[] — 简单枚举值 (UPS/FEDEX/Ground/...)
+  //   · {id,name}[] — 关联对象 (老格式)
+  options?: string[] | Array<{ id: string; name: string }>;
+  placeholder?: string;
 }
 
 const showForm = ref(false);
@@ -3028,8 +3032,28 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'Code', label: '编号', type: 'text' },
     { col: 'Channel', label: '渠道', type: 'select', ref: 'channels', required: true },
     { col: 'Supplier', label: '物流商', type: 'select', ref: 'suppliers' },
+    { col: 'provider_code', label: '取号方式 (provider)', type: 'select', options: ['UPS','FEDEX','KARRIO','UPS_DEMO','FEDEX_DEMO','SANDBOX','NOOP'] },
+    { col: 'api_key', label: 'API Key (UPS Client ID)', type: 'text' },
+    { col: 'api_secret', label: 'API Secret (UPS Client Secret)', type: 'text' },
+    { col: 'account_no', label: '承运商账号 (UPS Account)', type: 'text' },
+    { col: 'endpoint_url', label: 'API Endpoint URL', type: 'text' },
     { col: 'processing_fee', label: '操作费', type: 'number' },  // R-5 操作费
     { col: 'isOpen', label: '启用', type: 'boolean' },
+    // ━━━ 托运人 (Shipper) — 提交订单时自动用这里, 不用每单填 ━━━
+    { col: 'ups_service_type', label: 'UPS 服务类型', type: 'select', options: ['Ground','Express','Air'] },
+    { col: 'export_type', label: '出口类型', type: 'select', options: ['销售','礼品','样品','退货','维修'] },
+    { col: 'return_service', label: '退货服务', type: 'select', options: ['无','PRP','RS'] },
+    { col: 'weight_unit', label: '重量单位', type: 'select', options: ['千克','盎司','磅'] },
+    { col: 'shipper_company', label: '托运人公司名称', type: 'text', placeholder: 'Fortune' },
+    { col: 'shipper_name', label: '托运人联系人', type: 'text' },
+    { col: 'shipper_phone', label: '托运人电话 (UPS 必填)', type: 'text', placeholder: '0000000000' },
+    { col: 'shipper_email', label: '托运人邮箱', type: 'text' },
+    { col: 'shipper_address1', label: '托运人地址 1', type: 'text', placeholder: '1005 Middlesex Ave' },
+    { col: 'shipper_address2', label: '托运人地址 2', type: 'text' },
+    { col: 'shipper_city', label: '托运人城市', type: 'text', placeholder: 'Port Reading' },
+    { col: 'shipper_state', label: '托运人省/州', type: 'text', placeholder: 'NJ' },
+    { col: 'shipper_country2', label: '托运人国家二字码', type: 'text', placeholder: 'US' },
+    { col: 'shipper_postcode', label: '托运人邮编', type: 'text', placeholder: '07064' },
   ],
   // R-13 费用类目 form
   'charge-items': [
@@ -8761,10 +8785,34 @@ async function doDisableCustomerLogin(row: any) {
                   <option value="">请选择</option>
                   <option v-for="opt in field.opts" :key="opt.v" :value="opt.v">{{ opt.l }}</option>
                 </select>
-                <select v-else-if="field.type === 'select' && field.ref" v-model="formData[field.col]">
+                <!-- 简单枚举 (options = string[]), 数据少直接 select; 多了用 datalist 可搜索 -->
+                <select v-else-if="field.type === 'select' && Array.isArray(field.options) && field.options.length <= 10"
+                        v-model="formData[field.col]">
                   <option value="">请选择</option>
-                  <option v-for="opt in (selectOptions[field.ref!] ?? [])" :key="opt.id" :value="opt.id">{{ opt.name }}</option>
+                  <option v-for="opt in (field.options as string[])" :key="opt" :value="opt">{{ opt }}</option>
                 </select>
+                <!-- 长选项用 datalist (input 可输入关键字过滤, 也能直接选) -->
+                <template v-else-if="field.type === 'select' && Array.isArray(field.options)">
+                  <input :list="'dl_' + field.col" v-model="formData[field.col]"
+                         :placeholder="field.placeholder || '输入关键字搜索 或 从下拉选'" />
+                  <datalist :id="'dl_' + field.col">
+                    <option v-for="opt in (field.options as string[])" :key="opt" :value="opt" />
+                  </datalist>
+                </template>
+                <!-- 关联表 ref: 用 datalist 可搜索, 数据多时关键 -->
+                <template v-else-if="field.type === 'select' && field.ref">
+                  <input :list="'dl_' + field.col"
+                         :value="(selectOptions[field.ref!] ?? []).find(o => o.id === formData[field.col])?.name || formData[field.col] || ''"
+                         @input="(e: any) => {
+                           const v = e.target.value;
+                           const hit = (selectOptions[field.ref!] ?? []).find(o => o.name === v || o.id === v);
+                           formData[field.col] = hit ? hit.id : v;
+                         }"
+                         :placeholder="'输入关键字搜索 ' + field.label" />
+                  <datalist :id="'dl_' + field.col">
+                    <option v-for="opt in (selectOptions[field.ref!] ?? [])" :key="opt.id" :value="opt.name" />
+                  </datalist>
+                </template>
                 <div v-else-if="field.type === 'boolean'" class="toggle-wrap">
                   <input type="checkbox" :id="'f_' + field.col" v-model="formData[field.col]" :true-value="1" :false-value="0" />
                   <label :for="'f_' + field.col" class="toggle-label">{{ formData[field.col] == 1 ? '是' : '否' }}</label>
