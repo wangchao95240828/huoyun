@@ -1259,26 +1259,32 @@ const accTabs = [
 
 // ACC 基础信息（对应 ACC 顶部"基础信息"菜单的 4 大子组、共 21 项）。
 // 复用 accTabs 里已有的 key，新增 4 个价格/文件 tab。
+// 基础信息 (按 ACC 截图: 信息管理 + 运费管理 + 物流商管理 3 子组)
 const accBasicTabs = [
-  // 信息管理 (8)
+  // ━━━ 信息管理 ━━━
   accTabs.find(t => t.key === "acc-branches")!,        // 分店管理
+  accTabs.find(t => t.key === "customer-groups")!,     // 分组管理
   accTabs.find(t => t.key === "districts")!,           // 地区管理
   accTabs.find(t => t.key === "postcodes")!,           // 邮编管理
   accTabs.find(t => t.key === "remotes")!,             // 偏远邮编
-  accTabs.find(t => t.key === "fee-types")!,           // 杂费类型
+  accTabs.find(t => t.key === "fee-types")!,           // 附加费类型
   accTabs.find(t => t.key === "fuels")!,               // 燃油费用
-  // 运费管理 + 仓库 (10)
-  accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号 (UPS API key 等)
-  accTabs.find(t => t.key === "shippers")!,            // ⭐ 发件人管理 (独立编辑 shipper)
   accTabs.find(t => t.key === "warehouses")!,          // ⭐ 仓库管理 (240 个 FBA 仓)
+  accTabs.find(t => t.key === "importer-templates")!,  // 进口商
+  accTabs.find(t => t.key === "ports")!,               // ⭐ 港口管理 (56 个真港口)
+  accTabs.find(t => t.key === "product-items")!,       // 品名管理
+  accTabs.find(t => t.key === "stowage-categories")!,  // 配载分类
+  accTabs.find(t => t.key === "stowage-steps")!,       // 配载流程
+  // ━━━ 运费管理 ━━━
+  accTabs.find(t => t.key === "channels")!,            // 渠道管理
+  accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号
+  accTabs.find(t => t.key === "shippers")!,            // ⭐ 发件人管理
   accTabs.find(t => t.key === "products")!,            // 销售产品
-  accTabs.find(t => t.key === "rate-lookup")!,         // 价目表查询 (XQT 22 渠道)
+  accTabs.find(t => t.key === "rate-lookup")!,         // 价目表查询
   accTabs.find(t => t.key === "zones")!,               // 价格分区
-  accTabs.find(t => t.key === "channels")!,            // 渠道类型
-  // 物流商管理 (2)（"创建物流商"用列表里的"新增"按钮，不单独占 tab）
+  // ━━━ 物流商管理 ━━━
   accTabs.find(t => t.key === "suppliers")!,           // 物流商列表
   accTabs.find(t => t.key === "supplier-adjusts")!,    // 物流商调账
-  // 物流商往来 (5)
   accTabs.find(t => t.key === "supplier-rebates")!,    // 物流商返利
   accTabs.find(t => t.key === "supplier-fines")!,      // 物流商罚款
 ];
@@ -1333,34 +1339,39 @@ const accGroupOrder = [
   T("orders-batch-track"),              // 追踪快递
 ];
 // 配载中心
+// 配载中心 (按 ACC 截图: 4 项 + 3D + 装箱单)
 const accGroupStowage = [
-  T("shipments"),
-  T("shipments-query"),                     // ACC 配载中心「快件查询」
-  T("shipments-today"),                     // ACC 配载中心「今日快件」
-  T("stowages"),
-  T("stowage-plans"),                       // 3D 配载方案 (新)
+  T("stowages"),                            // 申请配载 (= 配载管理列表)
+  T("forecasts"),                           // 空派待配货 (= 预报包裹)
   T("stowages-exception"),                  // 异常提单
-  T("packages"),
-  T("transits"),
-  T("shipments-channel-stats"),             // 渠道统计
-  T("shipments-pickup-today"),              // 今日提取
-  T("shipments-pickup-week"),               // 本周提取
-  T("shipments-intransit"),                 // 在途订单
-  T("shipments-exception"),                 // 异常订单
-  T("shipments-delivered-today"),           // 今日签收
-  T("ports"), T("stowage-categories"), T("stowage-steps"),  // warehouses 归基础信息, 这里不重复
-  T("forecasts"), T("tracks"),
+  T("stowage-plans"),                       // 配载列表 / 3D 方案
+  T("packages"),                            // 装箱单 (carton 详情)
+  // 注: 出货管理/今日快件 等挪到客服中心, 港口管理/配载分类/配载流程 挪到基础信息
 ];
-// 客服中心（收货 + 问题件 + 赔偿）
+// 客服中心 (按 ACC 截图: 快件查询 / 今日快件 / 问题件 / 赔偿管理 + 收货前置)
 const accGroupCustomerService = [
-  T("dispatches"),         // 上门揽收（收货前置）
-  T("inbound-parcels"),    // 入仓预报（收货主表，DWS 扫描的对象）
-  T("dws-scans"),          // DWS 实物分拣流水
-  T("dws-discrepancies"),  // 重量差异（DWS 实测 vs 客户预报）
+  // 快件查询 (从配载中心挪过来)
+  T("shipments"),                // 出货管理 (快件查询)
+  T("shipments-query"),          // 快件查询
+  T("detains"),                  // 扣件处理
+  T("returns"),                  // 退件处理
+  T("shipments-channel-stats"),  // 渠道统计
+  T("tracks"),                   // 快递轨迹
+  // 今日快件 (从配载挪)
+  T("shipments-today"),          // 今日快件
+  T("shipments-pickup-today"),   // 今日提取
+  T("shipments-pickup-week"),    // 本周提取
+  T("shipments-intransit"),      // 在途订单
+  T("shipments-exception"),      // 异常订单
+  T("shipments-delivered-today"),// 今日签收
+  // 收货/入仓 (新系统专有)
+  T("dispatches"),         // 上门揽收
+  T("inbound-parcels"),    // 入仓预报
+  T("dws-scans"),          // DWS 扫描流水
+  T("dws-discrepancies"),  // 重量差异
   T("collects"),           // 总单/留仓
-  T("returns"),            // 退件管理
-  T("detains"),            // 扣件管理
-  // 问题件 7 子页（ACC 客服中心）
+  T("transits"),           // 转运管理
+  // 问题件 7 子页 (ACC 截图)
   T("asks"),               // 问题件 (总)
   T("asks-customer"),      // 客户查询件
   T("asks-supplier"),      // 服务商反馈
@@ -1368,73 +1379,72 @@ const accGroupCustomerService = [
   T("asks-pending"),       // 未处理问题
   T("asks-new"),           // 发起新问题
   T("asks-history"),       // 历史问题件
-  // AI 智能客服 (主入口走右下浮动聊天窗口; 这两个是后台运维)
-  T("ai-cs-sessions"),     // 会话历史(看 bot 跟客户聊过什么)
-  T("ai-cs-kb"),           // 知识库(运维 FAQ/政策)
-  // 赔偿 4 子页
+  // 赔偿管理 4 子页 (ACC 截图)
   T("reparations"),        // 赔偿管理 (总)
   T("reparations-apply"),  // 申请赔偿
-  T("reparations-pending"),// 待审赔偿
+  T("reparations-pending"),// 待审核
   T("reparations-history"),// 历史赔偿
-  T("received-sms"),       // 收款短信（客服触发）
+  // AI 智能客服
+  T("ai-cs-sessions"),     // AI 会话历史
+  T("ai-cs-kb"),           // AI 知识库
+  T("received-sms"),       // 收款短信
 ];
 // 销售中心 (对齐 ACC 13 项 + xqt-saas 扩展)
+// 销售中心 (按 ACC 截图: 客户管理 + 客户专属业务; 应收/账单/收款 全归财务中心避免双挂 bug)
 const accGroupSales = [
-  // ACC 客户管理子组 (3): 客户管理 / 客户列表 / 创建客户(走 customers 的「+ 新增」)
-  T("customers"),
-  T("customer-groups"),
-  // ACC 客户往来子组 (7) - 跟财务中心共挂, 销售视角入口
+  // ━━━ 客户管理 ━━━
+  T("customers"),              // 客户列表
   T("customer-adjusts"),       // 客户调账
+  T("api-credentials"),        // 客户 API
+  T("customer-logins"),        // 登陆号
+  // ━━━ 客户往来 (返利/罚款 销售独有) ━━━
   T("customer-rebates"),       // 客户返利
   T("customer-fines"),         // 客户罚款
-  // 注: 应收款项目/客户账户/账单/收款 全归财务中心, 销售不重复
-  // customer-rate-strategies 下面有, 不重复
-  // ACC 客户 API + 登陆号 (对齐 ACC 销售中心)
-  T("api-credentials"),        // 客户 API (跨挂自 API 对接中心)
-  T("customer-logins"),        // 客户登陆号
-  T("customer-rate-cards"),    // 客户专价绑定 (修 P0-D1: 表存在但 UI 没暴露)
-  T("customer-rate-strategies"), // R-12 客户价格策略 (基价×佣金)
-  T("charge-items"),           // R-13 费用类目
-  T("cost-pre-estimates"),     // R-6 预估报价池
-  // xqt-saas 扩展: 销售线索/产品/渠道
-  T("potentials"),
-  T("product-items"),
+  // ━━━ 销售策略/专价 ━━━
+  T("customer-rate-cards"),    // 客户专价绑定
+  T("customer-rate-strategies"), // R-12 客户价格策略
+  T("potentials"),             // 潜在客户
+  // 注: 应收款项/客户账单/收款记录/退款记录 全归 [财务中心], 销售不重复 (避免 accTab 跨组 bug)
 ];
 // 核算中心（业务核算 - SKU 级 AR/AP/利润）
+// 核算中心 (按 ACC 截图: 运费核算 + 成本核算 + 转运成本)
 const accGroupAccounting = [
-  // 运费核算 ACC 子组
-  T("charges"),
+  // ━━━ 运费核算 ━━━
+  T("charges"),                          // 费用列表
   T("charges-history"),                  // 历史费用
   T("charges-pending"),                  // 待核费用
   T("charges-pending-return"),           // 待核退件
   T("charges-pending-reparation"),       // 待核赔偿
   T("charges-import"),                   // 导入费用
-  // 成本核算 ACC 子组
-  T("costs"),
+  T("charge-items"),                     // 费用类目 (R-13)
+  // ━━━ 成本核算 ━━━
+  T("costs"),                            // 添加成本
   T("costs-pending"),                    // 待核成本
   T("costs-estimate"),                   // 预估成本
   T("costs-recent"),                     // 近期成本
   T("costs-history"),                    // 历史成本
   T("costs-import"),                     // 导入成本
+  T("cost-pre-estimates"),               // 预估报价池 (R-6)
+  // ━━━ 转运成本 ━━━
   T("costs-transit"),                    // 转运成本
   T("costs-zhonggang"),                  // 中港成本
   T("costs-air"),                        // 航空成本
-  // 核算工作台
+  // ━━━ 核算工作台 + GL ━━━
   T("swb-cost-pending"),
   T("swb-pending-pay"),
   T("swb-paid"),
   T("swb-profit"),
   T("swb-aging"),
   T("swb-monthly"),
+  T("swb-commissions"),
   T("gl-income"),
   T("gl-balance"),
   T("gl-cash"),
   T("gl-trial"),
   T("approval-pending"),
-  T("swb-commissions"),
-  // 其余核算项
   T("profits"),
-  T("commissions"), T("commission-rules"),
+  T("commissions"),
+  T("commission-rules"),
 ];
 // 人事组织（保留，对应 ACC 部分原系统设置/数据管理范畴）
 const accGroupHR = [];
@@ -1444,8 +1454,7 @@ const accGroupSystem = [
   T("hscodes"),
   T("bank-names"),
   T("logistics-interfaces"),
-  T("importer-templates"),                  // 制单进口商预设
-  // 注: districts/postcodes/remotes/fuels/zones 全归 基础信息, 这里不重复
+  // 注: districts/postcodes/remotes/fuels/zones/importer-templates 全归 基础信息, 这里不重复
 ];
 
 // API 对接中心：客户 API 凭证 / 调用日志 / Webhook 出站 / 文档
@@ -2207,11 +2216,13 @@ Object.assign(accColumns, {
     { key: "remark", label: "备注" },
   ],
   ports: [
-    { key: "name", label: "名称" },
-    { key: "consignee", label: "收件人" },
-    { key: "company", label: "公司名称" },
-    { key: "type", label: "港口类型" },
-    { key: "remark", label: "备注" },
+    { key: "code", label: "港口代码" },
+    { key: "name", label: "中文名称" },
+    { key: "name_en", label: "英文" },
+    { key: "port_type", label: "类型" },
+    { key: "country_code", label: "国家" },
+    { key: "city", label: "城市" },
+    { key: "is_active", label: "启用", fmt: "bool" },
   ],
   warehouses: [
     { key: "code", label: "仓库代码" },
@@ -2730,17 +2741,21 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'Cost', label: '成本', type: 'number' },
     { col: 'Remark', label: '备注', type: 'textarea' },
   ],
+  // 配载表单 (按 ACC 截图: 航空提单 / 销售产品 / 配载件数 / 出发时间 / 出地港口 / 配载接口 / 备注)
   stowages: [
-    { col: 'No', label: '配载单号', type: 'text', required: true },
-    { col: 'Flight', label: '航班号', type: 'text' },
-    { col: 'DeparturePort', label: '起始港', type: 'select', ref: 'ports' },
+    { col: 'No', label: '航空提单号 (Master AWB)', type: 'text', required: true, placeholder: '例: 074-12345678' },
+    { col: 'Product', label: '销售产品 (渠道)', type: 'select', ref: 'channels', required: true },
+    { col: 'Piece', label: '配载件数', type: 'number', required: true },
+    { col: 'ETD', label: '出发时间', type: 'date', required: true },
+    { col: 'DeparturePort', label: '出地港口', type: 'select', ref: 'ports', required: true },
+    { col: 'StowageStep', label: '配载接口 (服务接口)', type: 'select', ref: 'stowage-steps' },
     { col: 'ArrivalPort', label: '目的港', type: 'select', ref: 'ports' },
+    { col: 'Flight', label: '航班号', type: 'text', placeholder: '例: CA0911' },
     { col: 'Status', label: '状态', type: 'select', opts: [{ v: 0, l: '录单中' }, { v: 1, l: '国内出发' }, { v: 2, l: '国内抵达' }, { v: 3, l: '离境出发' }, { v: 4, l: '国外抵达' }, { v: 5, l: '清关完成' }, { v: 6, l: '出口查验' }, { v: 7, l: '航班延误' }, { v: 8, l: '清关查验' }] },
-    { col: 'Piece', label: '件数', type: 'number' },
     { col: 'Weight', label: '重量(kg)', type: 'number' },
     { col: 'Volume', label: '体积(m³)', type: 'number' },
-    { col: 'ETD', label: 'ETD', type: 'date' },
-    { col: 'ETA', label: 'ETA', type: 'date' },
+    { col: 'ETA', label: 'ETA (到港时间)', type: 'date' },
+    { col: 'Remark', label: '备注', type: 'textarea' },
   ],
   packages: [
     { col: 'No', label: '单号', type: 'text', required: true },
@@ -2766,11 +2781,15 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'Remark', label: '备注', type: 'textarea' },
   ],
   ports: [
-    { col: 'Name', label: '名称', type: 'text', required: true },
-    { col: 'Consignee', label: '收件人', type: 'text' },
-    { col: 'Company', label: '公司名称', type: 'text' },
-    { col: 'Type', label: '港口类型', type: 'text' },
-    { col: 'Remark', label: '备注', type: 'textarea' },
+    { col: 'code', label: '港口代码', type: 'text', required: true, placeholder: 'USLAX / CNSZX / DEHAM' },
+    { col: 'name', label: '中文名称', type: 'text', required: true, placeholder: '洛杉矶港 / 深圳港' },
+    { col: 'name_en', label: '英文名称', type: 'text', placeholder: 'Los Angeles / Shenzhen' },
+    { col: 'port_type', label: '港口类型', type: 'select', options: ['SEA','AIR'] },
+    { col: 'country_code', label: '国家二字码', type: 'text', placeholder: 'US / CN / DE / GB' },
+    { col: 'city', label: '城市', type: 'text' },
+    { col: 'province', label: '省/州', type: 'text' },
+    { col: 'is_active', label: '启用', type: 'boolean' },
+    { col: 'remark', label: '备注', type: 'textarea' },
   ],
   warehouses: [
     { col: 'code', label: '仓库代码', type: 'text', required: true, placeholder: 'ONT8 / DTM1 / LCY1...' },
