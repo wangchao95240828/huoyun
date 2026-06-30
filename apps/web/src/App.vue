@@ -1215,6 +1215,7 @@ const accTabs = [
   { key: "suppliers", label: "物流商", icon: Truck, api: "suppliers" },
   { key: "channels", label: "渠道管理", icon: Layers, api: "channels" },
   { key: "channel-accounts", label: "渠道账号", icon: Layers, api: "channel-accounts" },
+  { key: "shippers", label: "发件人管理", icon: MapPin, api: "shippers" },
   { key: "products", label: "价格表", icon: WalletCards, api: "products" },
   { key: "product-items", label: "品名管理", icon: Hash, api: "product-items" },
   { key: "potentials", label: "潜在客户", icon: UserCheck, api: "potentials" },
@@ -1267,7 +1268,8 @@ const accBasicTabs = [
   accTabs.find(t => t.key === "fee-types")!,           // 杂费类型
   accTabs.find(t => t.key === "fuels")!,               // 燃油费用
   // 运费管理 + 仓库 (10)
-  accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号 ⭐ (含托运人 shipper 配置)
+  accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号 (UPS API key 等)
+  accTabs.find(t => t.key === "shippers")!,            // ⭐ 发件人管理 (独立编辑 shipper)
   accTabs.find(t => t.key === "warehouses")!,          // ⭐ 仓库管理 (240 个 FBA 仓)
   accTabs.find(t => t.key === "products")!,            // 销售产品
   accTabs.find(t => t.key === "rate-lookup")!,         // 价目表查询 (XQT 22 渠道)
@@ -2056,6 +2058,20 @@ Object.assign(accColumns, {
     { key: "supplierName", label: "物流商" },
     { key: "processing_fee", label: "操作费", fmt: "money" },  // R-5
     { key: "isOpen", label: "启用", fmt: "bool" },
+  ],
+  "shippers": [
+    { key: "account_no", label: "渠道账号" },
+    { key: "channel_code", label: "渠道代码" },
+    { key: "channel_name", label: "渠道名称" },
+    { key: "provider_code", label: "取号方式" },
+    { key: "shipper_company", label: "公司" },
+    { key: "shipper_phone", label: "电话" },
+    { key: "shipper_address1", label: "地址" },
+    { key: "shipper_city", label: "城市" },
+    { key: "shipper_state", label: "州/省" },
+    { key: "shipper_country2", label: "国家" },
+    { key: "shipper_postcode", label: "邮编" },
+    { key: "status", label: "配置状态" },
   ],
   products: [
     { key: "name", label: "产品名称" },
@@ -3059,6 +3075,23 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'shipper_state', label: '托运人省/州', type: 'text', placeholder: 'NJ' },
     { col: 'shipper_country2', label: '托运人国家二字码', type: 'text', placeholder: 'US' },
     { col: 'shipper_postcode', label: '托运人邮编', type: 'text', placeholder: '07064' },
+  ],
+  // 发件人独立 form — 只 shipper 字段, 不混 API key
+  'shippers': [
+    { col: 'shipper_company', label: '公司名称', type: 'text', required: true, placeholder: 'Fortune' },
+    { col: 'shipper_name', label: '联系人', type: 'text', placeholder: '同公司名' },
+    { col: 'shipper_phone', label: '电话 (UPS 必填)', type: 'text', required: true, placeholder: '0000000000' },
+    { col: 'shipper_email', label: '邮箱', type: 'text' },
+    { col: 'shipper_address1', label: '地址 1', type: 'text', required: true, placeholder: '1005 Middlesex Ave' },
+    { col: 'shipper_address2', label: '地址 2', type: 'text' },
+    { col: 'shipper_city', label: '城市', type: 'text', required: true, placeholder: 'Port Reading' },
+    { col: 'shipper_state', label: '省/州', type: 'text', required: true, placeholder: 'NJ' },
+    { col: 'shipper_country2', label: '国家二字码', type: 'text', required: true, placeholder: 'US' },
+    { col: 'shipper_postcode', label: '邮编', type: 'text', required: true, placeholder: '07064' },
+    { col: 'ups_service_type', label: 'UPS 服务类型', type: 'select', options: ['Ground','Express','Air'] },
+    { col: 'export_type', label: '出口类型', type: 'select', options: ['销售','礼品','样品','退货','维修'] },
+    { col: 'return_service', label: '退货服务', type: 'select', options: ['无','PRP','RS'] },
+    { col: 'weight_unit', label: '重量单位', type: 'select', options: ['千克','盎司','磅'] },
   ],
   // R-13 费用类目 form
   'charge-items': [
