@@ -1266,8 +1266,9 @@ const accBasicTabs = [
   accTabs.find(t => t.key === "remotes")!,             // 偏远邮编
   accTabs.find(t => t.key === "fee-types")!,           // 杂费类型
   accTabs.find(t => t.key === "fuels")!,               // 燃油费用
-  // 运费管理 (8)
-  accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号
+  // 运费管理 + 仓库 (10)
+  accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号 ⭐ (含托运人 shipper 配置)
+  accTabs.find(t => t.key === "warehouses")!,          // ⭐ 仓库管理 (240 个 FBA 仓)
   accTabs.find(t => t.key === "products")!,            // 销售产品
   accTabs.find(t => t.key === "rate-lookup")!,         // 价目表查询 (XQT 22 渠道)
   accTabs.find(t => t.key === "zones")!,               // 价格分区
