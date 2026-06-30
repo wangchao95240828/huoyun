@@ -129,8 +129,13 @@ public class AccPortsController {
         out.put("id", row.get("id"));
         out.put("code", row.get("code"));
         out.put("name", row.get("name"));
-        out.put("country", row.get("country"));
-        out.put("isActive", row.get("is_active"));
+        out.put("name_en", row.get("name_en"));
+        out.put("port_type", row.get("port_type"));
+        out.put("country_code", row.get("country_code"));
+        out.put("city", row.get("city"));
+        out.put("province", row.get("province"));
+        out.put("remark", row.get("remark"));
+        out.put("is_active", row.get("is_active"));
         out.put("auditStatus", row.get("audit_status"));
         out.put("auditedAt", json.value(row.get("audited_at")));
         out.put("auditName", row.get("audit_name"));
