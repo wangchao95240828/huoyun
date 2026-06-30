@@ -2197,14 +2197,15 @@ Object.assign(accColumns, {
     { key: "remark", label: "备注" },
   ],
   warehouses: [
+    { key: "code", label: "仓库代码" },
     { key: "name", label: "名称" },
-    { key: "code", label: "仓库编码" },
-    { key: "consignee", label: "收件人" },
-    { key: "company", label: "公司名称" },
-    { key: "country", label: "国家" },
-    { key: "province", label: "省/洲" },
+    { key: "warehouseType", label: "类型" },
+    { key: "countryCode", label: "国家" },
+    { key: "province", label: "省/州" },
+    { key: "city", label: "城市" },
+    { key: "address", label: "地址" },
     { key: "postcode", label: "邮编" },
-    { key: "type", label: "类型" },
+    { key: "status", label: "状态" },
   ],
   "fee-types": [
     { key: "name", label: "费用名称" },
@@ -2755,14 +2756,17 @@ const accFormFields: Record<string, FormField[]> = {
     { col: 'Remark', label: '备注', type: 'textarea' },
   ],
   warehouses: [
-    { col: 'Name', label: '名称', type: 'text', required: true },
-    { col: 'Code', label: '仓库编码', type: 'text' },
-    { col: 'Consignee', label: '收件人', type: 'text' },
-    { col: 'Company', label: '公司名称', type: 'text' },
-    { col: 'Country', label: '国家', type: 'select', ref: 'countries' },
-    { col: 'Province', label: '省/洲', type: 'text' },
-    { col: 'Postcode', label: '邮编', type: 'text' },
-    { col: 'Type', label: '类型', type: 'select', opts: [{ v: 0, l: '亚马逊' }, { v: 1, l: '海外仓' }] },
+    { col: 'code', label: '仓库代码', type: 'text', required: true, placeholder: 'ONT8 / DTM1 / LCY1...' },
+    { col: 'name', label: '名称', type: 'text', required: true, placeholder: 'Amazon ONT8' },
+    { col: 'warehouseType', label: '类型', type: 'select', options: ['DOMESTIC','OVERSEAS','TRANSIT','VIRTUAL'] },
+    { col: 'countryCode', label: '国家二字码', type: 'text', placeholder: 'US / GB / DE / FR...' },
+    { col: 'province', label: '省/州', type: 'text', placeholder: 'CA / NJ / NW / LDN...' },
+    { col: 'city', label: '城市', type: 'text' },
+    { col: 'address', label: '地址', type: 'text' },
+    { col: 'postcode', label: '邮编', type: 'text' },
+    { col: 'consignee', label: '收件人', type: 'text' },
+    { col: 'company', label: '公司名称', type: 'text' },
+    { col: 'status', label: '状态', type: 'select', options: ['ACTIVE','INACTIVE'] },
   ],
   charges: [
     { col: 'Express', label: '快件ID', type: 'number', required: true },
@@ -8563,18 +8567,27 @@ async function doDisableCustomerLogin(row: any) {
             <h4>收件人</h4>
             <div class="form-grid">
               <div class="form-field">
-                <label>仓库地址</label>
-                <select v-model="fullOrderData.receiver.warehouseCode" @change="applyWarehouseAddress">
-                  <option value="">请选择仓库地址</option>
-                  <option v-for="opt in (selectOptions['warehouses'] ?? [])" :key="opt.id" :value="opt.code || opt.id">{{ opt.name }}</option>
-                </select>
+                <label>仓库代码 (输入关键字搜索 200+ FBA)</label>
+                <input list="dl_warehouses_order"
+                       v-model="fullOrderData.receiver.warehouseCode"
+                       @change="applyWarehouseAddress"
+                       placeholder="ONT8 / DTM1 / LCY1 ... (US/EU/UK)" />
+                <datalist id="dl_warehouses_order">
+                  <option v-for="opt in (selectOptions['warehouses'] ?? [])" :key="opt.id"
+                          :value="(opt as any).code"
+                          :label="opt.name + ((opt as any).countryCode ? ' (' + (opt as any).countryCode + ')' : '')" />
+                </datalist>
               </div>
               <div class="form-field">
-                <label>目的地 <span class="required">*</span></label>
-                <select v-model="fullOrderData.country">
-                  <option value="">请选择</option>
-                  <option v-for="opt in (selectOptions['countries'] ?? [])" :key="opt.id" :value="opt.code || opt.name">{{ opt.name }}</option>
-                </select>
+                <label>目的地国家 <span class="required">*</span> (输入关键字搜索)</label>
+                <input list="dl_countries_order"
+                       v-model="fullOrderData.country"
+                       placeholder="US / GB / DE / FR / 美国 / 英国..." />
+                <datalist id="dl_countries_order">
+                  <option v-for="opt in (selectOptions['countries'] ?? [])" :key="opt.id"
+                          :value="opt.code"
+                          :label="opt.name" />
+                </datalist>
               </div>
               <div class="form-field"><label>邮编 <span v-if="isRemoteShown" style="color:#dc2626;font-size:11px">⚠ 偏远</span></label><input type="text" v-model="fullOrderData.receiver.areaCode" @blur="checkRemotePostcode" placeholder="输入邮编自动判偏远" /></div>
               <div class="form-field"><label>公司 <span class="required">*</span></label><input type="text" v-model="fullOrderData.receiver.company" /></div>
