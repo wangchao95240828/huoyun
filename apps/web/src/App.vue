@@ -1346,7 +1346,7 @@ const accGroupStowage = [
   T("shipments-intransit"),                 // 在途订单
   T("shipments-exception"),                 // 异常订单
   T("shipments-delivered-today"),           // 今日签收
-  T("ports"), T("warehouses"), T("stowage-categories"), T("stowage-steps"),
+  T("ports"), T("stowage-categories"), T("stowage-steps"),  // warehouses 归基础信息, 这里不重复
   T("forecasts"), T("tracks"),
 ];
 // 客服中心（收货 + 问题件 + 赔偿）
