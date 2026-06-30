@@ -53,11 +53,12 @@ public class AccPortsController {
                 "SELECT count(*) FROM stowage_ports WHERE ?::text IS NULL OR (code ILIKE ? OR name ILIKE ?)",
                 Long.class, search, search, search)) instanceof Number n ? n.longValue() : 0;
             List<Map<String, Object>> rows = jdbc.queryForList("""
-                SELECT id::text AS id, code, name, country, is_active,
+                SELECT id::text AS id, code, name, name_en, port_type,
+                       country_code, city, province, remark, is_active,
                        audit_status, audited_at, audit_name, created_at
                 FROM stowage_ports
                 WHERE ?::text IS NULL OR (code ILIKE ? OR name ILIKE ?)
-                ORDER BY code
+                ORDER BY country_code NULLS LAST, port_type, code
                 LIMIT ? OFFSET ?
                 """, search, search, search, limit, offset);
             return AccPaging.result(rows.stream().map(this::project).toList(), total);
