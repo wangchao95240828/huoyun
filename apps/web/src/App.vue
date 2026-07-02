@@ -1085,6 +1085,9 @@ async function loadSystemData() {
   finally { sysLoading.value = false; }
 }
 
+// 子组分割标题 helper — 菜单渲染时识别 __section 字段, 视觉分割不同业务子组
+const S = (title: string): any => ({ __section: title });
+
 const accTabs = [
   // 订单管理（对应 ACC 制单中心左侧 4 个状态分类）
   // 注：orders.status 枚举不含 VOID，作废 == CANCELLED
@@ -1259,9 +1262,9 @@ const accTabs = [
 
 // ACC 基础信息（对应 ACC 顶部"基础信息"菜单的 4 大子组、共 21 项）。
 // 复用 accTabs 里已有的 key，新增 4 个价格/文件 tab。
-// 基础信息 (按 ACC 截图: 信息管理 + 运费管理 + 物流商管理 3 子组)
+// 基础信息 (按 ACC: 信息管理 + 运费管理 + 物流商管理 3 子组)
 const accBasicTabs = [
-  // ━━━ 信息管理 ━━━
+  S("信息管理"),
   accTabs.find(t => t.key === "acc-branches")!,        // 分店管理
   accTabs.find(t => t.key === "customer-groups")!,     // 分组管理
   accTabs.find(t => t.key === "districts")!,           // 地区管理
@@ -1269,20 +1272,20 @@ const accBasicTabs = [
   accTabs.find(t => t.key === "remotes")!,             // 偏远邮编
   accTabs.find(t => t.key === "fee-types")!,           // 附加费类型
   accTabs.find(t => t.key === "fuels")!,               // 燃油费用
-  accTabs.find(t => t.key === "warehouses")!,          // ⭐ 仓库管理 (240 个 FBA 仓)
+  accTabs.find(t => t.key === "warehouses")!,          // ⭐ 仓库管理
   accTabs.find(t => t.key === "importer-templates")!,  // 进口商
-  accTabs.find(t => t.key === "ports")!,               // ⭐ 港口管理 (56 个真港口)
+  accTabs.find(t => t.key === "ports")!,               // ⭐ 港口管理
   accTabs.find(t => t.key === "product-items")!,       // 品名管理
   accTabs.find(t => t.key === "stowage-categories")!,  // 配载分类
   accTabs.find(t => t.key === "stowage-steps")!,       // 配载流程
-  // ━━━ 运费管理 ━━━
+  S("运费管理"),
   accTabs.find(t => t.key === "channels")!,            // 渠道管理
   accTabs.find(t => t.key === "channel-accounts")!,    // 渠道账号
   accTabs.find(t => t.key === "shippers")!,            // ⭐ 发件人管理
   accTabs.find(t => t.key === "products")!,            // 销售产品
   accTabs.find(t => t.key === "rate-lookup")!,         // 价目表查询
   accTabs.find(t => t.key === "zones")!,               // 价格分区
-  // ━━━ 物流商管理 ━━━
+  S("物流商管理"),
   accTabs.find(t => t.key === "suppliers")!,           // 物流商列表
   accTabs.find(t => t.key === "supplier-adjusts")!,    // 物流商调账
   accTabs.find(t => t.key === "supplier-rebates")!,    // 物流商返利
@@ -1290,48 +1293,50 @@ const accBasicTabs = [
 ];
 
 // ACC 财务中心（对应 ACC 顶部"财务中心"菜单的 4 大子组、共 20 项）
+// 财务中心 (按 ACC: 资金账户 + 应收 + 账单 + 应付 + 利润列表)
 const accFinanceTabs = [
-  // 资金账户 (5)
-  accTabs.find(t => t.key === "banks")!,                  // 账户管理
-  accTabs.find(t => t.key === "transfers")!,              // 资金转账
-  accTabs.find(t => t.key === "account-transactions")!,   // 往来账户
-  accTabs.find(t => t.key === "currencies")!,             // 币种管理
-  // 应收 (7)
-  accTabs.find(t => t.key === "customer-receivables")!,   // ⭐ 应收款项目 (按客户聚合欠款)
-  accTabs.find(t => t.key === "customer-accounts")!,      // ⭐ 客户账户 (临时额度) — 财务设额度
-  accTabs.find(t => t.key === "ar-vs-received")!,         // R-Sprint1 新: 应收 vs 实收 对比
-  accTabs.find(t => t.key === "receiveds")!,              // 收款记录
-  accTabs.find(t => t.key === "receiveds-pending")!,      // 待审收款
-  accTabs.find(t => t.key === "customer-refunds")!,       // 退款记录
-  accTabs.find(t => t.key === "customer-refunds-pending")!, // 待审退款
-  // 账单 + 账期
-  accTabs.find(t => t.key === "bills")!,                  // 客户账单
-  accTabs.find(t => t.key === "fwb-prepay")!,             // 预扣明细
-  accTabs.find(t => t.key === "fwb-pending")!,            // 待财务审核
-  accTabs.find(t => t.key === "fwb-invoiced")!,           // 已出账
-  accTabs.find(t => t.key === "fwb-needs-verify")!,       // 待二审账单
-  // 应付 (6)
-  accTabs.find(t => t.key === "carrier-invoice-recon")!,  // R-4: 渠道账单对比
-  accTabs.find(t => t.key === "payments")!,               // 付款记录
-  accTabs.find(t => t.key === "payments-pending")!,       // 待审付款
-  accTabs.find(t => t.key === "supplier-refunds")!,       // 退款记录
-  accTabs.find(t => t.key === "supplier-refunds-pending")!, // 待审退款
-  // 利润列表 (5)
-  accTabs.find(t => t.key === "profits-unfinished")!,     // 未完结快件
-  accTabs.find(t => t.key === "profits-overdue")!,        // 逾期未结
-  accTabs.find(t => t.key === "profits-lowprofit")!,      // 低利快件
+  S("资金账户"),
+  accTabs.find(t => t.key === "banks")!,
+  accTabs.find(t => t.key === "transfers")!,
+  accTabs.find(t => t.key === "account-transactions")!,
+  accTabs.find(t => t.key === "currencies")!,
+  S("应收"),
+  accTabs.find(t => t.key === "customer-receivables")!,   // ⭐ 应收款项目
+  accTabs.find(t => t.key === "customer-accounts")!,      // ⭐ 客户账户 (临时额度)
+  accTabs.find(t => t.key === "ar-vs-received")!,         // 应收 vs 实收 对比
+  accTabs.find(t => t.key === "receiveds")!,
+  accTabs.find(t => t.key === "receiveds-pending")!,
+  accTabs.find(t => t.key === "customer-refunds")!,
+  accTabs.find(t => t.key === "customer-refunds-pending")!,
+  S("账单"),
+  accTabs.find(t => t.key === "bills")!,
+  accTabs.find(t => t.key === "fwb-prepay")!,
+  accTabs.find(t => t.key === "fwb-pending")!,
+  accTabs.find(t => t.key === "fwb-invoiced")!,
+  accTabs.find(t => t.key === "fwb-needs-verify")!,
+  S("应付"),
+  accTabs.find(t => t.key === "carrier-invoice-recon")!,  // R-4 渠道账单对比
+  accTabs.find(t => t.key === "payments")!,
+  accTabs.find(t => t.key === "payments-pending")!,
+  accTabs.find(t => t.key === "supplier-refunds")!,
+  accTabs.find(t => t.key === "supplier-refunds-pending")!,
+  S("利润列表"),
+  accTabs.find(t => t.key === "profits-unfinished")!,
+  accTabs.find(t => t.key === "profits-overdue")!,
+  accTabs.find(t => t.key === "profits-lowprofit")!,
 ];
 
 // ACC 二级菜单：对齐 ACC PHP 原版的 9 大顶部菜单（系统设置/数据管理合并）
 const T = (k: string) => accTabs.find(t => t.key === k)!;
 
-// 制单中心
+// 制单中心 (ACC: 在线制单 + 批量操作)
 const accGroupOrder = [
+  S("在线制单"),
   T("orders"), T("orders-draft"), T("orders-history"), T("orders-cancelled"), T("orders-void"),
   T("quick-orders"),
   T("orders-queue"),                    // 制单队列
   T("orders-batch-print"),              // 批量打印
-  // 批量操作子组：5 个独立批量页面（ACC ExpressBatch.php）
+  S("批量操作"),
   T("orders-update-tracking"),          // 更新转单号
   T("orders-update-weight"),            // 更新计费重
   T("orders-change-customer"),          // 变更客户
@@ -1348,30 +1353,30 @@ const accGroupStowage = [
   T("packages"),                            // 装箱单 (carton 详情)
   // 注: 出货管理/今日快件 等挪到客服中心, 港口管理/配载分类/配载流程 挪到基础信息
 ];
-// 客服中心 (按 ACC 截图: 快件查询 / 今日快件 / 问题件 / 赔偿管理 + 收货前置)
+// 客服中心 (按 ACC: 快件查询 / 今日快件 / 问题件 / 赔偿管理 + 收货前置)
 const accGroupCustomerService = [
-  // 快件查询 (从配载中心挪过来)
-  T("shipments"),                // 出货管理 (快件查询)
+  S("快件查询"),
+  T("shipments"),                // 出货管理
   T("shipments-query"),          // 快件查询
   T("detains"),                  // 扣件处理
   T("returns"),                  // 退件处理
   T("shipments-channel-stats"),  // 渠道统计
   T("tracks"),                   // 快递轨迹
-  // 今日快件 (从配载挪)
-  T("shipments-today"),          // 今日快件
+  S("今日快件"),
+  T("shipments-today"),
   T("shipments-pickup-today"),   // 今日提取
   T("shipments-pickup-week"),    // 本周提取
   T("shipments-intransit"),      // 在途订单
   T("shipments-exception"),      // 异常订单
   T("shipments-delivered-today"),// 今日签收
-  // 收货/入仓 (新系统专有)
+  S("收货入仓"),
   T("dispatches"),         // 上门揽收
   T("inbound-parcels"),    // 入仓预报
   T("dws-scans"),          // DWS 扫描流水
   T("dws-discrepancies"),  // 重量差异
   T("collects"),           // 总单/留仓
   T("transits"),           // 转运管理
-  // 问题件 7 子页 (ACC 截图)
+  S("问 题 件"),
   T("asks"),               // 问题件 (总)
   T("asks-customer"),      // 客户查询件
   T("asks-supplier"),      // 服务商反馈
@@ -1379,37 +1384,37 @@ const accGroupCustomerService = [
   T("asks-pending"),       // 未处理问题
   T("asks-new"),           // 发起新问题
   T("asks-history"),       // 历史问题件
-  // 赔偿管理 4 子页 (ACC 截图)
+  S("赔偿管理"),
   T("reparations"),        // 赔偿管理 (总)
   T("reparations-apply"),  // 申请赔偿
   T("reparations-pending"),// 待审核
   T("reparations-history"),// 历史赔偿
-  // AI 智能客服
+  S("AI 智能客服"),
   T("ai-cs-sessions"),     // AI 会话历史
   T("ai-cs-kb"),           // AI 知识库
   T("received-sms"),       // 收款短信
 ];
 // 销售中心 (对齐 ACC 13 项 + xqt-saas 扩展)
-// 销售中心 (按 ACC 截图: 客户管理 + 客户专属业务; 应收/账单/收款 全归财务中心避免双挂 bug)
+// 销售中心 (按 ACC: 客户管理 + 客户往来 + 销售策略)
 const accGroupSales = [
-  // ━━━ 客户管理 ━━━
+  S("客户管理"),
   T("customers"),              // 客户列表
   T("customer-adjusts"),       // 客户调账
   T("api-credentials"),        // 客户 API
   T("customer-logins"),        // 登陆号
-  // ━━━ 客户往来 (返利/罚款 销售独有) ━━━
+  S("客户往来"),
   T("customer-rebates"),       // 客户返利
   T("customer-fines"),         // 客户罚款
-  // ━━━ 销售策略/专价 ━━━
+  S("销售策略"),
   T("customer-rate-cards"),    // 客户专价绑定
   T("customer-rate-strategies"), // R-12 客户价格策略
   T("potentials"),             // 潜在客户
   // 注: 应收款项/客户账单/收款记录/退款记录 全归 [财务中心], 销售不重复 (避免 accTab 跨组 bug)
 ];
 // 核算中心（业务核算 - SKU 级 AR/AP/利润）
-// 核算中心 (按 ACC 截图: 运费核算 + 成本核算 + 转运成本)
+// 核算中心 (按 ACC: 运费核算 + 成本核算 + 转运成本 + 工作台 + GL)
 const accGroupAccounting = [
-  // ━━━ 运费核算 ━━━
+  S("运费核算"),
   T("charges"),                          // 费用列表
   T("charges-history"),                  // 历史费用
   T("charges-pending"),                  // 待核费用
@@ -1417,7 +1422,7 @@ const accGroupAccounting = [
   T("charges-pending-reparation"),       // 待核赔偿
   T("charges-import"),                   // 导入费用
   T("charge-items"),                     // 费用类目 (R-13)
-  // ━━━ 成本核算 ━━━
+  S("成本核算"),
   T("costs"),                            // 添加成本
   T("costs-pending"),                    // 待核成本
   T("costs-estimate"),                   // 预估成本
@@ -1425,11 +1430,11 @@ const accGroupAccounting = [
   T("costs-history"),                    // 历史成本
   T("costs-import"),                     // 导入成本
   T("cost-pre-estimates"),               // 预估报价池 (R-6)
-  // ━━━ 转运成本 ━━━
+  S("转运成本"),
   T("costs-transit"),                    // 转运成本
   T("costs-zhonggang"),                  // 中港成本
   T("costs-air"),                        // 航空成本
-  // ━━━ 核算工作台 + GL ━━━
+  S("核算工作台"),
   T("swb-cost-pending"),
   T("swb-pending-pay"),
   T("swb-paid"),
@@ -1437,11 +1442,13 @@ const accGroupAccounting = [
   T("swb-aging"),
   T("swb-monthly"),
   T("swb-commissions"),
+  T("approval-pending"),
+  S("总账 GL"),
   T("gl-income"),
   T("gl-balance"),
   T("gl-cash"),
   T("gl-trial"),
-  T("approval-pending"),
+  S("利润 & 提成"),
   T("profits"),
   T("commissions"),
   T("commission-rules"),
@@ -6974,15 +6981,20 @@ async function doDisableCustomerLogin(row: any) {
             <ChevronRight v-else :size="14" class="group-chevron" />
           </button>
           <div class="group-items" v-show="expandedAccGroup === g.key">
-            <button
-              v-for="tab in g.tabs"
-              :key="tab.key"
-              :class="{ active: accTab === tab.key }"
-              @click="selectAccTab(tab.key)"
-            >
-              <component :is="tab.icon" :size="14" />
-              <span>{{ tab.label }}</span>
-            </button>
+            <template v-for="(tab, idx) in g.tabs" :key="tab.key || '__sec_' + idx">
+              <!-- 子组分割 (tab.__section = 标题字符串) -->
+              <div v-if="(tab as any).__section"
+                   style="padding:6px 12px 3px 12px; font-size:11px; color:#94a3b8; font-weight:600; letter-spacing:0.5px; border-top:1px solid #e2e8f0; margin-top:4px; text-transform:uppercase">
+                {{ (tab as any).__section }}
+              </div>
+              <button v-else
+                :class="{ active: accTab === tab.key }"
+                @click="selectAccTab(tab.key)"
+              >
+                <component :is="tab.icon" :size="14" />
+                <span>{{ tab.label }}</span>
+              </button>
+            </template>
           </div>
         </div>
       </nav>
